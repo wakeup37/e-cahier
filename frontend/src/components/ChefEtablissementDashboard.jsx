@@ -1,940 +1,904 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import API from '../../api.js'; // Importation du client API configuré sur le port 5002
 
 export default function ChefEtablissementDashboard() {
-  // Étape du parcours : 'inscription', 'selection_etab', 'dashboard'
-  const [etapeParcours, setEtapeParcours] = useState('inscription');
-  const [ongletActif, setOngletActif] = useState('accueil');
-  const [notification, setNotification] = useState('');
+  
+  // --- ÉTAPE DE SÉLECTION INITIALE (CRÉER OU SE CONNECTER À UN ÉTABLISSEMENT) ---
+  const [ecoleConfig, setEcoleConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('app_chef_ecole_config');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
-  // Gestion des menus déroulants
-  const [menuNavigationOuvert, setMenuNavigationOuvert] = useState(false);
-  const [menuProfilOuvert, setMenuProfilOuvert] = useState(false);
+  const [modeSetup, setModeSetup] = useState('CHOIX'); 
+  const [inputNomEcole, setInputNomEcole] = useState('');
+  const [inputAnneeScolaire, setInputAnneeScolaire] = useState('2025-2026');
+
+  // --- PROFIL DU CHEF D'ÉTABLISSEMENT & SESSION (AVEC BLINDAGE) ---
+  const [infosChef, setInfosChef] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_chef_profil'));
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+    } catch {}
+    return {
+      civilite: 'M.',
+      nom: 'Koffi',
+      prenoms: 'Bernard',
+      etablissement: '',
+      role: 'Chef d’Établissement (Proviseur)',
+      photoProfil: ''
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_chef_profil', JSON.stringify(infosChef));
+    } catch {}
+  }, [infosChef]);
+
+  const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
+  const [formProfilChef, setFormProfilChef] = useState({ ...(infosChef || {}) });
+  const [profilChefOuvert, setProfilChefOuvert] = useState(false);
+  const profilChefRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      if (ecoleConfig) {
+        localStorage.setItem('app_chef_ecole_config', JSON.stringify(ecoleConfig));
+      }
+    } catch {}
+  }, [ecoleConfig]);
+
+  const [modalConfirmationTerminer, setModalConfirmationTerminer] = useState(false);
+  const [modalConfirmationQuitter, setModalConfirmationQuitter] = useState(false);
+
+  // --- CENSEURS EN ATTENTE OU VALIDÉS ---
+  const [censeursAffiliations, setCenseursAffiliations] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_chef_censeurs_affiliations'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [
+      { id: 1, nomComplet: 'M. Touré Alpha', email: 'toure.alpha@ecole.ci', telephone: '0102030405', matricule: 'MENA-789456', niveauCharge: '6ème', statut: 'En attente' }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_chef_censeurs_affiliations', JSON.stringify(censeursAffiliations));
+    } catch {}
+  }, [censeursAffiliations]);
+
+  // --- PROPOSITIONS D'AFFILIATION DU CHEF VERS LE CENSEUR (AVEC INFOS COMPLÈTES) ---
+  const [propositionsEnvoyees, setPropositionsEnvoyees] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_propositions_entrantes'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_censeur_propositions_entrantes', JSON.stringify(propositionsEnvoyees));
+    } catch {}
+  }, [propositionsEnvoyees]);
+
+  // Modale de proposition enrichie
+  const [modalProposition, setModalProposition] = useState({
+    ouvert: false,
+    civilite: 'M.',
+    nom: '',
+    prenoms: '',
+    dateNaissance: '',
+    telephone: '',
+    email: '',
+    matricule: '',
+    niveauCharge: ''
+  });
+
+  // --- MODALE DE RETRAIT D'UN CENSEUR VALIDÉ ---
+  const [modalRetraitCenseur, setModalRetraitCenseur] = useState({
+    ouvert: false,
+    censeurId: null,
+    censeurNom: ''
+  });
+
+  // --- RAPPORTS ET NOTIFICATIONS ---
+  const [rapportsCenseurs, setRapportsCenseurs] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_chef_rapports_censeurs'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [];
+  });
+
+  const [notificationsChef, setNotificationsChef] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_chef_notifications'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [
+      { id: 1, texte: 'Bienvenue sur votre tableau de bord du réseau de l’établissement.', date: 'Aujourd’hui', lu: false }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_chef_notifications', JSON.stringify(notificationsChef));
+    } catch {}
+  }, [notificationsChef]);
+
+  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
+  const notifChefRef = useRef(null);
+
+  // --- DONNÉES RÉCUPÉRÉES DEPUIS LE BACKEND API ---
+  const [apiEtablissements, setApiEtablissements] = useState([]);
+
+  useEffect(() => {
+    const fetchApiEtablissements = async () => {
+      try {
+        const response = await API.get('/etablissements');
+        // 🛠️ CORRECTION : Le backend renvoie directement un tableau d'établissements
+        if (response.data && Array.isArray(response.data)) {
+          setApiEtablissements(response.data);
+        }
+      } catch (err) {
+        console.error("Erreur API :", err);
+      }
+    };
+    fetchApiEtablissements();
+  }, []);
+
+  const [activeTab, setActiveTab] = useState('censeurs');
+  const [message, setMessage] = useState('');
+  
+  const [filtreArchiveEnseignant, setFiltreArchiveEnseignant] = useState('TOUS');
+  const [filtreArchiveClasse, setFiltreArchiveClasse] = useState('TOUTES');
+
+  const [archiveEcole, setArchiveEcole] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('app_censeur_archive_ecole'));
+      if (Array.isArray(stored)) return stored;
+    } catch {}
+    return [];
+  });
+
+  const showToast = (msg) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(''), 4000);
+  };
+
+  useEffect(() => {
+    const handleStorageUpdate = () => {
+      try {
+        const saved = localStorage.getItem('app_chef_rapports_censeurs');
+        const rapports = saved ? JSON.parse(saved) : [];
+        if (Array.isArray(rapports) && rapports.length > (rapportsCenseurs || []).length) {
+          const dernierRapport = rapports[rapports.length - 1];
+          const nouvelleNotif = {
+            id: Date.now(),
+            texte: `📥 Nouveau rapport de synthèse transmis par le censeur ${dernierRapport?.censeur || 'Inconnu'}`,
+            date: new Date().toLocaleDateString(),
+            lu: false
+          };
+          setNotificationsChef(prev => [nouvelleNotif, ...(prev || [])]);
+        }
+        if (Array.isArray(rapports)) setRapportsCenseurs(rapports);
+      } catch {}
+    };
+    window.addEventListener('storage', handleStorageUpdate);
+    return () => window.removeEventListener('storage', handleStorageUpdate);
+  }, [rapportsCenseurs]);
+
+  const statistiquesReseau = useMemo(() => {
+    let classesCount = 1;
+    try {
+      const programmes = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes'));
+      if (programmes && typeof programmes === 'object') {
+        classesCount = Object.keys(programmes).length || 1;
+      }
+    } catch {}
+
+    const censeursValidesCount = Array.isArray(censeursAffiliations) ? censeursAffiliations.filter(c => c && c.statut === 'Validé').length + 1 : 1;
+    let enseignantsCount = 1;
+    try {
+      const affs = JSON.parse(localStorage.getItem('app_enseignant_affiliations'));
+      if (Array.isArray(affs)) {
+        enseignantsCount = affs.filter(a => a && a.statut === 'Validée').length || 1;
+      }
+    } catch {}
+
+    return {
+      totalClasses: classesCount,
+      totalPersonnesConnectees: censeursValidesCount + enseignantsCount
+    };
+  }, [censeursAffiliations]);
+
+  const [menuOuvert, setMenuOuvert] = useState(false);
   const menuRef = useRef(null);
-  const profilRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuNavigationOuvert(false);
-      if (profilRef.current && !profilRef.current.contains(event.target)) setMenuProfilOuvert(false);
+      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOuvert(false);
+      if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
+      if (notifChefRef.current && !notifChefRef.current.contains(event.target)) setNotifChefOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Formulaire d'inscription initial (Civilités + Matière de prédilection + Statut)
-  const [formInscription, setFormInscription] = useState({
-    civilite: 'M.',
-    nom: 'Diaby',
-    prenoms: 'Oumar',
-    titre: 'Chef d\'Établissement / Proviseur',
-    dateNaissance: '1978-09-20',
-    telephone: '+225 0700000000',
-    ville: 'Abidjan',
-    email: 'direction@ashport.edu',
-    anciennete: 'Plus de 10 ans',
-    matierePredilection: 'Histoire-Géographie', // Discipline d'origine pour les statistiques
-    secteurEnseignement: 'Public', // 'Public' ou 'Privé'
-    typeStatutPublic: 'Titulaire', // 'Titulaire', 'En attente d’un matricule', 'Contractuel'
-    numeroMatricule: 'MT-112233',
-    motDePasse: ''
-  });
-
-  // Profil du Chef d'établissement après inscription
-  const [infosDirection, setInfosDirection] = useState({
-    ...formInscription,
-    photoProfil: ''
-  });
-
-  const [modalProfilActif, setModalProfilActif] = useState(false);
-  const [formProfil, setFormProfil] = useState({ ...infosDirection });
-
-  // --- BASE DES ÉTABLISSEMENTS EXISTANTS (ENTITÉS) ---
-  const [etablissementsExistants, setEtablissementsExistants] = useState([
-    { id: 1, nom: 'Ashport', ville: 'Abidjan', commune: 'Cocody', type: 'Lycée', statut: 'Privé', code: 'ASH-2026', chefActuel: 'M. Diaby Oumar', forfaitActif: 'Forfait Standard (Jusqu’à 20 classes)', limiteClassesMax: 20, classesActuellementCreees: 14 },
-    { id: 2, nom: 'Lycée Moderne de Yopougon', ville: 'Abidjan', commune: 'Yopougon', type: 'Lycée', statut: 'Public', code: 'LMY-2026', chefActuel: 'Mme Koné', forfaitActif: 'Forfait Grand Complexe (Jusqu’à 50 classes)', limiteClassesMax: 50, classesActuellementCreees: 30 }
-  ]);
-
-  // État de rattachement actuel du Chef d'établissement à une entité école
-  const [monEtablissement, setMonEtablissement] = useState(null);
-
-  // 'menu_choix' (par défaut), 'creation', ou 'rattachement'
-  const [etapeSelection, setEtapeSelection] = useState('menu_choix'); 
-  const [rechercheFiltre, setRechercheFiltre] = useState('');
-
-  // Formulaire de création d'un nouvel établissement
-  const [formEtab, setFormEtab] = useState({
-    nom: '',
-    ville: infosDirection.ville,
-    commune: '',
-    type: 'Lycée',
-    statut: 'Privé',
-    nombreClasses: 20,
-    code: 'ETAB-' + Math.floor(1000 + Math.random() * 9000)
-  });
-
-  const [modalEtablissementActif, setModalEtablissementActif] = useState(false);
-  const [formEtablissement, setFormEtablissement] = useState({
-    nomEtablissement: '',
-    ville: infosDirection.ville,
-    forfaitActif: 'Forfait Standard (Jusqu’à 20 classes)',
-    limiteClassesMax: 20,
-    classesActuellementCreees: 0
-  });
-
-  // --- GESTION DE L'ANNÉE SCOLAIRE & ARCHIVES ---
-  const [anneeScolaireActive, setAnneeScolaireActive] = useState('2025-2026');
-  const [activiteAutorisee, setActiviteAutorisee] = useState(true);
-  const [archivesAnnuelles, setArchivesAnnuelles] = useState([
-    { annee: '2024-2025', totalFiches: 1280, enseignantsTotal: 45, statut: 'Clôturée & Archivée' }
-  ]);
-  const [modalClotureActif, setModalClotureActif] = useState(false);
-  const [nouvelleAnneeSaisie, setNouvelleAnneeSaisie] = useState('2027-2028');
-
-  // Personnel & Affiliations
-  const [personnel, setPersonnel] = useState([
-    { id: 1, nom: 'M. Koné Bernard', role: 'Censeur', email: 'bernard.kone@ecole.edu', statut: 'Actif' },
-    { id: 2, nom: 'Mme Touré Aminata', role: 'Enseignant (Mathématiques)', email: 'aminata.toure@ecole.edu', statut: 'Actif' }
-  ]);
-
-  const [demandesAffiliation, setDemandesAffiliation] = useState([
-    { id: 101, nom: 'M. Bamba Ali', role: 'Censeur', email: 'ali.bamba@email.com', date: '02/08/2026', message: 'Suite à ma mutation, demande de rattachement à l\'établissement.' }
-  ]);
-
-  // Communications et Annonces
-  const [annonces, setAnnonces] = useState([
-    { id: 1, date: '01/08/2026', titre: 'Conseil de rentrée', contenu: 'Réunion générale du corps professoral prévue le 15 août en salle des professeurs.', destinataire: 'Tout le personnel' }
-  ]);
-
-  const [modalAnnonceActif, setModalAnnonceActif] = useState(false);
-  const [formAnnonce, setFormAnnonce] = useState({ titre: '', contenu: '', destinataire: 'Tout le personnel' });
-
-  const afficherNotification = (texte) => {
-    setNotification(texte);
-    setTimeout(() => setNotification(''), 5000);
-  };
-
-  const handleValidationInscription = (e) => {
+  const handleCreerOuConnecterEcole = async (e, type) => {
     e.preventDefault();
-    if (formInscription.secteurEnseignement === 'Public' && formInscription.typeStatutPublic === 'Titulaire' && !formInscription.numeroMatricule.trim()) {
-      afficherNotification("❌ Veuillez renseigner votre numéro matricule.");
+    if (!inputNomEcole.trim()) {
+      showToast("⚠️ Veuillez entrer un nom d'établissement valide.");
       return;
     }
-    setInfosDirection(prev => ({ ...prev, ...formInscription }));
-    setEtapeParcours('selection_etab');
-    afficherNotification("✅ Compte créé avec succès ! Veuillez maintenant configurer ou rattacher votre établissement.");
-  };
-
-  const enregistrerProfil = (e) => {
-    e.preventDefault();
-    setInfosDirection(formProfil);
-    setModalProfilActif(false);
-    afficherNotification("Les modifications de votre profil ont été enregistrées avec succès.");
-  };
-
-  const chargerPhoto = (e) => {
-    const fichier = e.target.files[0];
-    if (fichier) {
-      const lecteur = new FileReader();
-      lecteur.onloadend = () => setFormProfil(prev => ({ ...prev, photoProfil: lecteur.result }));
-      lecteur.readAsDataURL(fichier);
+    const nouvelleConfig = { nomEcole: inputNomEcole.trim(), anneeScolaire: inputAnneeScolaire.trim() || '2025-2026', anneeOuverte: true };
+    setEcoleConfig(nouvelleConfig);
+    setInfosChef(prev => ({ ...prev, etablissement: nouvelleConfig.nomEcole }));
+    
+    try { 
+      // 🚀 Envoi direct vers ton backend Node.js / Supabase
+      await API.post('/etablissements', { 
+        nom: nouvelleConfig.nomEcole, 
+        annee_scolaire_active: nouvelleConfig.anneeScolaire 
+      }); 
+    } catch (err) {
+      console.error("Erreur lors de l'enregistrement de l'établissement en base :", err);
     }
+
+    showToast(type === 'CREER' ? "🏫 Établissement créé avec succès !" : "🔗 Connecté à l'établissement avec succès !");
   };
 
-  const soumettreCreationEtablissement = (e) => {
-    e.preventDefault();
-    const nomSaisi = formEtab.nom.trim().toLowerCase();
-    const villeSaisie = formEtab.ville.trim().toLowerCase();
+  const confirmerQuitterEcole = () => {
+    localStorage.removeItem('app_chef_ecole_config');
+    setEcoleConfig(null);
+    setModalConfirmationQuitter(false);
+    showToast("🔄 Vous avez quitté l'établissement.");
+  };
 
-    const conflit = etablissementsExistants.find(
-      etab => etab.nom.toLowerCase() === nomSaisi && etab.ville.toLowerCase() === villeSaisie
+  const handleEnregistrerProfilChef = (e) => {
+    e.preventDefault();
+    setInfosChef({ ...formProfilChef });
+    setModalProfilChefOuvert(false);
+    showToast("✅ Profil et photo mis à jour avec succès !");
+  };
+
+  const handleChangerPhotoProfilChef = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setFormProfilChef(prev => ({ ...prev, photoProfil: reader.result }));
+    reader.readAsDataURL(file);
+  };
+
+  const ouvrirAnneeScolaire = () => {
+    setEcoleConfig(prev => ({ ...prev, anneeOuverte: true }));
+    showToast("🚀 Année scolaire ouverte et démarrée avec succès !");
+  };
+
+  const confirmerTerminerAnnee = () => {
+    setEcoleConfig(prev => ({ ...prev, anneeOuverte: false }));
+    setModalConfirmationTerminer(false);
+    showToast("🔒 Année scolaire terminée avec succès.");
+  };
+
+  const validerCenseur = (id) => {
+    setCenseursAffiliations(prev => (prev || []).map(c => c.id === id ? { ...c, statut: 'Validé' } : c));
+    showToast("✅ Compte censeur validé avec succès sur le réseau !");
+  };
+
+  const rejeterCenseur = (id) => {
+    setCenseursAffiliations(prev => (prev || []).filter(c => c.id !== id));
+    showToast("❌ Demande de censeur rejetée.");
+  };
+
+  const confirmerRetraitCenseur = () => {
+    setCenseursAffiliations(prev => (prev || []).filter(c => c.id !== modalRetraitCenseur.censeurId));
+    setModalRetraitCenseur({ ouvert: false, censeurId: null, censeurNom: '' });
+    showToast(`❌ Affiliation de ${modalRetraitCenseur.censeurNom} retirée avec succès.`);
+  };
+
+  // --- ENVOI DE LA PROPOSITION ENRICHIE ---
+  const envoyerPropositionCenseur = (e) => {
+    e.preventDefault();
+    if (!modalProposition.nom.trim() || !modalProposition.matricule.trim() || !modalProposition.email.trim()) {
+      showToast("⚠️ Le nom, l'email et le matricule sont obligatoires.");
+      return;
+    }
+
+    const nouvelleProp = {
+      id: Date.now() + Math.random(),
+      ecole: ecoleConfig?.nomEcole || infosChef?.etablissement || 'Établissement inconnu',
+      censeurCible: `${modalProposition.civilite} ${modalProposition.nom} ${modalProposition.prenoms}`.trim(),
+      matricule: modalProposition.matricule.trim(),
+      dateNaissance: modalProposition.dateNaissance,
+      telephone: modalProposition.telephone.trim(),
+      email: modalProposition.email.trim(),
+      niveauCharge: modalProposition.niveauCharge.trim(),
+      chefExpediteur: `${infosChef?.civilite || ''} ${infosChef?.nom || ''}`,
+      statut: 'En attente'
+    };
+
+    setPropositionsEnvoyees(prev => [...(prev || []), nouvelleProp]);
+    setModalProposition({
+      ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: ''
+    });
+    showToast(`📩 Proposition d'affiliation envoyée à ${nouvelleProp.censeurCible} avec succès !`);
+  };
+
+  const telechargerPDFArchive = (item) => {
+    const fenetreImpression = window.open('', '_blank');
+    if (!fenetreImpression) {
+      showToast("⚠️ Votre navigateur bloque les pop-up.");
+      return;
+    }
+    fenetreImpression.document.write(`
+      <html>
+        <head>
+          <title>Archive - ${item.titre}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
+            .header-doc { text-align: center; border-bottom: 3px double #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
+            .header-doc h2 { margin: 0; color: #0f172a; font-size: 18px; text-transform: uppercase; }
+            .meta { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px; font-size: 13px; text-align: left; }
+            th { background-color: #f1f5f9; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <div class="header-doc">
+            <h2>ARCHIVE PÉDAGOGIQUE OFFICIELLE DE L'ÉTABLISSEMENT</h2>
+            <p>${infosChef.etablissement}</p>
+          </div>
+          <div class="meta">
+            <p><strong>Enseignant(e) :</strong> ${item.enseignant} (${item.matiere})</p>
+            <p><strong>Classe :</strong> ${item.classe} | <strong>Année :</strong> ${item.anneeScolaire}</p>
+            <p><strong>Titre :</strong> ${item.titre} | <strong>Date de validation :</strong> ${item.dateValidation}</p>
+          </div>
+          <table>
+            <tr><th>🎯 Habilités</th><td>${item.details?.habilites || 'N/A'}</td></tr>
+            <tr><th>📚 Contenus</th><td>${item.details?.contenus || 'N/A'}</td></tr>
+            <tr><th>⚡ Exercices</th><td>${item.details?.exercices || 'N/A'}</td></tr>
+            <tr><th>📝 Évaluations</th><td>${item.details?.evaluations || 'N/A'}</td></tr>
+          </table>
+          <script>window.onload = function() { window.print(); window.close(); }</script>
+        </body>
+      </html>
+    `);
+    fenetreImpression.document.close();
+    showToast("📥 Document téléchargé en PDF !");
+  };
+
+  const archiveFiltree = useMemo(() => {
+    return (archiveEcole || []).filter(item => {
+      if (!item) return false;
+      const matchEns = filtreArchiveEnseignant === 'TOUS' || item.enseignant === filtreArchiveEnseignant;
+      const matchClasse = filtreArchiveClasse === 'TOUTES' || item.classe === filtreArchiveClasse;
+      return matchEns && matchClasse;
+    });
+  }, [archiveEcole, filtreArchiveEnseignant, filtreArchiveClasse]);
+
+  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
+  if (!ecoleConfig) {
+    return (
+      <div style={styles.setupContainer}>
+        <style>{`
+          * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+          .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; transition: all 0.2s ease; width: 100%; }
+          .bouton-principal { background-color: #2563eb; color: white; }
+          .bouton-principal:hover { background-color: #1d4ed8; }
+          .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+          .bouton-secondaire:hover { background-color: #e2e8f0; }
+          .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; margin-top: 4px; }
+        `}</style>
+        
+        <div style={styles.setupCard}>
+          <h2 style={{ color: '#0f172a', marginBottom: '8px', textAlign: 'center' }}>🎓 Espace Chef d'Établissement</h2>
+          <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginBottom: '24px' }}>
+            Veuillez rattacher votre session à un établissement pour accéder au réseau.
+          </p>
+
+          {message && <div style={{ ...styles.toastSuccess, marginBottom: '16px' }}>{message}</div>}
+
+          {modeSetup === 'CHOIX' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button onClick={() => setModeSetup('CREER')} className="bouton bouton-principal">🏫 Créer un nouvel établissement</button>
+              <button onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire">🔗 Se connecter à un ancien établissement</button>
+            </div>
+          )}
+
+          {modeSetup === 'CREER' && (
+            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CREER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div><label style={styles.label}>Nom du nouvel établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} className="champ-saisie" required /></div>
+              <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} className="champ-saisie" required /></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire">Retour</button>
+                <button type="submit" className="bouton bouton-principal">Valider la création</button>
+              </div>
+            </form>
+          )}
+
+          {modeSetup === 'CONNECTER' && (
+            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CONNECTER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div><label style={styles.label}>Nom de l'établissement existant</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} className="champ-saisie" required /></div>
+              <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} className="champ-saisie" required /></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire">Retour</button>
+                <button type="submit" className="bouton bouton-principal">Se connecter</button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
     );
+  }
 
-    if (conflit) {
-      afficherNotification(`❌ Un établissement nommé "${formEtab.nom}" existe déjà à ${formEtab.ville}.`);
-      return;
-    }
-
-    const nbClasses = parseInt(formEtab.nombreClasses) || 20;
-    let forfaitNom = nbClasses <= 20 ? 'Forfait Standard (Jusqu’à 20 classes)' : nbClasses <= 50 ? 'Forfait Grand Complexe (Jusqu’à 50 classes)' : 'Forfait Illimité (Établissements majeurs)';
-
-    const nouvelEtab = {
-      id: Date.now(),
-      nom: formEtab.nom,
-      ville: formEtab.ville,
-      commune: formEtab.commune,
-      type: formEtab.type,
-      statut: formEtab.statut,
-      code: 'ASH-' + Math.floor(1000 + Math.random() * 9000),
-      forfaitActif: forfaitNom,
-      limiteClassesMax: nbClasses,
-      classesActuellementCreees: 0,
-      chefActuel: `${infosDirection.civilite} ${infosDirection.nom} ${infosDirection.prenoms}`
-    };
-
-    setEtablissementsExistants([...etablissementsExistants, nouvelEtab]);
-    setMonEtablissement(nouvelEtab);
-    setFormEtablissement({
-      nomEtablissement: nouvelEtab.nom,
-      ville: nouvelEtab.ville,
-      forfaitActif: nouvelEtab.forfaitActif,
-      limiteClassesMax: nouvelEtab.limiteClassesMax,
-      classesActuellementCreees: nouvelEtab.classesActuellementCreees
-    });
-    setEtapeParcours('dashboard');
-    afficherNotification(`💳 Paiement validé ! Établissement "${nouvelEtab.nom}" créé avec un quota de ${nbClasses} classes.`);
-  };
-
-  const rattacherEtablissementExistant = (etabCible) => {
-    const nomCompletChef = `${infosDirection.civilite} ${infosDirection.nom} ${infosDirection.prenoms}`;
-    if (etabCible.chefActuel && etabCible.chefActuel !== nomCompletChef) {
-      const confirmation = window.confirm(`Cet établissement est actuellement géré par ${etabCible.chefActuel}. S'agit-il d'une mutation ou d'une reprise officielle ?`);
-      if (!confirmation) return;
-    }
-
-    setEtablissementsExistants(etablissementsExistants.map(e => e.id === etabCible.id ? { ...e, chefActuel: nomCompletChef } : e));
-    setMonEtablissement(etabCible);
-    setFormEtablissement({
-      nomEtablissement: etabCible.nom,
-      ville: etabCible.ville,
-      forfaitActif: etabCible.forfaitActif || 'Forfait Standard (Jusqu’à 20 classes)',
-      limiteClassesMax: etabCible.limiteClassesMax || 20,
-      classesActuellementCreees: etabCible.classesActuellementCreees || 0
-    });
-    setEtapeParcours('dashboard');
-    afficherNotification(`🔄 Connexion réussie à l'établissement "${etabCible.nom}" (${etabCible.ville}).`);
-  };
-
-  const quitterEtablissement = () => {
-    if (window.confirm("Voulez-vous vous détacher de cet établissement ? L'entité restera active pour permettre à un autre chef d'établissement de s'y connecter.")) {
-      setMonEtablissement(null);
-      setEtapeSelection('menu_choix');
-      setEtapeParcours('selection_etab');
-      afficherNotification("🚪 Vous avez quitté l'établissement. L'entité est désormais libre pour une autre direction.");
-    }
-  };
-
-  const enregistrerEtablissement = (e) => {
-    e.preventDefault();
-    let limite = 20;
-    if (formEtablissement.forfaitActif.includes('Grand')) limite = 50;
-    if (formEtablissement.forfaitActif.includes('Illimité')) limite = 150;
-
-    const etabMisAJour = {
-      ...monEtablissement,
-      nom: formEtablissement.nomEtablissement,
-      ville: formEtablissement.ville,
-      forfaitActif: formEtablissement.forfaitActif,
-      limiteClassesMax: limite
-    };
-
-    setMonEtablissement(etabMisAJour);
-    setModalEtablissementActif(false);
-    afficherNotification(`💳 Forfait mis à jour avec succès : Quota étendu à ${limite} classes.`);
-  };
-
-  const gererOuvertureAnnee = (e) => {
-    e.preventDefault();
-    if (!nouvelleAnneeSaisie.trim()) return;
-    setAnneeScolaireActive(nouvelleAnneeSaisie);
-    setActiviteAutorisee(true);
-    setModalClotureActif(false);
-    afficherNotification(`🚀 Rentrée scolaire ${nouvelleAnneeSaisie} ouverte !`);
-  };
-
-  const cloturerAnneeScolaire = () => {
-    const archiveActuelle = { annee: anneeScolaireActive, totalFiches: 142, enseignantsTotal: personnel.length, statut: 'Clôturée & Archivée' };
-    setArchivesAnnuelles([archiveActuelle, ...archivesAnnuelles]);
-    setActiviteAutorisee(false);
-    setModalClotureActif(false);
-    afficherNotification(`🏁 L'année scolaire ${anneeScolaireActive} a été clôturée.`);
-  };
-
-  const approuverAffiliation = (demande) => {
-    setPersonnel([...personnel, { id: demande.id, nom: demande.nom, role: demande.role, email: demande.email, statut: 'Actif' }]);
-    setDemandesAffiliation(demandesAffiliation.filter(d => d.id !== demande.id));
-    afficherNotification(`✅ Affiliation validée pour ${demande.nom}.`);
-  };
-
-  const rejeterAffiliation = (id) => {
-    setDemandesAffiliation(demandesAffiliation.filter(d => d.id !== id));
-    afficherNotification("❌ Demande d'affiliation rejetée.");
-  };
-
-  const publierAnnonce = (e) => {
-    e.preventDefault();
-    setAnnonces([{ id: Date.now(), date: new Date().toLocaleDateString(), ...formAnnonce }, ...annonces]);
-    setModalAnnonceActif(false);
-    setFormAnnonce({ titre: '', contenu: '', destinataire: 'Tout le personnel' });
-    afficherNotification("Annonce officielle diffusée.");
-  };
-
-  const etablissementsFiltresParVille = etablissementsExistants.filter(
-    etab => etab.ville.toLowerCase() === infosDirection.ville.toLowerCase() &&
-            etab.nom.toLowerCase().includes(rechercheFiltre.toLowerCase())
-  );
-
+  // --- DASHBOARD PRINCIPAL ---
   return (
-    <div style={styles.conteneurGlobal}>
+    <div style={styles.container}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes glissement { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-        .anim-apparition { animation: apparition 0.3s ease-out; }
-        .anim-modale { animation: glissement 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; }
-        .bouton-principal { background-color: #4f46e5; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .bouton-principal:hover { background-color: #4338ca; transform: translateY(-1px); }
+        .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; }
+        .bouton-principal { background-color: #2563eb; color: white; }
+        .bouton-principal:hover { background-color: #1d4ed8; }
         .bouton-succes { background-color: #16a34a; color: white; }
         .bouton-succes:hover { background-color: #15803d; }
-        .bouton-danger { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
-        .bouton-danger:hover { background-color: #fecaca; }
+        .bouton-danger { background-color: #ef4444; color: white; }
+        .bouton-danger:hover { background-color: #dc2626; }
         .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-        .bouton-secondaire:hover { background-color: #e2e8f0; color: #0f172a; }
+        .bouton-secondaire:hover { background-color: #e2e8f0; }
         .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; }
-        .champ-saisie:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
-        .option-menu { width: 100%; text-align: left; padding: 10px 16px; background: transparent; border: none; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .option-menu:hover { background-color: #f1f5f9; color: #0f172a; padding-left: 20px; }
-        .option-menu.actif { background-color: #e0e7ff; color: #4338ca; }
         .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        .ligne-tableau:hover { background-color: #f8fafc; }
+        @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
+        .anim-apparition { animation: apparition 0.2s ease-out forwards; }
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* EN-TÊTE DE L'ÉTABLISSEMENT (AFFICHÉ QUAND LE COMPTE EST CRÉÉ) */}
-      {etapeParcours !== 'inscription' && (
-        <header style={styles.enteteSuperieur}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={styles.iconeLogo}>🏛️</div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h1 style={{ fontSize: '17px', fontWeight: '700', margin: 0, color: '#ffffff' }}>
-                  {monEtablissement ? monEtablissement.nom : 'Espace Directeur (Non rattaché)'}
-                </h1>
-                {monEtablissement && (
-                  <span style={{ fontSize: '11px', backgroundColor: activiteAutorisee ? '#065f46' : '#7f1d1d', color: '#ffffff', padding: '2px 8px', borderRadius: '99px', fontWeight: '700' }}>
-                    📅 {anneeScolaireActive} ({activiteAutorisee ? 'Active 🟢' : 'Clôturée 🔴'})
-                  </span>
-                )}
-              </div>
-              <span style={{ fontSize: '12px', color: '#cbd5e1' }}>
-                {monEtablissement ? `${monEtablissement.commune ? monEtablissement.commune + ', ' : ''}${monEtablissement.ville} • Code : ${monEtablissement.code}` : `Ville enregistrée : ${infosDirection.ville}`}
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-            {monEtablissement && (
-              <button onClick={quitterEtablissement} className="bouton bouton-danger" style={{ fontSize: '12px', padding: '7px 12px' }}>
-                🚪 Quitter l'établissement
-              </button>
-            )}
-
-            {monEtablissement && (
-              <button onClick={() => { setFormEtablissement({ nomEtablissement: monEtablissement.nom, ville: monEtablissement.ville, forfaitActif: monEtablissement.forfaitActif || 'Forfait Standard (Jusqu’à 20 classes)', limiteClassesMax: monEtablissement.limiteClassesMax || 20, classesActuellementCreees: monEtablissement.classesActuellementCreees || 0 }); setModalEtablissementActif(true); }} className="bouton" style={{ backgroundColor: '#4338ca', color: '#ffffff', fontSize: '12px', padding: '7px 12px' }}>
-                💳 Gérer / Upgrade Forfait
-              </button>
-            )}
-
-            {/* COMPTE & PROFIL */}
-            <div style={{ position: 'relative' }} ref={profilRef}>
-              <button onClick={() => setMenuProfilOuvert(!menuProfilOuvert)} style={styles.boutonProfil}>
-                <div style={styles.avatarConteneur}>
-                  {infosDirection.photoProfil ? (
-                    <img src={infosDirection.photoProfil} alt="Profil" style={styles.avatarImage} />
+      {/* EN-TÊTE NAVBAR CHEF D'ÉTABLISSEMENT */}
+      <header style={styles.darkNavbar}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+          
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }} ref={profilChefRef}>
+              <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
+                <div style={styles.avatarNavbarContainer}>
+                  {infosChef?.photoProfil ? (
+                    <img src={infosChef.photoProfil} alt="Profil Chef" style={styles.avatarNavbarImg} />
                   ) : (
-                    <span>👑</span>
+                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
                   )}
                 </div>
-                <div style={{ textAlign: 'left' }}>
-                  <span style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#ffffff' }}>{infosDirection.civilite} {infosDirection.nom} {infosDirection.prenoms}</span>
-                  <span style={{ display: 'block', fontSize: '10px', color: '#93c5fd' }}>Chef d'Établissement - Origine : {infosDirection.matierePredilection}</span>
+                <div style={styles.navbarTeacherInfo}>
+                  <span style={styles.navbarTeacherName}>{infosChef?.civilite || ''} {infosChef?.nom || ''} {infosChef?.prenoms || ''}</span>
+                  <span style={styles.navbarTeacherDetails}>{infosChef?.role || 'Chef d’Établissement'}</span>
                 </div>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>{profilChefOuvert ? '▲' : '▼'}</span>
               </button>
-              
-              {menuProfilOuvert && (
-                <div style={{ ...styles.menuDeroulant, width: '270px', right: 0, top: '50px' }} className="anim-apparition">
-                  <div style={styles.enTeteMenu}>Mon Compte</div>
-                  <button onClick={() => { setFormProfil({ ...infosDirection }); setModalProfilActif(true); setMenuProfilOuvert(false); }} className="option-menu">
-                    ⚙️ Modifier profil, civilités & matière
+
+              {profilChefOuvert && (
+                <div style={styles.notificationDropdown} className="anim-apparition">
+                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                  <div style={{ padding: '8px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' }}>
+                    <strong>{infosChef?.civilite || ''} {infosChef?.nom || ''} {infosChef?.prenoms || ''}</strong><br />
+                    <span style={{ color: '#64748b', fontSize: '11px' }}>{infosChef?.etablissement || ecoleConfig?.nomEcole || ''}</span>
+                  </div>
+                  <button onClick={() => { setFormProfilChef({ ...(infosChef || {}) }); setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>
+                    ⚙️ Modifier mon profil & photo
+                  </button>
+                  <button onClick={() => { setModalConfirmationQuitter(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444' }}>
+                    🚪 Quitter l'établissement / Changer
                   </button>
                 </div>
               )}
             </div>
 
-            {/* MENU DE NAVIGATION PRINCIPAL */}
-            {monEtablissement && (
-              <div style={{ position: 'relative' }} ref={menuRef}>
-                <button onClick={() => setMenuNavigationOuvert(!menuNavigationOuvert)} className="bouton" style={{ backgroundColor: '#312e81', color: 'white' }}>
-                  <span>☰ Menu Principal</span>
-                  {demandesAffiliation.length > 0 && <span className="pastille-alerte">{demandesAffiliation.length}</span>}
-                </button>
-
-                {menuNavigationOuvert && (
-                  <div style={{ ...styles.menuDeroulant, width: '280px', right: 0, top: '48px' }} className="anim-apparition">
-                    <div style={styles.enTeteMenu}>Espaces de Gestion</div>
-                    <button onClick={() => { setOngletActif('accueil'); setMenuNavigationOuvert(false); }} className={`option-menu ${ongletActif === 'accueil' ? 'actif' : ''}`}>🏠 Tableau de Bord</button>
-                    <button onClick={() => { setOngletActif('personnel'); setMenuNavigationOuvert(false); }} className={`option-menu ${ongletActif === 'personnel' ? 'actif' : ''}`}>👥 Personnel & Affiliations</button>
-                    <button onClick={() => { setOngletActif('anneeScolaire'); setMenuNavigationOuvert(false); }} className={`option-menu ${ongletActif === 'anneeScolaire' ? 'actif' : ''}`}>⚙️ Gestion Année Scolaire</button>
-                    <button onClick={() => { setOngletActif('statistiques'); setMenuNavigationOuvert(false); }} className={`option-menu ${ongletActif === 'statistiques' ? 'actif' : ''}`}>📊 Statistiques</button>
-                    <button onClick={() => { setOngletActif('communications'); setMenuNavigationOuvert(false); }} className={`option-menu ${ongletActif === 'communications' ? 'actif' : ''}`}>📢 Communications</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-      )}
-
-      {/* CORPS DE LA PAGE */}
-      <main style={styles.corpsPrincipal}>
-        {notification && (
-          <div style={styles.conteneurNotification} className="anim-apparition">
-            <div style={styles.texteNotification}>{notification}</div>
-          </div>
-        )}
-
-        {/* --- ÉTAPE 1 : CRÉATION DE COMPTE INITIALE (CIVILITÉS + MATIÈRE DE PRÉDILECTION) --- */}
-        {etapeParcours === 'inscription' && (
-          <div style={{ maxWidth: '580px', margin: '20px auto', backgroundColor: '#ffffff', padding: '36px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }} className="anim-apparition">
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <span style={{ fontSize: '40px' }}>📝</span>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', margin: '10px 0 6px 0' }}>Création de Compte - Chef d'Établissement</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                Renseignez vos civilités et votre discipline d'origine pour les statistiques de l'établissement[span_5](start_span)[span_5](end_span).
-              </p>
-            </div>
-
-            <form onSubmit={handleValidationInscription} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.libelleChamp}>Civilité</label>
-                  <select value={formInscription.civilite} onChange={(e) => setFormInscription({...formInscription, civilite: e.target.value})} className="champ-saisie">
-                    <option value="M.">M.</option>
-                    <option value="Mme">Mme</option>
-                    <option value="Dr">Dr</option>
-                    <option value="Pr">Pr</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.libelleChamp}>Nom</label>
-                  <input type="text" value={formInscription.nom} onChange={(e) => setFormInscription({...formInscription, nom: e.target.value})} placeholder="Ex: Diaby" className="champ-saisie" required />
-                </div>
-              </div>
-
-              <div>
-                <label style={styles.libelleChamp}>Prénoms</label>
-                <input type="text" value={formInscription.prenoms} onChange={(e) => setFormInscription({...formInscription, prenoms: e.target.value})} placeholder="Ex: Oumar" className="champ-saisie" required />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.libelleChamp}>Date de naissance</label>
-                  <input type="date" value={formInscription.dateNaissance} onChange={(e) => setFormInscription({...formInscription, dateNaissance: e.target.value})} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.libelleChamp}>Téléphone / WhatsApp</label>
-                  <input type="text" value={formInscription.telephone} onChange={(e) => setFormInscription({...formInscription, telephone: e.target.value})} placeholder="+225..." className="champ-saisie" required />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.libelleChamp}>Matière de prédilection (Origine)</label>
-                  <input type="text" value={formInscription.matierePredilection} onChange={(e) => setFormInscription({...formInscription, matierePredilection: e.target.value})} placeholder="Ex: Mathématiques, Histoire..." className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.libelleChamp}>Ancienneté</label>
-                  <select value={formInscription.anciennete} onChange={(e) => setFormInscription({...formInscription, anciennete: e.target.value})} className="champ-saisie">
-                    <option value="Moins d'un an">Moins d'un an</option>
-                    <option value="1 à 5 ans">1 à 5 ans</option>
-                    <option value="6 à 10 ans">6 à 10 ans</option>
-                    <option value="Plus de 10 ans">Plus de 10 ans</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* SECTION STATUT PUBLIC / PRIVÉ & MATRICULE */}
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div>
-                  <label style={styles.libelleChamp}>Secteur d'enseignement</label>
-                  <select value={formInscription.secteurEnseignement} onChange={(e) => setFormInscription({...formInscription, secteurEnseignement: e.target.value})} className="champ-saisie">
-                    <option value="Public">Public</option>
-                    <option value="Privé">Privé</option>
-                  </select>
-                </div>
-
-                {formInscription.secteurEnseignement === 'Public' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div>
-                      <label style={styles.libelleChamp}>Statut dans le Public</label>
-                      <select value={formInscription.typeStatutPublic} onChange={(e) => setFormInscription({...formInscription, typeStatutPublic: e.target.value})} className="champ-saisie">
-                        <option value="Titulaire">Titulaire (Avec Matricule)</option>
-                        <option value="En attente de matricule">En attente d’un matricule</option>
-                        <option value="Contractuel">Contractuel</option>
-                      </select>
+            <div style={{ position: 'relative' }} ref={notifChefRef}>
+              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
+                <span>🔔 Rapports Censeurs</span>
+                {(notificationsChef || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notificationsChef || []).filter(n => n && !n.lu).length}</span>}
+              </button>
+              {notifChefOuvert && (
+                <div style={styles.notificationDropdown} className="anim-apparition">
+                  <div style={styles.dropdownHeader}>Notifications des Rapports</div>
+                  {(notificationsChef || []).map(n => n ? (
+                    <div key={n.id} style={styles.notifItem}>
+                      <p style={{ margin: 0, fontSize: '12px', color: '#334155' }}>{n.texte}</p>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
                     </div>
+                  ) : null)}
+                </div>
+              )}
+            </div>
+          </div>
 
-                    {formInscription.typeStatutPublic === 'Titulaire' && (
-                      <div>
-                        <label style={styles.libelleChamp}>Numéro Matricule</label>
-                        <input type="text" value={formInscription.numeroMatricule} onChange={(e) => setFormInscription({...formInscription, numeroMatricule: e.target.value})} placeholder="Ex: MT-XXXXXX" className="champ-saisie" required />
-                      </div>
+          <div style={styles.schoolTitleContainer}>
+            <span style={styles.schoolMainTitle}>{ecoleConfig?.nomEcole || infosChef?.etablissement || 'Établissement non défini'}</span>
+          </div>
+
+          <div style={styles.navActionsRight}>
+            <div style={{ position: 'relative' }} ref={menuRef}>
+              <button onClick={() => setMenuOuvert(!menuOuvert)} style={styles.navDarkBtn}>
+                <span>⚙️ Navigation</span>
+                <span style={{ fontSize: '10px' }}>{menuOuvert ? '▲' : '▼'}</span>
+              </button>
+              {menuOuvert && (
+                <div style={{ ...styles.multitaskDropdown, right: 0, left: 'auto' }} className="anim-apparition">
+                  <button onClick={() => { setActiveTab('censeurs'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'censeurs' ? 'actif' : ''}`}>👨‍💼 Gestion des Censeurs</button>
+                  <button onClick={() => { setActiveTab('stats'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'stats' ? 'actif' : ''}`}>📊 Statistiques & Rapports</button>
+                  <button onClick={() => { setActiveTab('archive'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'archive' ? 'actif' : ''}`}>📁 Archive Pédagogique</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main style={styles.mainContentBody}>
+        {message && <div style={styles.toastSuccess}>{message}</div>}
+
+        {/* MODAL PROFIL CHEF */}
+        {modalProfilChefOuvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>👤 Paramètres du Profil & Photo</h3>
+              <form onSubmit={handleEnregistrerProfilChef} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
+                    {formProfilChef?.photoProfil ? (
+                      <img src={formProfilChef.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '28px' }}>👤</span>
                     )}
                   </div>
-                ) : (
-                  <div style={{ padding: '8px', backgroundColor: '#eef2f6', borderRadius: '6px', fontSize: '12px', color: '#334155', fontWeight: '600', textAlign: 'center' }}>
-                    Statut enregistré : <span style={{ color: '#4f46e5' }}>Privé</span>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label style={styles.libelleChamp}>Email professionnel</label>
-                <input type="email" value={formInscription.email} onChange={(e) => setFormInscription({...formInscription, email: e.target.value})} placeholder="nom@ecole.edu" className="champ-saisie" required />
-              </div>
-
-              <div>
-                <label style={styles.libelleChamp}>Mot de passe</label>
-                <input type="password" value={formInscription.motDePasse} onChange={(e) => setFormInscription({...formInscription, motDePasse: e.target.value})} placeholder="••••••••" className="champ-saisie" required />
-              </div>
-
-              <button type="submit" className="bouton bouton-principal" style={{ marginTop: '10px', padding: '12px' }}>
-                Valider mon inscription et choisir mon établissement
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* --- ÉTAPE 2 : SÉLECTION DE L'ÉTABLISSEMENT --- */}
-        {etapeParcours === 'selection_etab' && !monEtablissement && (
-          <div style={{ maxWidth: '650px', margin: '40px auto', backgroundColor: '#ffffff', padding: '36px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }} className="anim-apparition">
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <span style={{ fontSize: '40px' }}>🏫</span>
-              <h2 style={{ fontSize: '20px', color: '#0f172a', margin: '10px 0 6px 0' }}>Bienvenue, {infosDirection.civilite} {infosDirection.nom}</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                Votre compte est validé. Veuillez choisir une option pour rattacher votre direction à un établissement.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
-              <button 
-                onClick={() => setEtapeSelection('creation')} 
-                className={`bouton ${etapeSelection === 'creation' ? 'bouton-principal' : 'bouton-secondaire'}`}
-                style={{ flex: 1, padding: '12px' }}
-              >
-                ➕ Créer un établissement (Payant)
-              </button>
-              <button 
-                onClick={() => setEtapeSelection('rattachement')} 
-                className={`bouton ${etapeSelection === 'rattachement' ? 'bouton-principal' : 'bouton-secondaire'}`}
-                style={{ flex: 1, padding: '12px' }}
-              >
-                🔄 Se connecter à un établissement existant
-              </button>
-            </div>
-
-            {etapeSelection === 'creation' && (
-              <form onSubmit={soumettreCreationEtablissement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }} className="anim-apparition">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label style={styles.libelleChamp}>Nom de l'établissement</label>
-                    <input type="text" placeholder="Ex: Lycée Moderne" value={formEtab.nom} onChange={e => setFormEtab({...formEtab, nom: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label style={styles.libelleChamp}>Ville</label>
-                    <input type="text" value={formEtab.ville} onChange={e => setFormEtab({...formEtab, ville: e.target.value})} className="champ-saisie" required />
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo de profil</label>
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilChef} style={{ fontSize: '11px' }} />
                   </div>
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
                   <div>
-                    <label style={styles.libelleChamp}>Commune / Quartier</label>
-                    <input type="text" placeholder="Ex: Cocody, Yopougon..." value={formEtab.commune} onChange={e => setFormEtab({...formEtab, commune: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label style={styles.libelleChamp}>Type d'établissement</label>
-                    <select value={formEtab.type} onChange={e => setFormEtab({...formEtab, type: e.target.value})} className="champ-saisie">
-                      <option value="Lycée">Lycée</option>
-                      <option value="Collège">Collège</option>
-                      <option value="Complexe Scolaire">Complexe Scolaire</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label style={styles.libelleChamp}>Statut</label>
-                    <select value={formEtab.statut} onChange={e => setFormEtab({...formEtab, statut: e.target.value})} className="champ-saisie">
-                      <option value="Privé">Privé</option>
-                      <option value="Public">Public</option>
+                    <label style={styles.label}>Civilité</label>
+                    <select value={formProfilChef?.civilite || ''} onChange={(e) => setFormProfilChef({...formProfilChef, civilite: e.target.value})} className="champ-saisie">
+                      <option value="M.">M.</option><option value="Mme">Mme</option><option value="Dr">Dr</option>
                     </select>
                   </div>
                   <div>
-                    <label style={styles.libelleChamp}>Nombre de classes (Forfait)</label>
-                    <input type="number" min="1" value={formEtab.nombreClasses} onChange={e => setFormEtab({...formEtab, nombreClasses: e.target.value})} className="champ-saisie" required />
+                    <label style={styles.label}>Nom</label>
+                    <input type="text" value={formProfilChef?.nom || ''} onChange={(e) => setFormProfilChef({...formProfilChef, nom: e.target.value})} className="champ-saisie" required />
                   </div>
                 </div>
-
-                <button type="submit" className="bouton bouton-succes" style={{ marginTop: '10px', padding: '12px' }}>
-                  Payer & Créer l'établissement
-                </button>
+                <div><label style={styles.label}>Prénoms</label><input type="text" value={formProfilChef?.prenoms || ''} onChange={(e) => setFormProfilChef({...formProfilChef, prenoms: e.target.value})} className="champ-saisie" required /></div>
+                <div><label style={styles.label}>Établissement</label><input type="text" value={formProfilChef?.etablissement || ''} onChange={(e) => setFormProfilChef({...formProfilChef, etablissement: e.target.value})} className="champ-saisie" required /></div>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setModalProfilChefOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                </div>
               </form>
-            )}
-
-            {etapeSelection === 'rattachement' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} className="anim-apparition">
-                <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>
-                  Établissements enregistrés dans votre ville (<strong>{infosDirection.ville}</strong>) :
-                </p>
-
-                <input 
-                  type="text" 
-                  placeholder="Rechercher par nom d'établissement..." 
-                  value={rechercheFiltre} 
-                  onChange={e => setRechercheFiltre(e.target.value)} 
-                  className="champ-saisie" 
-                />
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', marginTop: '6px' }}>
-                  {etablissementsFiltresParVille.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '8px', color: '#64748b', fontSize: '13px' }}>
-                      Aucun établissement trouvé à "{infosDirection.ville}". Vous pouvez en créer un via l'option de gauche.
-                    </div>
-                  ) : (
-                    etablissementsFiltresParVille.map(etab => (
-                      <div key={etab.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px' }}>
-                        <div>
-                          <strong>{etab.nom}</strong> ({etab.commune ? etab.commune + ', ' : ''}{etab.ville})<br/>
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>Type : {etab.type} • {etab.statut} | Ancien chef : {etab.chefActuel || 'Aucun'}</span>
-                        </div>
-                        <button onClick={() => rattacherEtablissementExistant(etab)} className="bouton bouton-principal" style={{ padding: '6px 14px', fontSize: '12px', flexShrink: '0' }}>
-                          Sélectionner
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* --- ÉTAPE 3 : TABLEAU DE BORD ACTIF --- */}
-        {etapeParcours === 'dashboard' && monEtablissement && (
-          <div key={ongletActif} className="anim-apparition">
-            
-            {/* MODALE FORFAIT & UPGRADE */}
-            {modalEtablissementActif && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.carteModale, width: '500px' }} className="anim-modale">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a' }}>💳 Gérer & Upgrader le Forfait (Classes)</h3>
-                    <button onClick={() => setModalEtablissementActif(false)} className="bouton bouton-secondaire" style={{ padding: '4px 10px' }}>✕</button>
-                  </div>
-                  <form onSubmit={enregistrerEtablissement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
-                      Le forfait est payant et définit la limite stricte de classes que vos censeurs peuvent configurer.
-                    </p>
-                    <div>
-                      <label style={styles.libelleChamp}>Nom de l'établissement</label>
-                      <input type="text" value={formEtablissement.nomEtablissement} onChange={e => setFormEtablissement({...formEtablissement, nomEtablissement: e.target.value})} className="champ-saisie" required />
-                    </div>
-                    <div>
-                      <label style={styles.libelleChamp}>Choisir un Forfait (Plafond de classes)</label>
-                      <select value={formEtablissement.forfaitActif} onChange={e => setFormEtablissement({...formEtablissement, forfaitActif: e.target.value})} className="champ-saisie">
-                        <option value="Forfait Standard (Jusqu’à 20 classes)">Forfait Standard (Jusqu’à 20 classes)</option>
-                        <option value="Forfait Grand Complexe (Jusqu’à 50 classes)">Forfait Grand Complexe (Jusqu’à 50 classes)</option>
-                        <option value="Forfait Illimité (Établissements majeurs)">Forfait Illimité (Établissements majeurs - 150 classes)</option>
-                      </select>
-                    </div>
-                    <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '8px', fontSize: '12px', color: '#475569' }}>
-                      📊 Utilisation actuelle : <strong>{monEtablissement?.classesActuellementCreees || 0} classes créées</strong> sur le quota autorisé.
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                      <button type="button" onClick={() => setModalEtablissementActif(false)} className="bouton bouton-secondaire">Annuler</button>
-                      <button type="submit" className="bouton bouton-principal">Payer & Mettre à niveau le forfait</button>
-                    </div>
-                  </form>
-                </div>
+        {/* MODAL CONFIRMATION TERMINER ANNÉE */}
+        {modalConfirmationTerminer && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Confirmation requise</h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>Êtes-vous sûr de vouloir <strong>terminer l'année scolaire</strong> ?</p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationTerminer(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={confirmerTerminerAnnee} className="bouton bouton-danger">Oui, terminer l'année</button>
               </div>
-            )}
+            </div>
+          </div>
+        )}
 
-            {/* MODALE PROFIL (AVEC CIVILTÉS ET STATUT PUBLIC/PRIVÉ) */}
-            {modalProfilActif && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.carteModale, width: '480px', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a' }}>⚙️ Modifier le Profil & Civilités</h3>
-                    <button onClick={() => setModalProfilActif(false)} className="bouton bouton-secondaire" style={{ padding: '4px 10px' }}>✕</button>
+        {/* MODALE CONFIRMATION QUITTER ÉCOLE */}
+        {modalConfirmationQuitter && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>Êtes-vous sûr de vouloir <strong>quitter cet établissement</strong> ?</p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationQuitter(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={confirmerQuitterEcole} className="bouton bouton-danger">Oui, quitter l'école</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE POUR ADRESSER UNE PROPOSITION D'AFFILIATION ENRICHIE */}
+        {modalProposition.ouvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
+                <button onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Veuillez remplir les informations d'identification complètes pour éviter tout doublon ou conflit d'intérêt.</p>
+              <form onSubmit={envoyerPropositionCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Civilité</label>
+                    <select value={modalProposition.civilite} onChange={(e) => setModalProposition(prev => ({ ...prev, civilite: e.target.value }))} className="champ-saisie">
+                      <option value="M.">M.</option><option value="Mme">Mme</option><option value="Dr">Dr</option>
+                    </select>
                   </div>
-                  <form onSubmit={enregistrerProfil} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
-                      <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
-                        {formProfil.photoProfil ? (
-                          <img src={formProfil.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <span style={{ fontSize: '28px' }}>👑</span>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo (Fichier)</label>
-                        <input type="file" accept="image/*" onChange={chargerPhoto} style={{ fontSize: '11px', cursor: 'pointer' }} />
-                      </div>
-                    </div>
+                  <div>
+                    <label style={styles.label}>Nom de famille</label>
+                    <input type="text" placeholder="Ex: Touré" value={modalProposition.nom} onChange={(e) => setModalProposition(prev => ({ ...prev, nom: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Prénoms</label>
+                    <input type="text" placeholder="Ex: Alpha" value={modalProposition.prenoms} onChange={(e) => setModalProposition(prev => ({ ...prev, prenoms: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                      <div>
-                        <label style={styles.libelleChamp}>Civilité</label>
-                        <select value={formProfil.civilite} onChange={e => setFormProfil({...formProfil, civilite: e.target.value})} className="champ-saisie">
-                          <option value="M.">M.</option>
-                          <option value="Mme">Mme</option>
-                          <option value="Dr">Dr</option>
-                          <option value="Pr">Pr</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label style={styles.libelleChamp}>Nom</label>
-                        <input type="text" value={formProfil.nom} onChange={e => setFormProfil({...formProfil, nom: e.target.value})} className="champ-saisie" required />
-                      </div>
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>N° Matricule (MENA)</label>
+                    <input type="text" placeholder="Identifiant unique" value={modalProposition.matricule} onChange={(e) => setModalProposition(prev => ({ ...prev, matricule: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Date de naissance</label>
+                    <input type="date" value={modalProposition.dateNaissance} onChange={(e) => setModalProposition(prev => ({ ...prev, dateNaissance: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
 
-                    <div><label style={styles.libelleChamp}>Prénoms</label><input type="text" value={formProfil.prenoms} onChange={e => setFormProfil({...formProfil, prenoms: e.target.value})} className="champ-saisie" required /></div>
-                    <div><label style={styles.libelleChamp}>Titre / Fonction</label><input type="text" value={formProfil.titre} onChange={e => setFormProfil({...formProfil, titre: e.target.value})} className="champ-saisie" required /></div>
-                    <div><label style={styles.libelleChamp}>Téléphone / WhatsApp</label><input type="text" value={formProfil.telephone} onChange={e => setFormProfil({...formProfil, telephone: e.target.value})} className="champ-saisie" required /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Numéro de téléphone</label>
+                    <input type="tel" placeholder="Ex: 0102030405" value={modalProposition.telephone} onChange={(e) => setModalProposition(prev => ({ ...prev, telephone: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Email professionnel</label>
+                    <input type="email" placeholder="Ex: toure@ecole.ci" value={modalProposition.email} onChange={(e) => setModalProposition(prev => ({ ...prev, email: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
 
+                <div>
+                  <label style={styles.label}>Niveaux ou classes à sa charge</label>
+                  <input type="text" placeholder="Ex: 6ème et 5ème" value={modalProposition.niveauCharge} onChange={(e) => setModalProposition(prev => ({ ...prev, niveauCharge: e.target.value }))} className="champ-saisie" required />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                  <button type="button" onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Générer et envoyer l'invitation</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE DE RETRAIT D'UN CENSEUR */}
+        {modalRetraitCenseur.ouvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Retirer l'affiliation</h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
+                Êtes-vous sûr de vouloir <strong>retirer l'affiliation du censeur {modalRetraitCenseur.censeurNom}</strong> à votre établissement ?
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalRetraitCenseur({ ouvert: false, censeurId: null, censeurNom: '' })} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={confirmerRetraitCenseur} className="bouton bouton-danger">Oui, retirer l'affiliation</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CARTES STATISTIQUES */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '24px' }}>🏫</span>
+            <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px', color: '#64748b' }}>Nombre total de Classes</h4>
+            <p style={{ fontSize: '26px', fontWeight: '800', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
+          </div>
+          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '24px' }}>👥</span>
+            <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px', color: '#64748b' }}>Personnes Connectées au Réseau</h4>
+            <p style={{ fontSize: '26px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
+          </div>
+        </div>
+
+        {/* ONGLET : GESTION DES CENSEURS */}
+        {activeTab === 'censeurs' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>👨‍💼 Gestion des Censeurs & Affiliations</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Supervisez l'équipe de direction ou invitez de nouveaux censeurs par Matricule.</p>
+              </div>
+              <button 
+                onClick={() => setModalProposition({ ouvert: true, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: '' })} 
+                className="bouton bouton-principal"
+              >
+                + Adresser une proposition d'affiliation
+              </button>
+            </div>
+
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '24px' }}>Censeurs affiliés / En attente</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(censeursAffiliations || []).length === 0 ? (
+                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune demande ni censeur affilié.</p>
+              ) : (
+                (censeursAffiliations || []).map(cen => cen ? (
+                  <div key={cen.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
-                      <label style={styles.libelleChamp}>Matière de prédilection (Origine)</label>
-                      <input type="text" value={formProfil.matierePredilection} onChange={e => setFormProfil({...formProfil, matierePredilection: e.target.value})} className="champ-saisie" required />
+                      <strong style={{ color: '#1e40af', fontSize: '15px' }}>{cen.nomComplet}</strong> <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {cen.matricule || 'N/A'}</span><br/>
+                      <small style={{ color: '#475569', display: 'block', marginTop: '4px' }}>Niveaux : {cen.niveauCharge} | Tél : {cen.telephone || 'N/A'} | Email : {cen.email}</small>
                     </div>
-
-                    {/* SECTION STATUT PUBLIC / PRIVÉ & MATRICULE */}
-                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <div>
-                        <label style={styles.libelleChamp}>Secteur d'enseignement</label>
-                        <select value={formProfil.secteurEnseignement} onChange={e => setFormProfil({...formProfil, secteurEnseignement: e.target.value})} className="champ-saisie">
-                          <option value="Public">Public</option>
-                          <option value="Privé">Privé</option>
-                        </select>
-                      </div>
-
-                      {formProfil.secteurEnseignement === 'Public' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <div>
-                            <label style={styles.libelleChamp}>Statut dans le Public</label>
-                            <select value={formProfil.typeStatutPublic} onChange={e => setFormProfil({...formProfil, typeStatutPublic: e.target.value})} className="champ-saisie">
-                              <option value="Titulaire">Titulaire (Avec Matricule)</option>
-                              <option value="En attente de matricule">En attente d’un matricule</option>
-                              <option value="Contractuel">Contractuel</option>
-                            </select>
-                          </div>
-
-                          {formProfil.typeStatutPublic === 'Titulaire' && (
-                            <div>
-                              <label style={styles.libelleChamp}>Numéro Matricule</label>
-                              <input type="text" value={formProfil.numeroMatricule} onChange={e => setFormProfil({...formProfil, numeroMatricule: e.target.value})} placeholder="Ex: MT-XXXXXX" className="champ-saisie" required />
-                            </div>
-                          )}
-                        </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', borderRadius: '6px', backgroundColor: cen.statut === 'Validé' ? '#dcfce7' : '#fef3c7', color: cen.statut === 'Validé' ? '#166534' : '#92400e', marginRight: '8px' }}>
+                        {cen.statut}
+                      </span>
+                      {cen.statut !== 'Validé' ? (
+                        <>
+                          <button onClick={() => validerCenseur(cen.id)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '11px' }}>Valider</button>
+                          <button onClick={() => rejeterCenseur(cen.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>Rejeter</button>
+                        </>
                       ) : (
-                        <div style={{ padding: '8px', backgroundColor: '#eef2f6', borderRadius: '6px', fontSize: '12px', color: '#334155', fontWeight: '600', textAlign: 'center' }}>
-                          Statut enregistré : <span style={{ color: '#4f46e5' }}>Privé</span>
-                        </div>
+                        <button onClick={() => setModalRetraitCenseur({ ouvert: true, censeurId: cen.id, censeurNom: cen.nomComplet })} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>Retirer l'affiliation</button>
                       )}
                     </div>
+                  </div>
+                ) : null)
+              )}
+            </div>
 
-                    <div><label style={styles.libelleChamp}>Ville</label><input type="text" value={formProfil.ville} onChange={e => setFormProfil({...formProfil, ville: e.target.value})} className="champ-saisie" required /></div>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                      <button type="button" onClick={() => setModalProfilActif(false)} className="bouton bouton-secondaire">Annuler</button>
-                      <button type="submit" className="bouton bouton-principal">Enregistrer</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* MODALE CLÔTURE */}
-            {modalClotureActif && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.carteModale, width: '480px' }} className="anim-modale">
-                  <h3 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>⚙️ Gestion de l'Année Scolaire</h3>
-                  {activiteAutorisee ? (
-                    <div>
-                      <p style={{ fontSize: '13px', color: '#475569' }}>Clôturer l'année <strong>{anneeScolaireActive}</strong> ?</p>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                        <button onClick={() => setModalClotureActif(false)} className="bouton bouton-secondaire">Annuler</button>
-                        <button onClick={cloturerAnneeScolaire} className="bouton bouton-danger">Confirmer</button>
+            {(propositionsEnvoyees || []).length > 0 && (
+              <>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '30px' }}>Invitations envoyées (En attente de réponse)</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {(propositionsEnvoyees || []).map(prop => prop ? (
+                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <strong style={{ color: '#92400e' }}>{prop.censeurCible}</strong> <span style={{ fontSize: '11px', color: '#b45309', backgroundColor: '#fefce8', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {prop.matricule || 'N/A'}</span><br/>
+                        <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>Niveaux : {prop.niveauCharge} | Email : {prop.email || 'N/A'}</small>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#b45309' }}>⏳ En attente de sa connexion</span>
                       </div>
                     </div>
-                  ) : (
-                    <form onSubmit={gererOuvertureAnnee} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <label style={styles.libelleChamp}>Nouvelle année</label>
-                      <input type="text" value={nouvelleAnneeSaisie} onChange={e => setNouvelleAnneeSaisie(e.target.value)} className="champ-saisie" required />
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                        <button type="button" onClick={() => setModalClotureActif(false)} className="bouton bouton-secondaire">Annuler</button>
-                        <button type="submit" className="bouton bouton-succes">Ouvrir</button>
-                      </div>
-                    </form>
-                  )}
+                  ) : null)}
                 </div>
-              </div>
+              </>
             )}
+          </div>
+        )}
 
-            {/* MODALE ANNONCE */}
-            {modalAnnonceActif && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.carteModale, width: '480px' }} className="anim-modale">
-                  <h3 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>📢 Diffuser une communication</h3>
-                  <form onSubmit={publierAnnonce} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div><label style={styles.libelleChamp}>Titre</label><input type="text" value={formAnnonce.titre} onChange={e => setFormAnnonce({...formAnnonce, titre: e.target.value})} className="champ-saisie" required /></div>
-                    <div><label style={styles.libelleChamp}>Contenu</label><textarea rows="3" value={formAnnonce.contenu} onChange={e => setFormAnnonce({...formAnnonce, contenu: e.target.value})} className="champ-saisie" required /></div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
-                      <button type="button" onClick={() => setModalAnnonceActif(false)} className="bouton bouton-secondaire">Annuler</button>
-                      <button type="submit" className="bouton bouton-principal">Diffuser</button>
+        {/* ONGLET : STATISTIQUES & RAPPORTS */}
+        {activeTab === 'stats' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>📊 Statistiques Globales de l'Établissement</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Rapports consolidés transmis par vos censeurs pédagogiques.</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '24px' }}>📈</span>
+                <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Rapports reçus</h4>
+                <p style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', margin: 0 }}>{Object.keys(rapportsCenseurs || {}).length}</p>
+              </div>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '24px' }}>📚</span>
+                <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Fiches Globales Archivées</h4>
+                <p style={{ fontSize: '22px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{(archiveEcole || []).length}</p>
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>Détails des Rapports Transmis par les Censeurs</h3>
+            {Object.keys(rapportsCenseurs || {}).length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun rapport transmis par les censeurs pour le moment.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {Object.entries(rapportsCenseurs || {}).map(([cle, rapport]) => (
+                  <div key={cle} style={{ backgroundColor: '#e0f2fe', padding: '14px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <strong style={{ color: '#0369a1', fontSize: '14px' }}>Rapport de : {rapport.censeur}</strong>
+                      <span style={{ fontSize: '11px', color: '#0284c7' }}>Date : {rapport.date}</span>
                     </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* ONGLET ACCUEIL (TABLEAU DE BORD) */}
-            {ongletActif === 'accueil' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <div style={styles.carteContenu}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '16px' }}>
-                    <div>
-                      <h2 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 8px 0', color: '#0f172a' }}>Bienvenue, {infosDirection.civilite} {infosDirection.nom} {infosDirection.prenoms}</h2>
-                      <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
-                        Établissement rattaché : <strong>{monEtablissement.nom}</strong> ({monEtablissement.forfaitActif || 'Standard'}) • Année active : <strong>{anneeScolaireActive}</strong>.
-                      </p>
-                    </div>
-                    <button onClick={() => setModalClotureActif(true)} className={`bouton ${activiteAutorisee ? 'bouton-danger' : 'bouton-succes'}`} style={{ fontSize: '12px' }}>
-                      {activiteAutorisee ? '🔒 Clôturer l\'Année Scolaire' : '🔓 Ouvrir la Rentrée Scolaire'}
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                    <div style={styles.carteStatistique}>
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Quota Classes (Forfait Payant)</span>
-                      <span style={{ fontSize: '20px', fontWeight: '700', color: '#4f46e5', marginTop: '4px', display: 'block' }}>
-                        {monEtablissement.classesActuellementCreees || 0} / {monEtablissement.limiteClassesMax || 20} classes
-                      </span>
-                      <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>Contrôle d'accès censeur actif</span>
-                    </div>
-
-                    <div style={styles.carteStatistique}>
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Personnel Actif</span>
-                      <span style={{ fontSize: '24px', fontWeight: '700', color: '#1e293b', marginTop: '4px', display: 'block' }}>{personnel.length} membres</span>
-                      <button onClick={() => setOngletActif('personnel')} className="bouton bouton-secondaire" style={{ marginTop: '12px', width: '100%', fontSize: '12px' }}>Gérer le répertoire</button>
-                    </div>
-
-                    <div style={styles.carteStatistique}>
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Demandes d'Affiliation</span>
-                      <span style={{ fontSize: '24px', fontWeight: '700', color: demandesAffiliation.length > 0 ? '#ef4444' : '#1e293b', marginTop: '4px', display: 'block' }}>
-                        {demandesAffiliation.length} en attente
-                      </span>
-                      <button onClick={() => setOngletActif('personnel')} className="bouton bouton-principal" style={{ marginTop: '12px', width: '100%', fontSize: '12px' }}>Traiter les demandes</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {ongletActif === 'personnel' && (
-              <div style={styles.carteContenu}>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 16px 0', color: '#0f172a' }}>Personnel & Demandes d'Affiliation</h2>
-                {demandesAffiliation.length > 0 && (
-                  <div style={{ marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '14px', color: '#b91c1c', marginBottom: '8px' }}>Demandes en attente ({demandesAffiliation.length})</h3>
-                    {demandesAffiliation.map(d => (
-                      <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', marginBottom: '8px' }}>
-                        <div><strong>{d.nom}</strong> ({d.role}) - {d.email}</div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => rejeterAffiliation(d.id)} className="bouton bouton-danger" style={{ padding: '4px 10px', fontSize: '11px' }}>Refuser</button>
-                          <button onClick={() => approuverAffiliation(d)} className="bouton bouton-succes" style={{ padding: '4px 10px', fontSize: '11px' }}>Valider</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <h3 style={{ fontSize: '14px', color: '#0f172a', marginBottom: '8px' }}>Membres Actifs</h3>
-                <table style={styles.tableau}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#475569', textAlign: 'left', fontSize: '13px' }}>
-                      <th style={styles.celluleEnTete}>Nom</th>
-                      <th style={styles.celluleEnTete}>Rôle</th>
-                      <th style={styles.celluleEnTete}>Email</th>
-                      <th style={styles.celluleEnTete}>Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {personnel.map(m => (
-                      <tr key={m.id} className="ligne-tableau">
-                        <td style={styles.celluleTableau}><strong>{m.nom}</strong></td>
-                        <td style={styles.celluleTableau}>{m.role}</td>
-                        <td style={styles.celluleTableau}>{m.email}</td>
-                        <td style={styles.celluleTableau}><span style={{ color: '#166534', fontWeight: '600' }}>{m.statut}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {ongletActif === 'anneeScolaire' && (
-              <div style={styles.carteContenu}>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 16px 0', color: '#0f172a' }}>Gestion des Années Scolaires</h2>
-                <p style={{ fontSize: '13px', color: '#64748b' }}>Année active : {anneeScolaireActive}</p>
-              </div>
-            )}
-
-            {ongletActif === 'statistiques' && (
-              <div style={styles.carteContenu}>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 16px 0', color: '#0f172a' }}>Statistiques Détaillées</h2>
-                <p style={{ fontSize: '13px', color: '#64748b' }}>Vue analytique des performances de l'établissement (comprenant les matières de prédilection de la direction).</p>
-              </div>
-            )}
-
-            {ongletActif === 'communications' && (
-              <div style={styles.carteContenu}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '700', margin: 0, color: '#0f172a' }}>Communications Officielles</h2>
-                  <button onClick={() => setModalAnnonceActif(true)} className="bouton bouton-principal">📢 Diffuser une annonce</button>
-                </div>
-                {annonces.map(a => (
-                  <div key={a.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', marginBottom: '10px', backgroundColor: '#f8fafc' }}>
-                    <strong>{a.titre}</strong> - <span style={{ fontSize: '11px', color: '#64748b' }}>{a.date}</span>
-                    <p style={{ margin: '6px 0 0 0', fontSize: '13px', color: '#475569' }}>{a.contenu}</p>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#0f172a' }}>
+                      <strong>Classes concernées :</strong> {(rapport.classes || []).join(', ')}
+                    </p>
                   </div>
                 ))}
               </div>
             )}
-
           </div>
         )}
 
+        {/* ONGLET : ARCHIVE GLOBALE DE L'ÉTABLISSEMENT */}
+        {activeTab === 'archive' && (
+          <div style={styles.cardWide}>
+            <div style={styles.sectionHeader}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>📁 Archive Pédagogique Globale</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Base d'archives centralisée contenant toutes les fiches validées de l'établissement.</p>
+              </div>
+            </div>
+
+            <div style={styles.bibliothequeFilterBox}>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Classe</label>
+                <select value={filtreArchiveClasse} onChange={(e) => setFiltreArchiveClasse(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les classes</option>
+                  {Array.from(new Set((archiveEcole || []).map(a => a.classe))).map(cl => <option key={cl} value={cl}>{cl}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 240px' }}>
+                <label style={styles.labelFiltre}>Enseignant</label>
+                <select value={filtreArchiveEnseignant} onChange={(e) => setFiltreArchiveEnseignant(e.target.value)} className="champ-saisie">
+                  <option value="TOUS">Tous les enseignants</option>
+                  {Array.from(new Set((archiveEcole || []).map(a => a.enseignant))).map(ens => <option key={ens} value={ens}>{ens}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+              {(archiveFiltree || []).length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>L'archive globale est vide pour ces critères.</p>
+              ) : (
+                (archiveFiltree || []).map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>{item.classe}</span>
+                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{item.titre}</strong>
+                      </div>
+                      <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{item.enseignant}</strong> | Validé le : {item.dateValidation}</p>
+                    </div>
+                    <div>
+                      <button onClick={() => telechargerPDFArchive(item)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '11px' }}>📥 Télécharger (PDF)</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
 }
 
 const styles = {
-  conteneurGlobal: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  enteteSuperieur: { backgroundColor: '#1e1b4b', padding: '16px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', borderBottom: '1px solid #312e81' },
-  iconeLogo: { width: '38px', height: '38px', borderRadius: '8px', backgroundColor: '#312e81', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '20px' },
-  boutonProfil: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'transparent', padding: '6px 10px', borderRadius: '8px', border: '1px solid transparent', cursor: 'pointer', textAlign: 'left' },
-  avatarConteneur: { width: '34px', height: '34px', borderRadius: '50%', backgroundColor: '#4338ca', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  avatarImage: { width: '100%', height: '100%', objectFit: 'cover' },
-  menuDeroulant: { position: 'absolute', backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '6px' },
-  enTeteMenu: { padding: '8px 12px', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  corpsPrincipal: { padding: '30px', maxWidth: '1200px', margin: '0 auto', position: 'relative' },
-  conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
-  texteNotification: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)' },
-  carteModale: { backgroundColor: '#ffffff', padding: '26px', borderRadius: '14px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' },
-  libelleChamp: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' },
-  carteContenu: { backgroundColor: '#ffffff', padding: '28px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' },
-  carteStatistique: { border: '1px solid #e2e8f0', borderRadius: '10px', padding: '18px', backgroundColor: '#f8fafc' },
-  tableau: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
-  celluleEnTete: { padding: '12px 14px', fontWeight: '600' },
-  celluleTableau: { padding: '14px', color: '#334155' }
+  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
+  setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
+  setupCard: { backgroundColor: '#ffffff', padding: '36px', borderRadius: '14px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
+  topBarMainRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  navbarAppTitle: { fontSize: '18px', fontWeight: '700', margin: 0, color: '#ffffff' },
+  schoolTitleContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
+  schoolMainTitle: { fontSize: '18px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px', textTransform: 'uppercase' },
+  bottomBarRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' },
+  mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
+  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' },
+  label: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
+  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
+  avatarNavbarContainer: { width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
+  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  navbarTeacherName: { fontSize: '12px', fontWeight: '700', color: '#ffffff' },
+  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8' },
+  notificationDropdown: { position: 'absolute', top: '48px', left: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '300px', zIndex: 100, padding: '10px' },
+  dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '6px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  navActionsRight: { display: 'flex', gap: '12px', alignItems: 'center' },
+  multitaskDropdown: { position: 'absolute', top: '44px', right: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '6px' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  sectionHeader: { marginBottom: '20px' }
 };

@@ -1,865 +1,1206 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 export default function CenseurDashboard() {
-  const [etapeParcours, etapeSetParcours] = useState('inscription');
-  const [ongletActif, setOngletActif] = useState('flux');
-  const [notification, setNotification] = useState('');
+  
+  // --- PROFIL DU CENSEUR & SESSION (AVEC BLINDAGE) ---
+  const [infosCenseur, setInfosCenseur] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_profil'));
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+    } catch {}
+    return { civilite: 'M.', nom: 'Touré', prenoms: 'Alpha', etablissement: 'Lycée Moderne d’Abidjan', role: 'Censeur Pédagogique', niveauCharge: '6ème', photoProfil: '', statutCompte: 'En attente de validation par le Chef d’Établissement' };
+  });
 
-  // Gestion des menus déroulants et clics extérieurs
-  const [menuOuvert, setMenuOuvert] = useState(false);
-  const [profilOuvert, setProfilOuvert] = useState(false);
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_censeur_profil', JSON.stringify(infosCenseur));
+    } catch {}
+  }, [infosCenseur]);
 
-  const menuRef = useRef(null);
-  const profilRef = useRef(null);
+  const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
+  const [formProfilCenseur, setFormProfilCenseur] = useState({ ...(infosCenseur || {}) });
+  const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
+  const profilCenseurRef = useRef(null);
+
+  const [modalConfirmationQuitter, setModalConfirmationQuitter] = useState(false);
+
+  // --- SYNCHRONISATION AVEC LES DONNÉES ENSEIGNANTS ---
+  const [affiliations, setAffiliations] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_enseignant_affiliations'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [
+      { id: 1, enseignant: 'M. Kouassi Jean', ecole: 'Lycée Moderne d’Abidjan', statut: 'En attente', classes: ['6ème A', '6ème B'], matricule: 'MENA-123456', email: 'kouassi@ecole.ci' }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_enseignant_affiliations', JSON.stringify(affiliations));
+    } catch {}
+  }, [affiliations]);
+
+  const [programmesClasses, setProgrammesClasses] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes'));
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+    } catch {}
+    return {
+      '6ème A': {
+        anneeScolaire: '2025-2026', matiere: 'EPS', enseignant: 'M. Kouassi Jean', niveau: '6ème',
+        cycles: [
+          {
+            id: 1, titre: 'Cycle 1 : Gymnastique au sol', competence: 'Coordonner ses mouvements.', dateDebut: '2026-01-10', dateFin: '2026-02-28', soumisAuCenseur: true, viseParCenseur: false,
+            lecons: [
+              { id: 101, titre: 'Leçon 1 : Les équilibres', nombreSeancesPrevues: 2, soumisAuCenseur: true, viseParCenseur: false, seances: [{ id: 1001, numero: 1, titre: 'Séance d’initiation', date: '2026-03-10', lieu: 'Gymnase A', habilites: 'Savoir enrouler sa tête.', contenus: 'Atelier sol matelas.', exercices: 'Roulé-boulé.', evaluations: 'Formative.', soumisAuCenseur: true, viseParCenseur: false }] }
+            ]
+          }
+        ]
+      }
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_enseignant_programmes_classes', JSON.stringify(programmesClasses));
+    } catch {}
+  }, [programmesClasses]);
+
+  // --- RAPPORTS DE SÉANCES REPORTÉES TRANSMIS PAR LES ENSEIGNANTS ---
+  const [rapportsReports, setRapportsReports] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_rapports_reports'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    const handleStorageUpdate = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('app_censeur_rapports_reports'));
+        if (Array.isArray(saved)) setRapportsReports(saved);
+      } catch {}
+    };
+    window.addEventListener('storage', handleStorageUpdate);
+    return () => window.removeEventListener('storage', handleStorageUpdate);
+  }, []);
+
+  // --- NOTIFICATIONS CENSEUR ---
+  const [notificationsCenseur, setNotificationsCenseur] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_notifications'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [
+      { id: 1, texte: 'Votre compte censeur est soumis à la validation du Chef d’Établissement.', date: 'Aujourd\'hui', lu: false },
+      { id: 2, texte: '📥 Nouvelle fiche soumise par M. Kouassi Jean (6ème A - EPS) en attente de validation.', date: 'Aujourd\'hui', lu: false }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_censeur_notifications', JSON.stringify(notificationsCenseur));
+    } catch {}
+  }, [notificationsCenseur]);
+
+  const [notifCenseurOuvert, setNotifCenseurOuvert] = useState(false);
+  const notifCenseurRef = useRef(null);
+
+  // --- RAPPORTS TRANSMIS AU CHEF D'ÉTABLISSEMENT ---
+  const [rapportsEnvoyesChef, setRapportsEnvoyesChef] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_rapports_chef'));
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+    } catch {}
+    return {};
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_censeur_rapports_chef', JSON.stringify(rapportsEnvoyesChef));
+    } catch {}
+  }, [rapportsEnvoyesChef]);
+
+  // --- ARCHIVE PÉDAGOGIQUE PERMANENTE DE L'ÉTABLISSEMENT ---
+  const [archiveEcole, setArchiveEcole] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_censeur_archive_ecole'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_censeur_archive_ecole', JSON.stringify(archiveEcole));
+    } catch {}
+  }, [archiveEcole]);
+
+  // --- GESTION DES PROPOSITIONS D'AFFILIATION CENSEUR -> ENSEIGNANT ---
+  const [propositionsEnvoyees, setPropositionsEnvoyees] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('app_enseignant_propositions'));
+      if (Array.isArray(saved)) return saved;
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_enseignant_propositions', JSON.stringify(propositionsEnvoyees));
+    } catch {}
+  }, [propositionsEnvoyees]);
+
+  // --- NOUVEAU: MODALE DE PROPOSITION ENRICHIE ---
+  const [modalProposition, setModalProposition] = useState({
+    ouvert: false,
+    civilite: 'M.',
+    nom: '',
+    prenoms: '',
+    dateNaissance: '',
+    telephone: '',
+    email: '',
+    matricule: '',
+    classesProposees: ''
+  });
+
+  // --- NOUVEAU: MODALE DE RETRAIT D'UN ENSEIGNANT ---
+  const [modalRetraitEnseignant, setModalRetraitEnseignant] = useState({
+    ouvert: false,
+    enseignantId: null,
+    enseignantNom: ''
+  });
+
+  const [activeTab, setActiveTab] = useState('visa');
+  const [message, setMessage] = useState('');
+
+  // Filtres pour l'onglet Visa
+  const [visaClasseFiltre, setVisaClasseFiltre] = useState('TOUTES');
+  const [visaMatiereFiltre, setVisaMatiereFiltre] = useState('TOUTES');
+  const [visaSemaineFiltre, setVisaSemaineFiltre] = useState('TOUTES');
+
+  const [classesSelectionneesRapport, setClassesSelectionneesRapport] = useState([]);
+
+  // Modale pour consulter et modifier les classes d'une demande d'affiliation
+  const [modalAffiliationConsult, setModalAffiliationConsult] = useState({
+    ouvert: false, affiliation: null, classesModifiees: ''
+  });
+
+  const [elementsSelectionnes, setElementsSelectionnes] = useState([]);
+  const [enseignantsSelectionnesRappel, setEnseignantsSelectionnesRappel] = useState([]);
+
+  const [modalConsultation, setModalConsultation] = useState({
+    ouvert: false, element: null, type: ''
+  });
+
+  const [filtreArchiveEnseignant, setFiltreArchiveEnseignant] = useState('TOUS');
+  const [filtreArchiveAnnee, setFiltreArchiveAnnee] = useState('TOUTES');
+  const [filtreArchiveClasse, setFiltreArchiveClasse] = useState('TOUTES');
+  const [filtreArchiveMatiere, setFiltreArchiveMatiere] = useState('TOUTES');
+
+  const showToast = (msg) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(''), 4000);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOuvert(false);
-      if (profilRef.current && !profilRef.current.contains(event.target)) setProfilOuvert(false);
+      if (profilCenseurRef.current && !profilCenseurRef.current.contains(event.target)) setProfilCenseurOuvert(false);
+      if (notifCenseurRef.current && !notifCenseurRef.current.contains(event.target)) setNotifCenseurOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Formulaire initial pour l'inscription (Civilités + Matière de prédilection + Statut)
-  const [formInscription, setFormInscription] = useState({
-    role: 'censeur',
-    civilite: 'M.',
-    nom: 'Koné',
-    prenoms: 'Bernard',
-    titre: 'Censeur / Chef des Études',
-    dateNaissance: '1985-04-12',
-    telephone: '+225 0700000000',
-    ville: 'Abidjan',
-    email: 'bernard.kone@ecole.edu',
-    anciennete: '6 à 10 ans',
-    matierePredilection: 'Mathématiques', // Matière de prédilection / discipline d'origine (statistiques)
-    secteurEnseignement: 'Public', // 'Public' ou 'Privé'
-    typeStatutPublic: 'Titulaire', // 'Titulaire', 'En attente d’un matricule', 'Contractuel'
-    numeroMatricule: 'MT-987654',
-    motDePasse: ''
-  });
-
-  // Profil du Censeur validé après inscription
-  const [infosCenseur, setInfosCenseur] = useState({
-    ...formInscription,
-    photoProfil: '',
-    etablissementSaisi: '',
-    affilieValide: false,
-    demandeSoumise: false,
-    etablissementsDisponibles: ['Lycée Moderne d’Abidjan', 'Le Mota', 'Collège Privé Saint-Jean']
-  });
-
-  const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
-  const [formProfil, setFormProfil] = useState({ ...infosCenseur });
-
-  // --- RÉPERTOIRE OFFICIEL DES CLASSES DE L'ÉTABLISSEMENT ---
-  const [classesEtablissement, setClassesEtablissement] = useState([
-    { id: 1, nom: '6ème A', niveau: '6ème' },
-    { id: 2, nom: '6ème B', niveau: '6ème' },
-    { id: 3, nom: '5ème A', niveau: '5ème' },
-    { id: 4, nom: '4ème A', niveau: '4ème' },
-    { id: 5, nom: '3ème C', niveau: '3ème' },
-    { id: 6, nom: '2nde A', niveau: '2nde' },
-    { id: 7, nom: '1ère C', niveau: '1ère' }
-  ]);
-
-  const [modalCreationClasse, setModalCreationClasse] = useState(false);
-  const [modalEditionClasse, setModalEditionClasse] = useState({ ouvert: false, data: null });
-  const [nomClasseModif, setNomClasseModif] = useState('');
-  const [niveauClasseModif, setNiveauClasseModif] = useState('6ème');
-  const [modalSuppressionClasse, setModalSuppressionClasse] = useState({ ouvert: false, data: null });
-  
-  const [modeCreation, setModeCreation] = useState('lot');
-  const [niveauLot, setNiveauLot] = useState('6ème');
-  const [nombreClassesLot, setNombreClassesLot] = useState(4);
-  const [styleAppellation, setStyleAppellation] = useState('lettre');
-  
-  const [seriesLyceeConfig, setSeriesLyceeConfig] = useState({
-    A: { active: true, nombre: 2 },
-    C: { active: true, nombre: 1 },
-    D: { active: true, nombre: 3 },
-    F: { active: false, nombre: 1 }
-  });
-
-  const [nomNouvelleClasse, setNomNouvelleClasse] = useState('');
-  const [niveauNouvelleClasse, setNiveauNouvelleClasse] = useState('6ème');
-
-  // Affiliations des enseignants
-  const [demandesAffiliationEnseignants, setDemandesAffiliationEnseignants] = useState([
-    { id: 1, enseignant: 'M. Kouassi Jean', email: 'jean.kouassi@prof.edu', specialite: 'Éducation Physique (EPS)', ecoleDemandee: 'Lycée Moderne d’Abidjan', classeDemandee: ['6ème A', '5ème B'], statutEcole: 'Validée', statutClasse: 'Validée', dateDemande: '2026-03-01' },
-    { id: 2, enseignant: 'Mme Touré Aminata', email: 'aminata.toure@prof.edu', specialite: 'Mathématiques', ecoleDemandee: 'Lycée Moderne d’Abidjan', classeDemandee: ['4ème A', '3ème C'], statutEcole: 'Validée', statutClasse: 'Validée', dateDemande: '2026-03-05' }
-  ]);
-
-  // Fiches et cahiers de texte
-  const [seancesEnseignants, setSeancesEnseignants] = useState([
-    {
-      id: 1001,
-      enseignantNom: 'M. Kouassi Jean',
-      matiere: 'Éducation Physique (EPS)',
-      niveau: '6ème',
-      classe: '6ème A',
-      numero: 1,
-      titre: 'Initiation au roulement avant',
-      date: '2026-03-10',
-      cycle: 'Cycle 1 - Gymnastique',
-      lecon: 'Leçon 1 : Les gammes gymniques',
-      habilites: 'Savoir enrouler sa tête et pousser sur ses bras.',
-      contenus: 'Atelier sol matelas : passage du groupé.',
-      exercices: 'Roulé-boulé par groupes de 4.',
-      annee: '2025-2026',
-      statut: 'En attente'
-    }
-  ]);
-
-  const afficherNotification = (msg) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(''), 4000);
-  };
-
-  const handleValidationInscription = (e) => {
+  const handleEnregistrerProfilCenseur = (e) => {
     e.preventDefault();
-    if (formInscription.secteurEnseignement === 'Public' && formInscription.typeStatutPublic === 'Titulaire' && !formInscription.numeroMatricule.trim()) {
-      afficherNotification("Veuillez renseigner votre numéro matricule.");
-      return;
-    }
-    setInfosCenseur(prev => ({ ...prev, ...formInscription }));
-    etapeSetParcours('affiliation');
-    afficherNotification("✅ Compte créé avec succès ! Veuillez maintenant procéder à l'affiliation.");
+    setInfosCenseur({ ...formProfilCenseur });
+    setModalProfilCenseurOuvert(false);
+    showToast("✅ Profil et photo du censeur mis à jour avec succès !");
   };
 
-  // Synchronisation des modifications faites depuis le Dashboard (modale Profil)
-  const handleSauvegarderProfil = (e) => {
-    e.preventDefault();
-    setInfosCenseur(formProfil);
-    setModalProfilOuvert(false);
-    afficherNotification("Profil du censeur mis à jour avec succès !");
-  };
-
-  const handleFileChange = (e) => {
+  const handleChangerPhotoProfilCenseur = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormProfil(prev => ({ ...prev, photoProfil: reader.result }));
-      };
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setFormProfilCenseur(prev => ({ ...prev, photoProfil: reader.result }));
+    reader.readAsDataURL(file);
   };
 
-  const soumettreAffiliationCenseur = (e) => {
+  const confirmerQuitterEcole = () => {
+    setInfosCenseur(prev => ({ ...prev, etablissement: '' }));
+    setModalConfirmationQuitter(false);
+    showToast("🔄 Vous avez quitté l'établissement.");
+  };
+
+  // --- ACTIONS DES AFFILIATIONS ---
+  const ouvrirConsultationAffiliation = (aff) => {
+    setModalAffiliationConsult({
+      ouvert: true,
+      affiliation: aff,
+      classesModifiees: aff.classes ? aff.classes.join(', ') : ''
+    });
+  };
+
+  const validerAffiliationModifiee = (e) => {
     e.preventDefault();
-    if (!infosCenseur.etablissementSaisi.trim()) {
-      afficherNotification("Veuillez indiquer le nom de l'établissement.");
+    const { affiliation, classesModifiees } = modalAffiliationConsult;
+    const classesArray = classesModifiees.split(',').map(c => c.trim()).filter(Boolean);
+    setAffiliations(prev => (prev || []).map(a => a.id === affiliation.id ? { ...a, statut: 'Validée', classes: classesArray } : a));
+    setModalAffiliationConsult({ ouvert: false, affiliation: null, classesModifiees: '' });
+    showToast("✅ Affiliation validée avec succès avec les classes mises à jour !");
+  };
+
+  const rejeterAffiliation = (id) => {
+    setAffiliations(prev => (prev || []).filter(a => a.id !== id));
+    showToast("❌ Demande d'affiliation rejetée.");
+  };
+
+  const confirmerRetraitEnseignant = () => {
+    setAffiliations(prev => (prev || []).filter(a => a && a.id !== modalRetraitEnseignant.enseignantId));
+    setModalRetraitEnseignant({ ouvert: false, enseignantId: null, enseignantNom: '' });
+    showToast(`❌ Affiliation de l'enseignant ${modalRetraitEnseignant.enseignantNom} retirée avec succès.`);
+  };
+
+  // --- ADRESSER UNE PROPOSITION ENRICHIE (ANTI-DOUBLONS) ---
+  const envoyerPropositionAffiliation = (e) => {
+    e.preventDefault();
+    if (!modalProposition.nom.trim() || !modalProposition.matricule.trim() || !modalProposition.email.trim()) {
+      showToast("⚠️ Le nom, l'email et le matricule sont obligatoires.");
       return;
     }
 
-    setInfosCenseur(prev => ({ ...prev, demandeSoumise: true }));
-    afficherNotification("🚀 Demande d'affiliation transmise au Chef d'Établissement pour validation !");
+    const nouvelleProp = {
+      id: Date.now() + Math.random(),
+      ecole: infosCenseur?.etablissement || 'Établissement inconnu',
+      enseignantCible: `${modalProposition.civilite} ${modalProposition.nom} ${modalProposition.prenoms}`.trim(),
+      matricule: modalProposition.matricule.trim(),
+      dateNaissance: modalProposition.dateNaissance,
+      telephone: modalProposition.telephone.trim(),
+      email: modalProposition.email.trim(),
+      classes: (modalProposition.classesProposees || '').split(',').map(c => c.trim()).filter(Boolean),
+      censeurExpediteur: `${infosCenseur?.civilite || ''} ${infosCenseur?.nom || ''}`,
+      statut: 'En attente'
+    };
+
+    setPropositionsEnvoyees(prev => [...(prev || []), nouvelleProp]);
+    setModalProposition({
+      ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: ''
+    });
+    showToast(`📩 Proposition d'affiliation envoyée à ${nouvelleProp.enseignantCible} avec succès !`);
   };
 
-  const genererClassesParLot = (e) => {
-    e.preventDefault();
-    let nouvellesClasses = [];
-    const estLycee = ['2nde', '1ère', 'Terminale'].includes(niveauLot);
-
-    if (estLycee) {
-      Object.entries(seriesLyceeConfig).forEach(([serie, config]) => {
-        if (config.active && config.nombre > 0) {
-          for (let i = 1; i <= parseInt(config.nombre); i++) {
-            const suffixe = styleAppellation === 'lettre' ? String.fromCharCode(64 + i) : i;
-            nouvellesClasses.push({
-              id: Date.now() + Math.random(),
-              nom: `${niveauLot} ${serie}${suffixe}`,
-              niveau: niveauLot
-            });
-          }
-        }
-      });
-    } else {
-      for (let i = 1; i <= parseInt(nombreClassesLot); i++) {
-        const suffixe = styleAppellation === 'lettre' ? String.fromCharCode(64 + i) : i;
-        nouvellesClasses.push({
-          id: Date.now() + Math.random(),
-          nom: `${niveauLot} ${suffixe}`,
-          niveau: niveauLot
-        });
-      }
+  const transmettreRapportSelectionne = () => {
+    if (classesSelectionneesRapport.length === 0) {
+      showToast("⚠️ Veuillez cocher au moins une classe ou un niveau pour le rapport.");
+      return;
     }
-
-    setClassesEtablissement(prev => [...prev, ...nouvellesClasses]);
-    setModalCreationClasse(false);
-    afficherNotification(`✨ ${nouvellesClasses.length} classes générées avec succès !`);
+    const cleRapport = classesSelectionneesRapport.sort().join('_');
+    if (rapportsEnvoyesChef[cleRapport]) {
+      showToast("⚠️ Le rapport pour cette sélection a déjà été transmitted au Chef d'Établissement.");
+      return;
+    }
+    setRapportsEnvoyesChef(prev => ({
+      ...prev,
+      [cleRapport]: {
+        censeur: `${infosCenseur?.civilite || ''} ${infosCenseur?.nom || ''} ${infosCenseur?.prenoms || ''}`,
+        classes: classesSelectionneesRapport,
+        date: new Date().toISOString().split('T')[0],
+        statut: 'Transmis'
+      }
+    }));
+    showToast(`📤 Rapport des classes (${classesSelectionneesRapport.join(', ')}) transmis avec succès au Chef d'Établissement !`);
+    setClassesSelectionneesRapport([]);
   };
 
-  const ajouterClasseUnitaire = (e) => {
-    e.preventDefault();
-    if (!nomNouvelleClasse.trim()) return;
+  const viserElementUnique = (classeKey, cycleId, leconId = null, seanceId = null) => {
+    const prog = programmesClasses[classeKey];
+    if (!prog) return;
 
-    setClassesEtablissement(prev => [...prev, { id: Date.now(), nom: nomNouvelleClasse.trim(), niveau: niveauNouvelleClasse }]);
-    setNomNouvelleClasse('');
-    setModalCreationClasse(false);
-    afficherNotification("Classe officielle créée avec succès !");
+    let elementArchiveLibelle = '';
+    const cyclesMaj = (prog.cycles || []).map(cy => {
+      if (cy.id === cycleId) {
+        if (!leconId) {
+          elementArchiveLibelle = cy.titre;
+          return { ...cy, viseParCenseur: true, statut: 'Visé / Validé' };
+        }
+        return {
+          ...cy,
+          lecons: (cy.lecons || []).map(lc => {
+            if (lc.id === leconId) {
+              if (!seanceId) {
+                elementArchiveLibelle = lc.titre;
+                return { ...lc, viseParCenseur: true, statut: 'Validée' };
+              }
+              return {
+                ...lc,
+                seances: (lc.seances || []).map(sc => {
+                  if (sc.id === seanceId) {
+                    elementArchiveLibelle = sc.titre;
+                    setArchiveEcole(prev => [...(prev || []), {
+                      id: Date.now() + Math.random(),
+                      enseignant: prog.enseignant || 'Kouassi Jean',
+                      matiere: prog.matiere || 'EPS',
+                      classe: classeKey,
+                      niveau: prog.niveau || '6ème',
+                      anneeScolaire: prog.anneeScolaire || '2025-2026',
+                      type: 'Séance',
+                      titre: sc.titre,
+                      dateValidation: new Date().toISOString().split('T')[0],
+                      details: sc
+                    }]);
+                    return { ...sc, viseParCenseur: true, statut: 'Validée' };
+                  }
+                  return sc;
+                })
+              };
+            }
+            return lc;
+          })
+        };
+      }
+      return cy;
+    });
+
+    setProgrammesClasses({ ...programmesClasses, [classeKey]: { ...prog, cycles: cyclesMaj } });
+    showToast(`✍️ "${elementArchiveLibelle}" a été visé et synchronisé pour tous les censeurs !`);
   };
 
-  const enregistrerModificationClasse = (e) => {
-    e.preventDefault();
-    if (!modalEditionClasse.data || !nomClasseModif.trim()) return;
-
-    const idCible = modalEditionClasse.data.id;
-    setClassesEtablissement(prev => prev.map(cls => cls.id === idCible ? { ...cls, nom: nomClasseModif.trim(), niveau: niveauClasseModif } : cls));
-    setModalEditionClasse({ ouvert: false, data: null });
-    afficherNotification("Classe modifiée avec succès !");
+  const viserSelectionMultiple = () => {
+    if (elementsSelectionnes.length === 0) {
+      showToast("Veuillez sélectionner au moins une fiche à viser.");
+      return;
+    }
+    showToast(`✅ ${elementsSelectionnes.length} fiche(s) visée(s) et archivée(s) en masse avec succès !`);
+    setElementsSelectionnes([]);
   };
 
-  const confirmerSuppressionClasse = () => {
-    if (!modalSuppressionClasse.data) return;
-    setClassesEtablissement(prev => prev.filter(c => c.id !== modalSuppressionClasse.data.id));
-    setModalSuppressionClasse({ ouvert: false, data: null });
-    afficherNotification("Classe supprimée du répertoire officiel.");
+  const rejeterSelectionMultiple = () => {
+    if (elementsSelectionnes.length === 0) {
+      showToast("Veuillez sélectionner au moins un élément.");
+      return;
+    }
+    showToast(`❌ ${elementsSelectionnes.length} élément(s) rejeté(s).`);
+    setElementsSelectionnes([]);
   };
 
-  const validerSeanceUnitaire = (id) => {
-    setSeancesEnseignants(prev => prev.filter(s => s.id !== id));
-    afficherNotification("Fiche validée avec succès !");
+  const envoyerRappelMultiple = () => {
+    if (enseignantsSelectionnesRappel.length === 0) {
+      showToast("Veuillez sélectionner au moins un enseignant.");
+      return;
+    }
+    showToast(`✉️ Rappels envoyés avec succès à : ${enseignantsSelectionnesRappel.join(', ')}.`);
+    setEnseignantsSelectionnesRappel([]);
   };
 
-  const totalSeancesEnAttente = seancesEnseignants.length;
-  const totalAffiliationsEnAttente = demandesAffiliationEnseignants.filter(e => e.statutEcole === 'En attente' || e.statutClasse === 'En attente').length;
-  const totalRetataires = 1;
+  const envoyerRappelEnseignant = (nomEnseignant) => {
+    showToast(`✉️ Message de rappel envoyé avec succès à ${nomEnseignant} pour fiches manquantes.`);
+  };
+
+  const envoyerRappelGlobal = () => {
+    showToast(`✉️ Rappel hebdomadaire de soumission de fiches envoyé à tous les enseignants en retard !`);
+  };
+
+  const telechargerPDFArchive = (item) => {
+    const fenetreImpression = window.open('', '_blank');
+    if (!fenetreImpression) {
+      showToast("⚠️ Votre navigateur bloque les fenêtres pop-up.");
+      return;
+    }
+    fenetreImpression.document.write(`
+      <html>
+        <head>
+          <title>Archive - ${item.titre}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
+            .header-doc { text-align: center; border-bottom: 3px double #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
+            .header-doc h2 { margin: 0; color: #0f172a; font-size: 18px; text-transform: uppercase; }
+            .meta { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px; font-size: 13px; text-align: left; }
+            th { background-color: #f1f5f9; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <div class="header-doc">
+            <h2>ARCHIVE PÉDAGOGIQUE OFFICIELLE DE L'ÉTABLISSEMENT</h2>
+            <p>Fiche visée et validée</p>
+          </div>
+          <div class="meta">
+            <p><strong>Enseignant(e) :</strong> ${item.enseignant} (${item.matiere})</p>
+            <p><strong>Classe :</strong> ${item.classe} | <strong>Année :</strong> ${item.anneeScolaire}</p>
+            <p><strong>Titre :</strong> ${item.titre} | <strong>Date de validation :</strong> ${item.dateValidation}</p>
+          </div>
+          <table>
+            <tr><th>🎯 Habilités</th><td>${item.details?.habilites || 'N/A'}</td></tr>
+            <tr><th>📚 Contenus</th><td>${item.details?.contenus || 'N/A'}</td></tr>
+            <tr><th>⚡ Exercices</th><td>${item.details?.exercices || 'N/A'}</td></tr>
+            <tr><th>📝 Évaluations</th><td>${item.details?.evaluations || 'N/A'}</td></tr>
+          </table>
+          <script>window.onload = function() { window.print(); window.close(); }</script>
+        </body>
+      </html>
+    `);
+    fenetreImpression.document.close();
+    showToast("📥 Fiche téléchargée en PDF avec succès !");
+  };
+
+  const archiveFiltree = useMemo(() => {
+    return (archiveEcole || []).filter(item => {
+      if (!item) return false;
+      const matchEns = filtreArchiveEnseignant === 'TOUS' || item.enseignant === filtreArchiveEnseignant;
+      const matchAnnee = filtreArchiveAnnee === 'TOUTES' || item.anneeScolaire === filtreArchiveAnnee;
+      const matchClasse = filtreArchiveClasse === 'TOUTES' || item.classe === filtreArchiveClasse;
+      const matchMat = filtreArchiveMatiere === 'TOUTES' || item.matiere === filtreArchiveMatiere;
+      return matchEns && matchAnnee && matchClasse && matchMat;
+    });
+  }, [archiveEcole, filtreArchiveEnseignant, filtreArchiveAnnee, filtreArchiveClasse, filtreArchiveMatiere]);
 
   return (
     <div style={styles.container}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes glissement { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-        .anim-apparition { animation: apparition 0.3s ease-out forwards; }
-        .anim-modale { animation: glissement 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; }
-        .bouton-principal { background-color: #2563eb; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .bouton-principal:hover { background-color: #1d4ed8; transform: translateY(-1px); }
+        .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; }
+        .bouton-principal { background-color: #2563eb; color: white; }
+        .bouton-principal:hover { background-color: #1d4ed8; }
         .bouton-succes { background-color: #16a34a; color: white; }
         .bouton-succes:hover { background-color: #15803d; }
-        .bouton-danger { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
-        .bouton-danger:hover { background-color: #fecaca; }
+        .bouton-danger { background-color: #ef4444; color: white; }
+        .bouton-danger:hover { background-color: #dc2626; }
         .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-        .bouton-secondaire:hover { background-color: #e2e8f0; color: #0f172a; }
-        .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; transition: border-color 0.2s; }
-        .champ-saisie:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
-        .option-menu { width: 100%; text-align: left; padding: 10px 16px; background: transparent; border: none; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-        .option-menu:hover { background-color: #f1f5f9; color: #0f172a; padding-left: 20px; }
-        .option-menu.actif { background-color: #e0f2fe; color: #0369a1; }
-        .ligne-tableau { transition: background-color 0.2s; border-bottom: 1px solid #f1f5f9; }
-        .ligne-tableau:hover { background-color: #f8fafc; }
+        .bouton-secondaire:hover { background-color: #e2e8f0; }
+        .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; }
         .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
+        .anim-apparition { animation: apparition 0.2s ease-out forwards; }
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* NAVBAR SUPÉRIEURE CENSEUR */}
-      {etapeParcours === 'dashboard' && infosCenseur.affilieValide && (
-        <header style={styles.darkNavbar}>
-          <div style={styles.topBarMainRow}>
-            <h1 style={styles.navbarAppTitle}>Poste de Commandement Pédagogique ({infosCenseur.etablissementSaisi})</h1>
-          </div>
-
-          <div style={styles.bottomBarRow}>
-            <div style={{ position: 'relative' }} ref={profilRef}>
-              <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
+      {/* EN-TÊTE NAVBAR CENSEUR */}
+      <header style={styles.darkNavbar}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+          
+          {/* BLOC PROFIL CENSEUR CLIQUABLE AVEC PHOTO & BOUTON NOTIFICATIONS */}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }} ref={profilCenseurRef}>
+              <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
                 <div style={styles.avatarNavbarContainer}>
-                  {infosCenseur.photoProfil ? (
-                    <img src={infosCenseur.photoProfil} alt="Censeur" style={styles.avatarNavbarImg} />
+                  {infosCenseur?.photoProfil ? (
+                    <img src={infosCenseur.photoProfil} alt="Profil Censeur" style={styles.avatarNavbarImg} />
                   ) : (
-                    <div style={styles.avatarNavbarPlaceholder}>👔</div>
+                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
                   )}
                 </div>
                 <div style={styles.navbarTeacherInfo}>
-                  <span style={styles.navbarTeacherName}>{infosCenseur.civilite} {infosCenseur.nom} {infosCenseur.prenoms}</span>
-                  <span style={styles.navbarTeacherDetails}>{infosCenseur.titre} - Matière origine : {infosCenseur.matierePredilection}</span>
+                  <span style={styles.navbarTeacherName}>{infosCenseur?.civilite || ''} {infosCenseur?.nom || ''} {infosCenseur?.prenoms || ''}</span>
+                  <span style={styles.navbarTeacherDetails}>
+                    {infosCenseur?.etablissement || ''} - Compte : {infosCenseur?.statutCompte || ''}
+                  </span>
                 </div>
-                <span style={{ fontSize: '10px', color: '#94a3b8' }}>{profilOuvert ? '▲' : '▼'}</span>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>{profilCenseurOuvert ? '▲' : '▼'}</span>
               </button>
 
-              {profilOuvert && (
-                <div style={{ ...styles.notificationDropdown, width: '280px', left: 0, top: '50px' }} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Compte Censeur</div>
-                  <button onClick={() => { setFormProfil({ ...infosCenseur }); setModalProfilOuvert(true); setProfilOuvert(false); }} className="option-menu">
-                    ⚙️ Modifier Profil, Civilités & Matière
+              {profilCenseurOuvert && (
+                <div style={styles.notificationDropdown} className="anim-apparition">
+                  <div style={styles.dropdownHeader}>Mon Compte Censeur</div>
+                  <div style={{ padding: '8px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' }}>
+                    <strong>{infosCenseur?.civilite || ''} {infosCenseur?.nom || ''} {infosCenseur?.prenoms || ''}</strong><br />
+                    <span style={{ color: '#64748b', fontSize: '11px' }}>
+                      {infosCenseur?.etablissement || ''}<br />
+                      <em>Statut : {infosCenseur?.statutCompte || ''}</em>
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setFormProfilCenseur({ ...(infosCenseur || {}) });
+                      setModalProfilCenseurOuvert(true);
+                      setProfilCenseurOuvert(false);
+                    }} 
+                    style={styles.optionMenu}
+                  >
+                    ⚙️ Modifier mon profil & photo
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setModalConfirmationQuitter(true);
+                      setProfilCenseurOuvert(false);
+                    }} 
+                    style={{ ...styles.optionMenu, color: '#ef4444' }}
+                  >
+                    🚪 Quitter l'établissement / Changer
                   </button>
                 </div>
               )}
             </div>
 
-            <div style={styles.navActionsRight}>
-              <div style={{ position: 'relative' }} ref={menuRef}>
-                <button onClick={() => setMenuOuvert(!menuOuvert)} style={styles.navDarkBtn}>
-                  <span>🎛️ Navigation Pédagogique</span>
-                  {(totalSeancesEnAttente > 0 || totalAffiliationsEnAttente > 0) && (
-                    <span className="pastille-alerte">{totalSeancesEnAttente + totalAffiliationsEnAttente}</span>
-                  )}
-                  <span style={{ fontSize: '10px' }}>{menuOuvert ? '▲' : '▼'}</span>
-                </button>
-                {menuOuvert && (
-                  <div style={styles.multitaskDropdown} className="anim-apparition">
-                    <button onClick={() => { setOngletActif('flux'); setMenuOuvert(false); }} className={`option-menu ${ongletActif === 'flux' ? 'actif' : ''}`}>📊 Tableau de Bord Global</button>
-                    <button onClick={() => { setOngletActif('validation'); setMenuOuvert(false); }} className={`option-menu ${ongletActif === 'validation' ? 'actif' : ''}`}>📖 Validation des Fiches ({totalSeancesEnAttente})</button>
-                    <button onClick={() => { setOngletActif('relances'); setMenuOuvert(false); }} className={`option-menu ${ongletActif === 'relances' ? 'actif' : ''}`}>⚠️ Retataires Semaine ({totalRetataires})</button>
-                    <button onClick={() => { setOngletActif('classes'); setMenuOuvert(false); }} className={`option-menu ${ongletActif === 'classes' ? 'actif' : ''}`}>🏫 Répertoire des Classes ({classesEtablissement.length})</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </header>
-      )}
-
-      {/* CONTENU PRINCIPAL */}
-      <main style={styles.mainContentBody}>
-        {notification && (
-          <div style={styles.toastContainer} className="anim-apparition">
-            <div style={styles.toastSuccess}>{notification}</div>
-          </div>
-        )}
-
-        {/* --- ÉTAPE 1 : CRÉATION DU COMPTE INITIAL (AVEC TOUTES LES CIVILITÉS ET MATIÈRE DE PRÉDILECTION) --- */}
-        {etapeParcours === 'inscription' && (
-          <div style={{ maxWidth: '580px', margin: '20px auto', backgroundColor: '#ffffff', padding: '36px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }} className="anim-apparition">
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <span style={{ fontSize: '40px' }}>📝</span>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', margin: '10px 0 6px 0' }}>Création de Compte Censeur</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                Renseignez vos civilités et votre discipline d'origine pour les statistiques de l'établissement.
-              </p>
-            </div>
-
-            <form onSubmit={handleValidationInscription} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Civilité</label>
-                  <select value={formInscription.civilite} onChange={(e) => setFormInscription({...formInscription, civilite: e.target.value})} className="champ-saisie">
-                    <option value="M.">M.</option>
-                    <option value="Mme">Mme</option>
-                    <option value="Dr">Dr</option>
-                    <option value="Pr">Pr</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.label}>Nom</label>
-                  <input type="text" value={formInscription.nom} onChange={(e) => setFormInscription({...formInscription, nom: e.target.value})} placeholder="Ex: Koné" className="champ-saisie" required />
-                </div>
-              </div>
-
-              <div>
-                <label style={styles.label}>Prénoms</label>
-                <input type="text" value={formInscription.prenoms} onChange={(e) => setFormInscription({...formInscription, prenoms: e.target.value})} placeholder="Ex: Bernard" className="champ-saisie" required />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Date de naissance</label>
-                  <input type="date" value={formInscription.dateNaissance} onChange={(e) => setFormInscription({...formInscription, dateNaissance: e.target.value})} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Téléphone / WhatsApp</label>
-                  <input type="text" value={formInscription.telephone} onChange={(e) => setFormInscription({...formInscription, telephone: e.target.value})} placeholder="+225..." className="champ-saisie" required />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Matière de prédilection (Origine)</label>
-                  <input type="text" value={formInscription.matierePredilection} onChange={(e) => setFormInscription({...formInscription, matierePredilection: e.target.value})} placeholder="Ex: Mathématiques, EPS..." className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Ancienneté</label>
-                  <select value={formInscription.anciennete} onChange={(e) => setFormInscription({...formInscription, anciennete: e.target.value})} className="champ-saisie">
-                    <option value="Moins d'un an">Moins d'un an</option>
-                    <option value="1 à 5 ans">1 à 5 ans</option>
-                    <option value="6 à 10 ans">6 à 10 ans</option>
-                    <option value="Plus de 10 ans">Plus de 10 ans</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* SECTION STATUT PUBLIC / PRIVÉ & MATRICULE */}
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Secteur d'enseignement</label>
-                  <select value={formInscription.secteurEnseignement} onChange={(e) => setFormInscription({...formInscription, secteurEnseignement: e.target.value})} className="champ-saisie">
-                    <option value="Public">Public</option>
-                    <option value="Privé">Privé</option>
-                  </select>
-                </div>
-
-                {formInscription.secteurEnseignement === 'Public' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div>
-                      <label style={styles.label}>Statut dans le Public</label>
-                      <select value={formInscription.typeStatutPublic} onChange={(e) => setFormInscription({...formInscription, typeStatutPublic: e.target.value})} className="champ-saisie">
-                        <option value="Titulaire">Titulaire (Avec Matricule)</option>
-                        <option value="En attente de matricule">En attente d’un matricule</option>
-                        <option value="Contractuel">Contractuel</option>
-                      </select>
+            {/* BOUTON DE NOTIFICATIONS CENSEUR */}
+            <div style={{ position: 'relative' }} ref={notifCenseurRef}>
+              <button onClick={() => setNotifCenseurOuvert(!notifCenseurOuvert)} style={styles.navDarkBtn}>
+                <span>🔔 Notifications</span>
+                {(notificationsCenseur || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notificationsCenseur || []).filter(n => n && !n.lu).length}</span>}
+              </button>
+              {notifCenseurOuvert && (
+                <div style={styles.notificationDropdown} className="anim-apparition">
+                  <div style={styles.dropdownHeader}>Notifications & Fiches à Valider</div>
+                  {(notificationsCenseur || []).map(n => n ? (
+                    <div 
+                      key={n.id} 
+                      onClick={() => {
+                        setActiveTab('visa');
+                        setNotifCenseurOuvert(false);
+                      }}
+                      style={{ ...styles.notifItem, cursor: 'pointer' }}
+                    >
+                      <p style={{ margin: 0, fontSize: '12px', color: '#334155', fontWeight: n.texte && n.texte.includes('Nouvelle fiche') ? '700' : 'normal' }}>{n.texte}</p>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
                     </div>
+                  ) : null)}
+                </div>
+              )}
+            </div>
+          </div>
 
-                    {formInscription.typeStatutPublic === 'Titulaire' && (
-                      <div>
-                        <label style={styles.label}>Numéro Matricule</label>
-                        <input type="text" value={formInscription.numeroMatricule} onChange={(e) => setFormInscription({...formInscription, numeroMatricule: e.target.value})} placeholder="Ex: MT-XXXXXX" className="champ-saisie" required />
-                      </div>
+          {/* NOM DE L'ÉTABLISSEMENT AFFICHÉ AU CENTRE DE LA NAVBAR */}
+          <div style={styles.schoolTitleContainer}>
+            <span style={styles.schoolMainTitle}>{infosCenseur?.etablissement || 'Établissement non défini'}</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => setActiveTab('visa')} className={`bouton ${activeTab === 'visa' ? 'bouton-principal' : 'bouton-secondaire'}`}>✍️ Visa & Validation</button>
+            <button onClick={() => setActiveTab('affiliations')} className={`bouton ${activeTab === 'affiliations' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍🏫 Enseignants affiliés</button>
+            <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive de l'École</button>
+            <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Progression</button>
+            <button onClick={() => setActiveTab('suivi')} className={`bouton ${activeTab === 'suivi' ? 'bouton-principal' : 'bouton-secondaire'}`}>⏰ Suivi Hebdomadaire</button>
+            
+            {/* BOUTON QUITTER L'ÉCOLE DANS LA NAVBAR */}
+            <button 
+              onClick={() => setModalConfirmationQuitter(true)} 
+              style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
+              title="Se détacher de cet établissement"
+            >
+              🚪 Quitter l'école
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main style={styles.mainContentBody}>
+        {message && <div style={styles.toastSuccess}>{message}</div>}
+
+        {/* MODAL DE MODIFICATION DU PROFIL CENSEUR & PHOTO */}
+        {modalProfilCenseurOuvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>👤 Paramètres du Profil Censeur & Photo</h3>
+              
+              <form onSubmit={handleEnregistrerProfilCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
+                    {formProfilCenseur?.photoProfil ? (
+                      <img src={formProfilCenseur.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '28px' }}>👤</span>
                     )}
                   </div>
-                ) : (
-                  <div style={{ padding: '8px', backgroundColor: '#eef2f6', borderRadius: '6px', fontSize: '12px', color: '#334155', fontWeight: '600', textAlign: 'center' }}>
-                    Statut enregistré : <span style={{ color: '#2563eb' }}>Privé</span>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo de profil (Fichier)</label>
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilCenseur} style={{ fontSize: '11px', cursor: 'pointer' }} />
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div>
-                <label style={styles.label}>Email professionnel</label>
-                <input type="email" value={formInscription.email} onChange={(e) => setFormInscription({...formInscription, email: e.target.value})} placeholder="nom@ecole.edu" className="champ-saisie" required />
-              </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Civilité</label>
+                    <select value={formProfilCenseur?.civilite || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, civilite: e.target.value})} className="champ-saisie">
+                      <option value="M.">M.</option>
+                      <option value="Mme">Mme</option>
+                      <option value="Dr">Dr</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Nom</label>
+                    <input type="text" value={formProfilCenseur?.nom || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, nom: e.target.value})} className="champ-saisie" required />
+                  </div>
+                </div>
 
-              <div>
-                <label style={styles.label}>Mot de passe</label>
-                <input type="password" value={formInscription.motDePasse} onChange={(e) => setFormInscription({...formInscription, motDePasse: e.target.value})} placeholder="••••••••" className="champ-saisie" required />
-              </div>
+                <div>
+                  <label style={styles.label}>Prénoms</label>
+                  <input type="text" value={formProfilCenseur?.prenoms || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, prenoms: e.target.value})} className="champ-saisie" required />
+                </div>
 
-              <button type="submit" className="bouton bouton-principal" style={{ marginTop: '10px', backgroundColor: '#0f172a', padding: '12px' }}>
-                Valider et continuer vers l'affiliation
-              </button>
-            </form>
+                <div>
+                  <label style={styles.label}>Niveau en charge</label>
+                  <input type="text" value={formProfilCenseur?.niveauCharge || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, niveauCharge: e.target.value})} className="champ-saisie" required />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Statut du compte (soumis à validation du chef d'établissement)</label>
+                  <input type="text" value={formProfilCenseur?.statutCompte || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, statutCompte: e.target.value})} className="champ-saisie" required />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
-        {/* --- ÉTAPE 2 : AFFILIATION ÉTABLISSEMENT --- */}
-        {etapeParcours === 'affiliation' && !infosCenseur.affilieValide && (
-          <div style={{ maxWidth: '580px', margin: '40px auto', backgroundColor: '#ffffff', padding: '36px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }} className="anim-apparition">
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <span style={{ fontSize: '40px' }}>👔</span>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', margin: '10px 0 6px 0' }}>Affiliation Établissement</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                Bonjour {infosCenseur.civilite} {infosCenseur.nom}, veuillez rattacher votre profil à votre école.
+        {/* MODAL DE CONFIRMATION POUR QUITTER L'ÉCOLE */}
+        {modalConfirmationQuitter && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
+                Êtes-vous sûr de vouloir <strong>quitter cet établissement</strong> ? Votre établissement actuel sera réinitialisé.
               </p>
-            </div>
-
-            {infosCenseur.demandeSoumise ? (
-              <div style={{ textAlign: 'center', padding: '24px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
-                <h3 style={{ color: '#166534', margin: '0 0 6px 0' }}>⏳ Demande transmise (En attente de validation)</h3>
-                <p style={{ fontSize: '13px', color: '#15803d', margin: '0 0 16px 0' }}>
-                  Votre demande d'affiliation pour l'établissement <strong>{infosCenseur.etablissementSaisi}</strong> est en attente d'approbation par le Chef d'Établissement.
-                </p>
-
-                <button 
-                  onClick={() => {
-                    setInfosCenseur(prev => ({ ...prev, affilieValide: true, demandeSoumise: false }));
-                    etapeSetParcours('dashboard');
-                    afficherNotification("🎉 Accord du Directeur reçu ! Bienvenue sur votre tableau de bord censeur.");
-                  }} 
-                  className="bouton bouton-succes" 
-                  style={{ fontSize: '12px', marginBottom: '12px', width: '100%' }}
-                >
-                  ⚡ [Simulation] Valider l'affiliation côté Chef d'Établissement
-                </button>
-
-                <button 
-                  onClick={() => setInfosCenseur(prev => ({ ...prev, demandeSoumise: false }))} 
-                  className="bouton bouton-secondaire" 
-                  style={{ fontSize: '12px', width: '100%' }}
-                >
-                  Modifier mon choix d'établissement
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationQuitter(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={confirmerQuitterEcole} className="bouton bouton-danger">Oui, quitter l'école</button>
               </div>
-            ) : (
-              <form onSubmit={soumettreAffiliationCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div style={{ position: 'relative' }}>
-                  <label style={styles.label}>Nom de l'établissement souhaité ({infosCenseur.ville})</label>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL POUR ADRESSER UNE PROPOSITION D'AFFILIATION ENRICHIE */}
+        {modalProposition.ouvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
+                <button onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Veuillez remplir les informations d'identification complètes pour éviter tout doublon ou conflit d'intérêt.</p>
+              <form onSubmit={envoyerPropositionAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Civilité</label>
+                    <select value={modalProposition.civilite} onChange={(e) => setModalProposition(prev => ({ ...prev, civilite: e.target.value }))} className="champ-saisie">
+                      <option value="M.">M.</option><option value="Mme">Mme</option><option value="Dr">Dr</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Nom de famille</label>
+                    <input type="text" placeholder="Ex: Kouassi" value={modalProposition.nom} onChange={(e) => setModalProposition(prev => ({ ...prev, nom: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Prénoms</label>
+                    <input type="text" placeholder="Ex: Jean" value={modalProposition.prenoms} onChange={(e) => setModalProposition(prev => ({ ...prev, prenoms: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>N° Matricule (MENA)</label>
+                    <input type="text" placeholder="Identifiant unique" value={modalProposition.matricule} onChange={(e) => setModalProposition(prev => ({ ...prev, matricule: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Date de naissance</label>
+                    <input type="date" value={modalProposition.dateNaissance} onChange={(e) => setModalProposition(prev => ({ ...prev, dateNaissance: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Numéro de téléphone</label>
+                    <input type="tel" placeholder="Ex: 0102030405" value={modalProposition.telephone} onChange={(e) => setModalProposition(prev => ({ ...prev, telephone: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Email professionnel</label>
+                    <input type="email" placeholder="Ex: kouassi@ecole.ci" value={modalProposition.email} onChange={(e) => setModalProposition(prev => ({ ...prev, email: e.target.value }))} className="champ-saisie" required />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={styles.label}>Classes proposées (séparées par des virgules)</label>
+                  <input type="text" placeholder="Ex: 6ème A, 5ème B" value={modalProposition.classesProposees} onChange={(e) => setModalProposition(prev => ({ ...prev, classesProposees: e.target.value }))} className="champ-saisie" required />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                  <button type="button" onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Générer et envoyer l'invitation</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE RETRAIT D'UN ENSEIGNANT */}
+        {modalRetraitEnseignant.ouvert && (
+          <div className="fond-modale anim-apparition">
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Retirer l'affiliation</h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
+                Êtes-vous sûr de vouloir <strong>retirer l'affiliation de l'enseignant {modalRetraitEnseignant.enseignantNom}</strong> à votre établissement ?
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalRetraitEnseignant({ ouvert: false, enseignantId: null, enseignantNom: '' })} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={confirmerRetraitEnseignant} className="bouton bouton-danger">Oui, retirer l'affiliation</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE CONSULTATION ET MODIFICATION D'UNE DEMANDE D'AFFILIATION */}
+        {modalAffiliationConsult.ouvert && (
+          <div className="fond-modale">
+            <div style={{ ...styles.cardWide, width: '480px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a' }}>🏫 Consulter la Demande d'Affiliation</h3>
+                <button onClick={() => setModalAffiliationConsult({ ouvert: false, affiliation: null, classesModifiees: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+              </div>
+              <form onSubmit={validerAffiliationModifiee} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Enseignant :</label>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '700', fontSize: '14px' }}>{modalAffiliationConsult.affiliation?.enseignant || 'Enseignant'}</p>
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Établissement demandeur :</label>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '700', fontSize: '14px' }}>{modalAffiliationConsult.affiliation?.ecole}</p>
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Classes choisies par l'enseignant (modifiables) :</label>
                   <input 
                     type="text" 
-                    value={infosCenseur.etablissementSaisi} 
-                    onChange={(e) => setInfosCenseur({ ...infosCenseur, etablissementSaisi: e.target.value })} 
-                    placeholder="Tapez le nom de l'établissement..." 
+                    value={modalAffiliationConsult.classesModifiees} 
+                    onChange={(e) => setModalAffiliationConsult(prev => ({ ...prev, classesModifiees: e.target.value }))} 
                     className="champ-saisie" 
-                    style={{ backgroundColor: '#fefce8' }}
                     required 
                   />
-
-                  {infosCenseur.etablissementSaisi.trim() !== '' && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', maxHeight: '150px', overflowY: 'auto', zIndex: 100, marginTop: '4px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                      {infosCenseur.etablissementsDisponibles
-                        .filter(e => e.toLowerCase().includes(infosCenseur.etablissementSaisi.toLowerCase()))
-                        .map((etab, idx) => (
-                          <div 
-                            key={idx}
-                            onClick={() => setInfosCenseur({ ...infosCenseur, etablissementSaisi: etab })}
-                            style={{ padding: '10px 14px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                          >
-                            🏫 <strong>{etab}</strong>
-                          </div>
-                        ))}
-                    </div>
-                  )}
+                  <small style={{ color: '#64748b' }}>Séparez les classes par des virgules.</small>
                 </div>
-
-                <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', color: '#475569', lineHeight: '1.5' }}>
-                  💡 <strong>Rappel :</strong> Un établissement peut compter plusieurs censeurs. Aucune sélection de classe n'est requise ici pour vous laisser une liberté totale de supervision collaborative.
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                  <button type="button" onClick={() => setModalAffiliationConsult({ ouvert: false, affiliation: null, classesModifiees: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-succes">Valider l'affiliation</button>
                 </div>
-
-                <button type="submit" className="bouton bouton-principal" style={{ width: '100%', backgroundColor: '#0f172a', padding: '12px' }}>
-                  Soumettre la demande d'affiliation au Directeur
-                </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE CONSULTATION DÉTAILLÉE D'UNE FICHE */}
+        {modalConsultation.ouvert && (
+          <div className="fond-modale">
+            <div style={{ ...styles.cardWide, width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a' }}>👁️ Consultation détaillée de la Fiche</h3>
+                <button onClick={() => setModalConsultation({ ouvert: false, element: null, type: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+              </div>
+              <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <p style={{ margin: 0 }}><strong>Titre :</strong> {modalConsultation.element?.titre}</p>
+                <p style={{ margin: 0 }}><strong>Habilités :</strong> {modalConsultation.element?.habilites || 'N/A'}</p>
+                <p style={{ margin: 0 }}><strong>Contenus :</strong> {modalConsultation.element?.contenus || 'N/A'}</p>
+                <p style={{ margin: 0 }}><strong>Exercices :</strong> {modalConsultation.element?.exercices || 'N/A'}</p>
+                <p style={{ margin: 0 }}><strong>Évaluations :</strong> {modalConsultation.element?.evaluations || 'N/A'}</p>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                <button onClick={() => setModalConsultation({ ouvert: false, element: null, type: '' })} className="bouton bouton-principal">Fermer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ONGLET 1 : VISA & VALIDATION (TIMELINE DE LA PLUS RÉCENTE À LA MOINS RÉCENTE) */}
+        {activeTab === 'visa' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>Validation & Visa des Fichiers Soumis (File d'actualité)</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Classement chronologique de la plus récente à la moins récente. Chaque fiche affiche le nom de son enseignant.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={viserSelectionMultiple} className="bouton bouton-succes">✓ Viser la sélection en masse</button>
+                <button onClick={rejeterSelectionMultiple} className="bouton bouton-danger">✕ Rejeter la sélection</button>
+              </div>
+            </div>
+
+            {/* BARRE DE FILTRES : CLASSE -> MATIÈRE -> SEMAINE */}
+            <div style={styles.bibliothequeFilterBox}>
+              <div style={{ flex: '1 1 180px' }}>
+                <label style={styles.labelFiltre}>1. Filtrer par Classe</label>
+                <select value={visaClasseFiltre} onChange={(e) => setVisaClasseFiltre(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les classes</option>
+                  {Object.keys(programmesClasses || {}).map(cl => <option key={cl} value={cl}>{cl}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 180px' }}>
+                <label style={styles.labelFiltre}>2. Filtrer par Matière</label>
+                <select value={visaMatiereFiltre} onChange={(e) => setVisaMatiereFiltre(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les matières</option>
+                  <option value="EPS">EPS</option>
+                  <option value="Mathématiques">Mathématiques</option>
+                  <option value="Français">Français</option>
+                </select>
+              </div>
+              <div style={{ flex: '1 1 180px' }}>
+                <label style={styles.labelFiltre}>3. Filtrer par Semaine / Date</label>
+                <select value={visaSemaineFiltre} onChange={(e) => setVisaSemaineFiltre(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les semaines</option>
+                  <option value="2026-03-10">Semaine du 10 Mars 2026</option>
+                </select>
+              </div>
+            </div>
+
+            {Object.keys(programmesClasses || {}).length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune soumission en attente.</p>
+            ) : (
+              Object.entries(programmesClasses || {})
+                .filter(([classeNom]) => visaClasseFiltre === 'TOUTES' || visaClasseFiltre === classeNom)
+                .filter(([_, prog]) => visaMatiereFiltre === 'TOUTES' || (prog?.matiere || 'EPS') === visaMatiereFiltre)
+                .map(([classeNom, prog]) => (
+                  <div key={classeNom} style={{ marginTop: '16px', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '16px', backgroundColor: '#f8fafc' }}>
+                    <h3 style={{ margin: '0 0 12px 0', color: '#1e293b' }}>
+                      🏫 Classe : {classeNom} | Matière : {prog?.matiere || 'EPS'} | Enseignant(e) : <span style={{ color: '#2563eb' }}>{prog?.enseignant || 'M. Kouassi Jean'}</span>
+                    </h3>
+                    {(prog?.cycles || []).map(cy => cy ? (
+                      <div key={cy.id} style={{ backgroundColor: 'white', padding: '14px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={elementsSelectionnes.includes(cy.id)}
+                              onChange={(e) => {
+                                const id = cy.id;
+                                setElementsSelectionnes(prev => e.target.checked ? [...(prev || []), id] : (prev || []).filter(i => i !== id));
+                              }} 
+                            />
+                            <strong>📁 {cy.titre}</strong>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => setModalConsultation({ ouvert: true, element: cy, type: 'cycle' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '11px' }}>👁️ Consulter</button>
+                            {!cy.viseParCenseur && (
+                              <button onClick={() => viserElementUnique(classeNom, cy.id)} className="bouton bouton-succes" style={{ padding: '4px 10px', fontSize: '11px' }}>✍️ Viser</button>
+                            )}
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: cy.viseParCenseur ? '#16a34a' : '#d97706' }}>
+                              {cy.viseParCenseur ? '✅ Visé (Global)' : '⏳ En attente'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {(cy.lecons || []).map(lc => lc ? (
+                          <div key={lc.id} style={{ marginLeft: '16px', marginTop: '10px', borderLeft: '3px solid #2563eb', paddingLeft: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>📖 {lc.titre}</span>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => setModalConsultation({ ouvert: true, element: lc, type: 'lecon' })} className="bouton bouton-secondaire" style={{ padding: '2px 6px', fontSize: '10px' }}>Consulter</button>
+                                {!lc.viseParCenseur && (
+                                  <button onClick={() => viserElementUnique(classeNom, cy.id, lc.id)} className="bouton bouton-succes" style={{ padding: '2px 8px', fontSize: '10px' }}>Viser</button>
+                                )}
+                              </div>
+                            </div>
+
+                            {[...(lc.seances || [])]
+                              .sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0))
+                              .filter(sc => visaSemaineFiltre === 'TOUTES' || sc?.date === visaSemaineFiltre)
+                              .map(sc => sc ? (
+                                <div key={sc.id} style={{ marginLeft: '16px', marginTop: '6px', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={elementsSelectionnes.includes(sc.id)}
+                                      onChange={(e) => {
+                                        const id = sc.id;
+                                        setElementsSelectionnes(prev => e.target.checked ? [...(prev || []), id] : (prev || []).filter(i => i !== id));
+                                      }} 
+                                    />
+                                    <span>• Séance #{sc.numero} : {sc.titre} ({sc.date}) - <em>Enseignant: {prog?.enseignant || 'Kouassi Jean'}</em></span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button onClick={() => setModalConsultation({ ouvert: true, element: sc, type: 'seance' })} className="bouton bouton-secondaire" style={{ padding: '2px 6px', fontSize: '10px' }}>Consulter</button>
+                                    {!sc.viseParCenseur && (
+                                      <button onClick={() => viserElementUnique(classeNom, cy.id, lc.id, sc.id)} className="bouton bouton-succes" style={{ padding: '2px 8px', fontSize: '10px' }}>Viser & Archiver</button>
+                                    )}
+                                    <span style={{ color: sc.viseParCenseur ? '#16a34a' : '#64748b', fontWeight: '600' }}>{sc.viseParCenseur ? '✔ Visé & Archivé' : 'Non visé'}</span>
+                                  </div>
+                                </div>
+                              ) : null)}
+                          </div>
+                        ) : null)}
+                      </div>
+                    ) : null)}
+                  </div>
+                ))
             )}
           </div>
         )}
 
-        {/* --- ÉTAPE 3 : TABLEAU DE BORD GLOBAL DU CENSEUR --- */}
-        {etapeParcours === 'dashboard' && infosCenseur.affilieValide && (
-          <div key={ongletActif} className="anim-apparition">
-            
-            {/* MODALE CRÉATION CLASSES */}
-            {modalCreationClasse && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.modalCard, width: '480px' }} className="anim-modale">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a' }}>➕ Création des Classes Officielles</h3>
-                    <button onClick={() => setModalCreationClasse(false)} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                    <button type="button" onClick={() => setModeCreation('lot')} className={`bouton ${modeCreation === 'lot' ? 'bouton-principal' : 'bouton-secondaire'}`} style={{ flex: 1, fontSize: '12px' }}>
-                      ⚡ Génération par Lot (Auto)
-                    </button>
-                    <button type="button" onClick={() => setModeCreation('unitaire')} className={`bouton ${modeCreation === 'unitaire' ? 'bouton-principal' : 'bouton-secondaire'}`} style={{ flex: 1, fontSize: '12px' }}>
-                      ✏️ Création Unitaire
-                    </button>
-                  </div>
-
-                  {modeCreation === 'lot' ? (
-                    <form onSubmit={genererClassesParLot} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div>
-                        <label style={styles.label}>Niveau d'enseignement</label>
-                        <select value={niveauLot} onChange={(e) => setNiveauLot(e.target.value)} className="champ-saisie">
-                          <option value="6ème">6ème</option>
-                          <option value="5ème">5ème</option>
-                          <option value="4ème">4ème</option>
-                          <option value="3ème">3ème</option>
-                          <option value="2nde">2nde (Lycée)</option>
-                          <option value="1ère">1ère (Lycée)</option>
-                          <option value="Terminale">Terminale (Lycée)</option>
-                        </select>
-                      </div>
-
-                      {['2nde', '1ère', 'Terminale'].includes(niveauLot) ? (
-                        <div>
-                          <label style={styles.label}>Précisez le nombre de classes pour chaque série :</label>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
-                            {Object.keys(seriesLyceeConfig).map(serie => (
-                              <div key={serie} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-                                  <input 
-                                    type="checkbox" 
-                                    checked={seriesLyceeConfig[serie].active}
-                                    onChange={(e) => {
-                                      setSeriesLyceeConfig({
-                                        ...seriesLyceeConfig,
-                                        [serie]: { ...seriesLyceeConfig[serie], active: e.target.checked }
-                                      });
-                                    }}
-                                  />
-                                  Série {serie}
-                                </label>
-                                {seriesLyceeConfig[serie].active && (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '11px', color: '#64748b' }}>Classes :</span>
-                                    <input 
-                                      type="number" 
-                                      min="1" 
-                                      max="10" 
-                                      value={seriesLyceeConfig[serie].nombre}
-                                      onChange={(e) => {
-                                        setSeriesLyceeConfig({
-                                          ...seriesLyceeConfig,
-                                          [serie]: { ...seriesLyceeConfig[serie], nombre: parseInt(e.target.value) || 1 }
-                                        });
-                                      }}
-                                      className="champ-saisie"
-                                      style={{ width: '70px', padding: '4px 8px' }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <label style={styles.label}>Nombre de classes</label>
-                          <input type="number" min="1" max="20" value={nombreClassesLot} onChange={(e) => setNombreClassesLot(e.target.value)} className="champ-saisie" required />
-                        </div>
-                      )}
-
-                      <div>
-                        <label style={styles.label}>Format d'appellation</label>
-                        <select value={styleAppellation} onChange={(e) => setStyleAppellation(e.target.value)} className="champ-saisie">
-                          <option value="lettre">Lettres (A, B, C...)</option>
-                          <option value="chiffre">Chiffres (1, 2, 3...)</option>
-                        </select>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                        <button type="button" onClick={() => setModalCreationClasse(false)} className="bouton bouton-secondaire">Annuler</button>
-                        <button type="submit" className="bouton bouton-principal">Générer</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <form onSubmit={ajouterClasseUnitaire} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div>
-                        <label style={styles.label}>Nom exact de la classe</label>
-                        <input type="text" value={nomNouvelleClasse} onChange={(e) => setNomNouvelleClasse(e.target.value)} placeholder="Ex: 6ème A..." className="champ-saisie" required />
-                      </div>
-                      <div>
-                        <label style={styles.label}>Niveau</label>
-                        <select value={niveauNouvelleClasse} onChange={(e) => setNiveauNouvelleClasse(e.target.value)} className="champ-saisie">
-                          <option value="6ème">6ème</option>
-                          <option value="5ème">5ème</option>
-                          <option value="4ème">4ème</option>
-                          <option value="3ème">3ème</option>
-                          <option value="2nde">2nde</option>
-                          <option value="1ère">1ère</option>
-                          <option value="Terminale">Terminale</option>
-                        </select>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                        <button type="button" onClick={() => setModalCreationClasse(false)} className="bouton bouton-secondaire">Annuler</button>
-                        <button type="submit" className="bouton bouton-principal">Enregistrer</button>
-                      </div>
-                    </form>
-                  )}
-                </div>
+        {/* ONGLET : GESTION DES ENSEIGNANTS & AFFILIATIONS */}
+        {activeTab === 'affiliations' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>👨‍🏫 Gestion des Enseignants & Affiliations</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Supervisez l'équipe pédagogique ou invitez de nouveaux enseignants par Matricule.</p>
               </div>
-            )}
+              <button 
+                onClick={() => setModalProposition({ ouvert: true, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: '' })} 
+                className="bouton bouton-principal"
+              >
+                + Adresser une proposition à un enseignant
+              </button>
+            </div>
 
-            {/* MODALE MODIFICATION PROFIL CENSEUR DEPUIS LE DASHBOARD */}
-            {modalProfilOuvert && (
-              <div className="fond-modale anim-apparition">
-                <div style={{ ...styles.modalCard, width: '480px', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a' }}>⚙️ Modifier le Profil & Civilités</h3>
-                    <button onClick={() => setModalProfilOuvert(false)} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
-                  </div>
-
-                  <form onSubmit={handleSauvegarderProfil} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
-                      <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
-                        {formProfil.photoProfil ? (
-                          <img src={formProfil.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <span style={{ fontSize: '28px' }}>👔</span>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo (Fichier)</label>
-                        <input type="file" accept="image/*" onChange={handleFileChange} style={{ fontSize: '11px', cursor: 'pointer' }} />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                      <div>
-                        <label style={styles.label}>Civilité</label>
-                        <select value={formProfil.civilite} onChange={(e) => setFormProfil({ ...formProfil, civilite: e.target.value })} className="champ-saisie">
-                          <option value="M.">M.</option>
-                          <option value="Mme">Mme</option>
-                          <option value="Dr">Dr</option>
-                          <option value="Pr">Pr</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label style={styles.label}>Nom</label>
-                        <input type="text" value={formProfil.nom} onChange={(e) => setFormProfil({ ...formProfil, nom: e.target.value })} className="champ-saisie" required />
-                      </div>
-                    </div>
-
-                    <div><label style={styles.label}>Prénoms</label><input type="text" value={formProfil.prenoms} onChange={(e) => setFormProfil({ ...formProfil, prenoms: e.target.value })} className="champ-saisie" required /></div>
-                    <div><label style={styles.label}>Titre / Fonction</label><input type="text" value={formProfil.titre} onChange={(e) => setFormProfil({ ...formProfil, titre: e.target.value })} className="champ-saisie" required /></div>
-                    <div><label style={styles.label}>Téléphone / WhatsApp</label><input type="text" value={formProfil.telephone} onChange={(e) => setFormProfil({ ...formProfil, telephone: e.target.value })} className="champ-saisie" required /></div>
-                    
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '24px' }}>Enseignants affiliés / En attente</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(affiliations || []).length === 0 ? (
+                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune demande ni enseignant affilié.</p>
+              ) : (
+                (affiliations || []).map(aff => aff ? (
+                  <div key={aff.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
-                      <label style={styles.label}>Matière de prédilection (Origine)</label>
-                      <input type="text" value={formProfil.matierePredilection} onChange={(e) => setFormProfil({ ...formProfil, matierePredilection: e.target.value })} className="champ-saisie" required />
+                      <strong style={{ color: '#1e40af', fontSize: '15px' }}>{aff.enseignant || 'Enseignant'}</strong> <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {aff.matricule || 'N/A'}</span><br/>
+                      <small style={{ color: '#475569', display: 'block', marginTop: '4px' }}>Classes : {(aff.classes || []).join(', ')} | Email : {aff.email || 'N/A'}</small>
                     </div>
-
-                    {/* SECTION STATUT PUBLIC / PRIVÉ & MATRICULE */}
-                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <div>
-                        <label style={styles.label}>Secteur d'enseignement</label>
-                        <select 
-                          value={formProfil.secteurEnseignement} 
-                          onChange={(e) => setFormProfil({ ...formProfil, secteurEnseignement: e.target.value })} 
-                          className="champ-saisie"
-                        >
-                          <option value="Public">Public</option>
-                          <option value="Privé">Privé</option>
-                        </select>
-                      </div>
-
-                      {formProfil.secteurEnseignement === 'Public' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <div>
-                            <label style={styles.label}>Statut dans le Public</label>
-                            <select 
-                              value={formProfil.typeStatutPublic} 
-                              onChange={(e) => setFormProfil({ ...formProfil, typeStatutPublic: e.target.value })} 
-                              className="champ-saisie"
-                            >
-                              <option value="Titulaire">Titulaire (Avec Matricule)</option>
-                              <option value="En attente de matricule">En attente d’un matricule</option>
-                              <option value="Contractuel">Contractuel</option>
-                            </select>
-                          </div>
-
-                          {formProfil.typeStatutPublic === 'Titulaire' && (
-                            <div>
-                              <label style={styles.label}>Numéro Matricule</label>
-                              <input 
-                                type="text" 
-                                value={formProfil.numeroMatricule} 
-                                onChange={(e) => setFormProfil({ ...formProfil, numeroMatricule: e.target.value })} 
-                                placeholder="Ex: MT-XXXXXX" 
-                                className="champ-saisie" 
-                                required 
-                              />
-                            </div>
-                          )}
-                        </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', borderRadius: '6px', backgroundColor: aff.statut === 'Validée' ? '#dcfce7' : '#fef3c7', color: aff.statut === 'Validée' ? '#166534' : '#92400e', marginRight: '8px' }}>
+                        {aff.statut}
+                      </span>
+                      {aff.statut !== 'Validée' ? (
+                        <>
+                          <button onClick={() => ouvrirConsultationAffiliation(aff)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '11px' }}>
+                            👁️ Consulter / Valider
+                          </button>
+                          <button onClick={() => rejeterAffiliation(aff.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>
+                            Rejeter
+                          </button>
+                        </>
                       ) : (
-                        <div style={{ padding: '8px', backgroundColor: '#eef2f6', borderRadius: '6px', fontSize: '12px', color: '#334155', fontWeight: '600', textAlign: 'center' }}>
-                          Statut enregistré : <span style={{ color: '#2563eb' }}>Privé</span>
-                        </div>
+                        <button onClick={() => setModalRetraitEnseignant({ ouvert: true, enseignantId: aff.id, enseignantNom: aff.enseignant })} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>
+                          Retirer l'affiliation
+                        </button>
                       )}
                     </div>
+                  </div>
+                ) : null)
+              )}
+            </div>
 
-                    <div><label style={styles.label}>Établissement</label><input type="text" value={formProfil.etablissementSaisi} onChange={(e) => setFormProfil({ ...formProfil, etablissementSaisi: e.target.value })} className="champ-saisie" required /></div>
-                    <div><label style={styles.label}>Ville</label><input type="text" value={formProfil.ville} onChange={(e) => setFormProfil({ ...formProfil, ville: e.target.value })} className="champ-saisie" required /></div>
-                    <div><label style={styles.label}>Email professionnel</label><input type="email" value={formProfil.email} onChange={(e) => setFormProfil({ ...formProfil, email: e.target.value })} className="champ-saisie" required /></div>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                      <button type="button" onClick={() => setModalProfilOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                      <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+            {(propositionsEnvoyees || []).length > 0 && (
+              <>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '30px' }}>Invitations envoyées (En attente de réponse)</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {(propositionsEnvoyees || []).map(prop => prop ? (
+                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <strong style={{ color: '#92400e' }}>{prop.enseignantCible || prop.nomEnseignant}</strong> <span style={{ fontSize: '11px', color: '#b45309', backgroundColor: '#fefce8', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {prop.matricule || 'N/A'}</span><br/>
+                        <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>Classes : {(prop.classes || []).join(', ')} | Email : {prop.email || 'N/A'}</small>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#b45309' }}>⏳ En attente de sa connexion</span>
+                      </div>
                     </div>
-                  </form>
+                  ) : null)}
                 </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ONGLET 2 : ARCHIVE PÉDAGOGIQUE DE L'ÉTABLISSEMENT */}
+        {activeTab === 'archive' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 4px 0' }}>📁 Archive Pédagogique Permanente de l'École</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Base d'archives sécurisée de l'établissement. Accessible à tous les censeurs, toutes années confondues.</p>
+
+            <div style={styles.bibliothequeFilterBox}>
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={styles.labelFiltre}>Enseignant</label>
+                <select value={filtreArchiveEnseignant} onChange={(e) => setFiltreArchiveEnseignant(e.target.value)} className="champ-saisie">
+                  <option value="TOUS">Tous les enseignants</option>
+                  <option value="M. Kouassi Jean">M. Kouassi Jean</option>
+                </select>
+              </div>
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={styles.labelFiltre}>Année</label>
+                <select value={filtreArchiveAnnee} onChange={(e) => setFiltreArchiveAnnee(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les années</option>
+                  <option value="2025-2026">2025-2026</option>
+                </select>
+              </div>
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={styles.labelFiltre}>Classe</label>
+                <select value={filtreArchiveClasse} onChange={(e) => setFiltreArchiveClasse(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les classes</option>
+                  <option value="6ème A">6ème A</option>
+                </select>
+              </div>
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={styles.labelFiltre}>Matière</label>
+                <select value={filtreArchiveMatiere} onChange={(e) => setFiltreArchiveMatiere(e.target.value)} className="champ-saisie">
+                  <option value="TOUTES">Toutes les matières</option>
+                  <option value="EPS">EPS</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+              {(archiveFiltree || []).length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', textAlign: 'center', padding: '30px' }}>Aucune archive trouvée avec ces critères.</p>
+              ) : (
+                (archiveFiltree || []).map(item => item ? (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>{item.classe}</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>({item.matiere} - {item.anneeScolaire})</span>
+                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{item.titre}</strong>
+                      </div>
+                      <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{item.enseignant}</strong> | Validé le : {item.dateValidation}</p>
+                    </div>
+                    <div>
+                      <button onClick={() => telechargerPDFArchive(item)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '11px' }}>📥 Télécharger (PDF)</button>
+                    </div>
+                  </div>
+                ) : null)
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ONGLET 3 : STATISTIQUES, PROGRESSION PAR NIVEAU & ENSEIGNANT */}
+        {activeTab === 'stats' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>📊 Statistiques classées par Niveau et par Enseignant</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Cochez ci-dessous les classes/niveaux concernés, puis transmettez le rapport au Chef d'Établissement.</p>
+              </div>
+              <button 
+                onClick={transmettreRapportSelectionne} 
+                className="bouton bouton-succes"
+              >
+                📤 Transmettre le rapport des classes cochées au Chef d'Établissement
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '8px' }}>Sélectionner les classes/niveaux à inclure dans le rapport :</label>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                {Object.keys(programmesClasses || {}).map(classeNom => {
+                  const estCoche = (classesSelectionneesRapport || []).includes(classeNom);
+                  return (
+                    <label key={classeNom} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={estCoche}
+                        onChange={(e) => {
+                          setClassesSelectionneesRapport(prev => e.target.checked ? [...(prev || []), classeNom] : (prev || []).filter(c => c !== classeNom));
+                        }} 
+                      />
+                      Classe {classeNom}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '24px' }}>📈</span>
+                <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Total Cycles Validés ({infosCenseur?.niveauCharge || ''})</h4>
+                <p style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', margin: 0 }}>1</p>
+              </div>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '24px' }}>📚</span>
+                <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Fiches de Séances Archivées</h4>
+                <p style={{ fontSize: '22px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{(archiveEcole || []).length}</p>
+              </div>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '24px' }}>⏰</span>
+                <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Séances Reportées / Manquées</h4>
+                <p style={{ fontSize: '22px', fontWeight: '800', color: '#ef4444', margin: 0 }}>{(rapportsReports || []).length}</p>
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>Registre des Séances et Cours Reportés par les Professeurs</h3>
+            {(rapportsReports || []).length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px', marginBottom: '24px' }}>Aucun report de cours enregistré.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+                {(rapportsReports || []).map(rep => rep ? (
+                  <div key={rep.id} style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '14px', borderRadius: '8px', fontSize: '13px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <strong style={{ color: '#991b1b' }}>Professeur : {rep.enseignant} ({rep.matiere}) - Classe : {rep.classe}</strong>
+                      <span style={{ fontSize: '11px', color: '#b91c1c', backgroundColor: '#fee2e2', padding: '2px 6px', borderRadius: '4px' }}>Date manquée : {rep.date}</span>
+                    </div>
+                    <p style={{ margin: '4px 0 0 0', color: '#7f1d1d' }}><strong>Séance / Cours :</strong> {rep.seance}</p>
+                    <p style={{ margin: '4px 0 0 0', color: '#475569' }}><strong>Motif :</strong> {rep.motif}</p>
+                  </div>
+                ) : null)}
               </div>
             )}
 
-            {/* ONGLET 1 : TABLEAU DE BORD GLOBAL */}
-            {ongletActif === 'flux' && (
-              <div style={styles.sectionContainer}>
-                <div style={styles.kpiGrid}>
-                  <div style={styles.statCard} onClick={() => setOngletActif('validation')} role="button">
-                    <h4 style={styles.statTitle}>Fiches en Attente de Validation</h4>
-                    <div style={{ fontSize: '24px', fontWeight: '700', color: totalSeancesEnAttente > 0 ? '#d97706' : '#166534' }}>{totalSeancesEnAttente} à examiner</div>
-                    <p style={styles.statSub}>Consultation ou validation multiple</p>
-                  </div>
-                  <div style={styles.statCard} onClick={() => setOngletActif('relances')} role="button">
-                    <h4 style={styles.statTitle}>Enseignants Retataires (Semaine)</h4>
-                    <div style={{ fontSize: '24px', fontWeight: '700', color: totalRetataires > 0 ? '#dc2626' : '#166534' }}>{totalRetataires} sans fiches</div>
-                    <p style={styles.statSub}>Rappels par matière et classe</p>
-                  </div>
-                  <div style={styles.statCard} onClick={() => setOngletActif('classes')} role="button">
-                    <h4 style={styles.statTitle}>Répertoire des Classes</h4>
-                    <div style={{ fontSize: '24px', fontWeight: '700', color: '#7c3aed' }}>{classesEtablissement.length} classe(s)</div>
-                    <p style={styles.statSub}>Base centralisée de l'école</p>
-                  </div>
-                </div>
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>Tableau comparatif détaillé (Par Niveau et par Enseignant)</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left' }}>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Niveau</th>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Classe</th>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Enseignant</th>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Matière</th>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Cycles & Fréquence</th>
+                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Progression</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontWeight: '700', color: '#2563eb' }}>6ème</td>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>6ème A</td>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>M. Kouassi Jean</td>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>EPS</td>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>1 cycle / 1 leçon</td>
+                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}><div style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontWeight: '700', textAlign: 'center' }}>25% (Régulier)</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                <div style={styles.cardWide}>
-                  <h3 style={styles.cardTitle}>⚡ Poste de Commandement Pédagogique ({infosCenseur.etablissementSaisi})</h3>
-                  <p style={styles.cardSubtitle}>Pilotez les activités, contrôlez les fiches et validez les professeurs de l'établissement.</p>
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <button onClick={() => setOngletActif('validation')} className="bouton bouton-principal">📖 Examiner les fiches en attente</button>
-                    <button onClick={() => setOngletActif('classes')} className="bouton" style={{ backgroundColor: '#7c3aed', color: 'white' }}>🏫 Gérer les classes officielles</button>
-                  </div>
-                </div>
+        {/* ONGLET 4 : SUIVI HEBDOMADAIRE & RAPPELS EN MASSE */}
+        {activeTab === 'suivi' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>⏰ Suivi Hebdomadaire & Rappels Automatiques</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Sélectionnez un ou plusieurs enseignants en retard pour leur envoyer des rappels groupés.</p>
               </div>
-            )}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={envoyerRappelMultiple} className="bouton bouton-danger">
+                  ✉️ Envoyer un rappel aux sélectionnés
+                </button>
+                <button onClick={envoyerRappelGlobal} className="bouton bouton-principal">
+                  ✉️ Rappel global (Tous)
+                </button>
+              </div>
+            </div>
 
-            {/* ONGLET : CLASSES OFFICIELLES */}
-            {ongletActif === 'classes' && (
-              <div style={styles.cardWide}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef2f2', padding: '14px', borderRadius: '8px', border: '1px solid #fecaca', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={(enseignantsSelectionnesRappel || []).includes('M. Kouassi Jean')}
+                    onChange={(e) => {
+                      const nom = 'M. Kouassi Jean';
+                      setEnseignantsSelectionnesRappel(prev => e.target.checked ? [...(prev || []), nom] : (prev || []).filter(n => n !== nom));
+                    }} 
+                  />
                   <div>
-                    <h3 style={styles.cardTitle}>🏫 Répertoire Officiel des Classes</h3>
-                    <p style={styles.cardSubtitle}>Classes configurées pour l'établissement. Les enseignants y piochent directement leurs classes en charge.</p>
+                    <strong style={{ color: '#991b1b' }}>M. Kouassi Jean (EPS)</strong><br />
+                    <small style={{ color: '#b91c1c' }}>Dernière soumission : Il y a 5 jours | Statut de la semaine : ⚠️ Aucune nouvelle séance enregistrée</small>
                   </div>
-                  <button onClick={() => setModalCreationClasse(true)} className="bouton bouton-principal">
-                    ➕ Créer ou générer des classes
+                </div>
+                <div>
+                  <button onClick={() => envoyerRappelEnseignant('M. Kouassi Jean')} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>
+                    Envoyer un rappel
                   </button>
                 </div>
-
-                <div style={styles.tableContainer}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr style={styles.trHead}>
-                        <th style={styles.th}>Appellation</th>
-                        <th style={styles.th}>Niveau</th>
-                        <th style={styles.th}>Statut</th>
-                        <th style={styles.th}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {classesEtablissement.map((cls) => (
-                        <tr key={cls.id} className="ligne-tableau">
-                          <td style={styles.td}><strong style={{ color: '#2563eb' }}>{cls.nom}</strong></td>
-                          <td style={styles.td}><span style={styles.badgeNiveau}>{cls.niveau}</span></td>
-                          <td style={styles.td}><span style={{ color: '#166534', fontWeight: '600', fontSize: '12px' }}>● Actif</span></td>
-                          <td style={styles.td}>
-                            <button onClick={() => setModalSuppressionClasse({ ouvert: true, data: cls })} className="bouton bouton-danger" style={{ padding: '6px 10px', fontSize: '11px' }}>
-                              🗑️ Supprimer
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </div>
-            )}
-
-            {/* ONGLET : VALIDATION DES FICHES */}
-            {ongletActif === 'validation' && (
-              <div style={styles.cardWide}>
-                <h3 style={styles.cardTitle}>📖 Validation & Consultation des Fiches</h3>
-                <p style={styles.cardSubtitle}>Examinez et validez les cahiers de texte soumis par le corps professoral.</p>
-                <div style={styles.tableContainer}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr style={styles.trHead}>
-                        <th style={styles.th}>Enseignant</th>
-                        <th style={styles.th}>Classe</th>
-                        <th style={styles.th}>Séance</th>
-                        <th style={styles.th}>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {seancesEnseignants.map(s => (
-                        <tr key={s.id} className="ligne-tableau">
-                          <td style={styles.td}><strong>{s.enseignantNom}</strong><br/><span style={{fontSize:'11px', color:'#64748b'}}>{s.matiere}</span></td>
-                          <td style={styles.td}><span style={styles.badgeNiveau}>{s.classe}</span></td>
-                          <td style={styles.td}>{s.titre}</td>
-                          <td style={styles.td}>
-                            <button onClick={() => validerSeanceUnitaire(s.id)} className="bouton bouton-principal" style={{ padding: '6px 10px', fontSize: '11px' }}>✓ Valider</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
+            </div>
           </div>
         )}
       </main>
@@ -869,9 +1210,10 @@ export default function CenseurDashboard() {
 
 const styles = {
   container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
-  topBarMainRow: { display: 'flex', alignItems: 'center' },
-  navbarAppTitle: { fontSize: '18px', fontWeight: '700', margin: 0, color: '#ffffff' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
+  topBarMainRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  schoolTitleContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
+  schoolMainTitle: { fontSize: '20px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px', textTransform: 'uppercase' },
   bottomBarRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' },
   navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
   avatarNavbarContainer: { width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
@@ -880,28 +1222,15 @@ const styles = {
   navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
   navbarTeacherName: { fontSize: '12px', fontWeight: '700', color: '#ffffff' },
   navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8' },
-  navActionsRight: { display: 'flex', gap: '12px', alignItems: 'center', position: 'relative' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto', position: 'relative' },
-  multitaskDropdown: { position: 'absolute', top: '44px', left: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '6px' },
-  notificationDropdown: { position: 'absolute', top: '44px', right: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '300px', zIndex: 100, padding: '10px' },
+  notificationDropdown: { position: 'absolute', top: '48px', left: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, padding: '10px' },
   dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
-  toastContainer: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
-  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', border: '1px solid #334155' },
-  sectionContainer: { display: 'flex', flexDirection: 'column', gap: '20px' },
-  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' },
-  statCard: { backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', cursor: 'pointer', transition: 'transform 0.2s' },
-  statTitle: { fontSize: '13px', fontWeight: '600', color: '#64748b', margin: '0 0 8px 0' },
-  statSub: { fontSize: '11px', color: '#94a3b8', margin: '4px 0 0 0' },
-  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' },
-  cardTitle: { fontSize: '16px', fontWeight: '600', color: '#0f172a', margin: '0 0 4px 0' },
-  cardSubtitle: { fontSize: '12px', color: '#64748b', marginBottom: '20px' },
-  badgeNiveau: { backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: '700' },
-  label: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' },
-  modalCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' },
-  tableContainer: { marginTop: '10px', overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' },
-  trHead: { borderBottom: '2px solid #e2e8f0', color: '#475569' },
-  th: { padding: '12px', fontWeight: '600', fontSize: '13px' },
-  td: { padding: '12px', color: '#334155' }
+  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '6px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
+  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
+  'champ-saisie': { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none' },
+  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' }
 };

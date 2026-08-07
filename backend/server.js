@@ -1,17 +1,63 @@
+require('dotenv').config(); // 👈 INDISPENSABLE : Charge le fichier .env
 const express = require('express');
-const app = express();
+const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js'); // 👈 Importe Supabase
 
-// Middleware pour permettre à Express de lire le format JSON
+const app = express();
+const PORT = process.env.PORT || 5002;
+
+// --- INITIALISATION SUPABASE ---
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("❌ ERREUR : Clés Supabase manquantes dans le fichier .env");
+  process.exit(1);
+}
+
+// Création du client Supabase
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// --- MIDDLEWARES ---
+app.use(cors());
 app.use(express.json());
 
-// Importation de votre routeur de cahier de texte
-const cahierDeTexteRouter = require('./routes/cahierDeTexte');
+// 👈 ASTUCE DE PRO : On injecte Supabase dans "req" pour que tes fichiers dans le dossier "routes" puissent l'utiliser facilement !
+app.use((req, res, next) => {
+  req.supabase = supabase;
+  next();
+});
 
-// Utilisation des routes avec le préfixe /api
-app.use('/api', cahierDeTexteRouter);
+// 1. Routes des cahiers de texte
+try {
+  const cahierDeTexteRoutes = require('./routes/cahierDeTexte');
+  app.use('/api/cahiers-texte', cahierDeTexteRoutes);
+} catch (error) {
+  console.warn("⚠️ Avertissement : Les routes './routes/cahierDeTexte' n'ont pas pu être chargées :", error.message);
+}
 
-// Lancement du serveur
-const PORT = 3000;
+// 2. Routes des établissements
+try {
+  const etablissementRoutes = require('./routes/etablissements');
+  app.use('/api/etablissements', etablissementRoutes);
+} catch (error) {
+  console.error("❌ ERREUR EXACTE etablissements :", error.message);
+}
+
+// 3. Routes des utilisateurs et rôles
+try {
+  const utilisateurRoutes = require('./routes/utilisateurs');
+  app.use('/api/utilisateurs', utilisateurRoutes);
+} catch (error) {
+  console.error("❌ ERREUR EXACTE utilisateurs :", error.message);
+}
+
+// Route de base
+app.get('/', (req, res) => {
+  res.send("Salut ! Le serveur premium de E-cahier est bien en ligne et connecté à Supabase ! 🚀");
+});
+
+// Démarrage du serveur
 app.listen(PORT, () => {
-    console.log(`Le serveur Nzonya tourne sur le port ${PORT}`);
+  console.log(`✅ Serveur démarré avec succès sur http://localhost:${PORT}`);
 });

@@ -4,21 +4,21 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
   const [menuOuvert, setMenuOuvert] = useState(false);
 
   return (
-    <header className="bg-slate-900 text-white shadow-md border-b border-slate-800 w-full relative z-50">
+    <header className="bg-slate-900 text-white shadow-lg border-b border-slate-800 w-full relative z-50">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
         
-        {/* Partie gauche : Logo & Rôle */}
+        {/* Logo & Rôle ultra-propre */}
         <div className="flex items-center gap-2 truncate">
           <span className="text-base sm:text-lg font-bold tracking-wide text-blue-400">
             {title}
           </span>
           <span className="text-slate-600">|</span>
-          <span className="text-xs sm:text-sm font-medium text-slate-300 truncate max-w-[150px] sm:max-w-none">
+          <span className="text-xs sm:text-sm font-medium text-slate-300 truncate max-w-[160px] sm:max-w-none">
             {roleName}
           </span>
         </div>
 
-        {/* Partie droite : Actions Desktop & Bouton Menu Mobile */}
+        {/* Boutons d'actions et Menu Mobile */}
         <div className="flex items-center gap-2">
           
           {/* Bouton de déconnexion version PC */}
@@ -29,26 +29,30 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
             Se déconnecter
           </button>
 
-          {/* Bouton Menu Burger pour Mobile (pour alléger l'en-tête) */}
+          {/* Bouton Menu Burger Silicon Valley style */}
           <button 
             onClick={() => setMenuOuvert(!menuOuvert)}
-            className="sm:hidden bg-slate-800 hover:bg-slate-700 text-slate-200 p-2 rounded-lg text-xs font-semibold flex items-center gap-1 border border-slate-700"
+            className="sm:hidden bg-slate-800 hover:bg-slate-700 text-slate-100 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all"
           >
-            <span>{menuOuvert ? '✕ Fermer' : '☰ Menu'}</span>
+            <span className="text-sm">{menuOuvert ? '✕' : '☰'}</span>
+            <span>{menuOuvert ? 'Fermer' : 'Menu'}</span>
           </button>
         </div>
 
       </div>
 
-      {/* Menu déroulant mobile si activé pour aérer l'interface */}
+      {/* Tiroir de menu mobile (Effet application native fluide) */}
       {menuOuvert && (
-        <div className="sm:hidden bg-slate-800 border-t border-slate-700 px-4 py-3 flex flex-col gap-2 shadow-xl">
-          <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1">Actions rapides</div>
+        <div className="sm:hidden bg-slate-900 border-t border-slate-800 px-4 py-4 flex flex-col gap-3 shadow-2xl animate-fadeIn">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+            Navigation & Options
+          </div>
+          
           <button 
             onClick={() => { setMenuOuvert(false); onLogout(); }}
-            className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-xs font-medium text-center shadow"
+            className="w-full bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl text-xs font-semibold text-center shadow-md transition-all flex items-center justify-center gap-2"
           >
-            Se déconnecter
+            <span>🚪</span> Se déconnecter
           </button>
         </div>
       )}

@@ -2,8 +2,8 @@ import React from 'react';
 
 const Header = ({ title = "E-cahier !", roleName = "Espace Enseignant", onLogout }) => {
   return (
-    <header className="bg-slate-900 text-white shadow-md border-b border-slate-800 w-full overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <header className="bg-slate-900 text-white shadow-md border-b border-slate-800 w-full" style={{ width: '100vw', maxWidth: '100%', boxSizing: 'border-box' }}>
+      <div className="w-full px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
         
         {/* Ligne du haut sur mobile : Logo et Bouton Déconnexion */}
         <div className="flex items-center justify-between w-full sm:w-auto">
@@ -12,7 +12,7 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Enseignant", onLogout
               {title}
             </span>
             <span className="text-slate-600">|</span>
-            <span className="text-xs sm:text-sm font-medium text-slate-300 truncate max-w-[180px] sm:max-w-none">
+            <span className="text-xs sm:text-sm font-medium text-slate-300 truncate max-w-[150px] sm:max-w-none">
               {roleName}
             </span>
           </div>

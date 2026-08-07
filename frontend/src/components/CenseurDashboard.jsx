@@ -225,7 +225,6 @@ export default function CenseurDashboard() {
   const handleLogout = () => {
     localStorage.removeItem('app_censeur_profil');
     showToast("🚪 Déconnexion réussie.");
-    // Redirection possible vers la page de connexion ici si nécessaire
   };
 
   // --- ACTIONS DES AFFILIATIONS ---
@@ -464,7 +463,7 @@ export default function CenseurDashboard() {
         .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
         .bouton-secondaire:hover { background-color: #e2e8f0; }
         .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; }
-        .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 12px; }
         @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
         .anim-apparition { animation: apparition 0.2s ease-out forwards; }
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
@@ -478,7 +477,7 @@ export default function CenseurDashboard() {
       />
 
       {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CENSEUR */}
-      <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
+      <div style={{ backgroundColor: '#1e293b', padding: '10px 16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
         <button onClick={() => setActiveTab('visa')} className={`bouton ${activeTab === 'visa' ? 'bouton-principal' : 'bouton-secondaire'}`}>✍️ Visa & Validation</button>
         <button onClick={() => setActiveTab('affiliations')} className={`bouton ${activeTab === 'affiliations' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍🏫 Enseignants affiliés</button>
         <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive de l'École</button>
@@ -500,12 +499,12 @@ export default function CenseurDashboard() {
         {/* MODAL DE CONFIRMATION POUR QUITTER L'ÉCOLE */}
         {modalConfirmationQuitter && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
+            <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Qu quitter l'établissement</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
                 Êtes-vous sûr de vouloir <strong>quitter cet établissement</strong> ? Votre établissement actuel sera réinitialisé.
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => setModalConfirmationQuitter(false)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={confirmerQuitterEcole} className="bouton bouton-danger">Oui, quitter l'école</button>
               </div>
@@ -516,9 +515,9 @@ export default function CenseurDashboard() {
         {/* MODAL POUR ADRESSER UNE PROPOSITION D'AFFILIATION ENRICHIE */}
         {modalProposition.ouvert && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ ...styles.cardWide, width: '600px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '16px' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
                 <button onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Veuillez remplir les informations d'identification complètes pour éviter tout doublon ou conflit d'intérêt.</p>
@@ -568,7 +567,7 @@ export default function CenseurDashboard() {
                   <input type="text" placeholder="Ex: 6ème A, 5ème B" value={modalProposition.classesProposees} onChange={(e) => setModalProposition(prev => ({ ...prev, classesProposees: e.target.value }))} className="champ-saisie" required />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                   <button type="button" onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', classesProposees: '' })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Générer et envoyer l'invitation</button>
                 </div>
@@ -580,12 +579,12 @@ export default function CenseurDashboard() {
         {/* MODAL DE RETRAIT D'UN ENSEIGNANT */}
         {modalRetraitEnseignant.ouvert && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Retirer l'affiliation</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
                 Êtes-vous sûr de vouloir <strong>retirer l'affiliation de l'enseignant {modalRetraitEnseignant.enseignantNom}</strong> à votre établissement ?
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => setModalRetraitEnseignant({ ouvert: false, enseignantId: null, enseignantNom: '' })} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={confirmerRetraitEnseignant} className="bouton bouton-danger">Oui, retirer l'affiliation</button>
               </div>
@@ -596,9 +595,9 @@ export default function CenseurDashboard() {
         {/* MODAL DE CONSULTATION ET MODIFICATION D'UNE DEMANDE D'AFFILIATION */}
         {modalAffiliationConsult.ouvert && (
           <div className="fond-modale">
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxWidth: '100%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a' }}>🏫 Consulter la Demande d'Affiliation</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '16px' }}>🏫 Consulter la Demande d'Affiliation</h3>
                 <button onClick={() => setModalAffiliationConsult({ ouvert: false, affiliation: null, classesModifiees: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
               <form onSubmit={validerAffiliationModifiee} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -621,7 +620,7 @@ export default function CenseurDashboard() {
                   />
                   <small style={{ color: '#64748b' }}>Séparez les classes par des virgules.</small>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                   <button type="button" onClick={() => setModalAffiliationConsult({ ouvert: false, affiliation: null, classesModifiees: '' })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-succes">Valider l'affiliation</button>
                 </div>
@@ -633,12 +632,12 @@ export default function CenseurDashboard() {
         {/* MODAL DE CONSULTATION DÉTAILLÉE D'UNE FICHE */}
         {modalConsultation.ouvert && (
           <div className="fond-modale">
-            <div style={{ ...styles.cardWide, width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ ...styles.cardWide, width: '560px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a' }}>👁️ Consultation détaillée de la Fiche</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '16px' }}>👁️ Consultation détaillée de la Fiche</h3>
                 <button onClick={() => setModalConsultation({ ouvert: false, element: null, type: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
-              <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
                 <p style={{ margin: 0 }}><strong>Titre :</strong> {modalConsultation.element?.titre}</p>
                 <p style={{ margin: 0 }}><strong>Habilités :</strong> {modalConsultation.element?.habilites || 'N/A'}</p>
                 <p style={{ margin: 0 }}><strong>Contenus :</strong> {modalConsultation.element?.contenus || 'N/A'}</p>
@@ -660,7 +659,7 @@ export default function CenseurDashboard() {
                 <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>Validation & Visa des Fichiers Soumis (File d'actualité)</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Classement chronologique de la plus récente à la moins récente. Chaque fiche affiche le nom de son enseignant.</p>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={viserSelectionMultiple} className="bouton bouton-succes">✓ Viser la sélection en masse</button>
                 <button onClick={rejeterSelectionMultiple} className="bouton bouton-danger">✕ Rejeter la sélection</button>
               </div>
@@ -699,14 +698,14 @@ export default function CenseurDashboard() {
                 .filter(([classeNom]) => visaClasseFiltre === 'TOUTES' || visaClasseFiltre === classeNom)
                 .filter(([_, prog]) => visaMatiereFiltre === 'TOUTES' || (prog?.matiere || 'EPS') === visaMatiereFiltre)
                 .map(([classeNom, prog]) => (
-                  <div key={classeNom} style={{ marginTop: '16px', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '16px', backgroundColor: '#f8fafc' }}>
-                    <h3 style={{ margin: '0 0 12px 0', color: '#1e293b' }}>
+                  <div key={classeNom} style={{ marginTop: '16px', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '16px', backgroundColor: '#f8fafc', width: '100%', boxSizing: 'border-box' }}>
+                    <h3 style={{ margin: '0 0 12px 0', color: '#1e293b', fontSize: '15px' }}>
                       🏫 Classe : {classeNom} | Matière : {prog?.matiere || 'EPS'} | Enseignant(e) : <span style={{ color: '#2563eb' }}>{prog?.enseignant || 'M. Kouassi Jean'}</span>
                     </h3>
                     {(prog?.cycles || []).map(cy => cy ? (
-                      <div key={cy.id} style={{ backgroundColor: 'white', padding: '14px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #e2e8f0' }}>
+                      <div key={cy.id} style={{ backgroundColor: 'white', padding: '14px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px' }}>
                             <input 
                               type="checkbox" 
                               checked={elementsSelectionnes.includes(cy.id)}
@@ -717,7 +716,7 @@ export default function CenseurDashboard() {
                             />
                             <strong>📁 {cy.titre}</strong>
                           </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             <button onClick={() => setModalConsultation({ ouvert: true, element: cy, type: 'cycle' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '11px' }}>👁️ Consulter</button>
                             {!cy.viseParCenseur && (
                               <button onClick={() => viserElementUnique(classeNom, cy.id)} className="bouton bouton-succes" style={{ padding: '4px 10px', fontSize: '11px' }}>✍️ Viser</button>
@@ -729,10 +728,10 @@ export default function CenseurDashboard() {
                         </div>
 
                         {(cy.lecons || []).map(lc => lc ? (
-                          <div key={lc.id} style={{ marginLeft: '16px', marginTop: '10px', borderLeft: '3px solid #2563eb', paddingLeft: '12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div key={lc.id} style={{ marginLeft: '8px', marginTop: '10px', borderLeft: '3px solid #2563eb', paddingLeft: '12px', width: '100%', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                               <span>📖 {lc.titre}</span>
-                              <div style={{ display: 'flex', gap: '6px' }}>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                 <button onClick={() => setModalConsultation({ ouvert: true, element: lc, type: 'lecon' })} className="bouton bouton-secondaire" style={{ padding: '2px 6px', fontSize: '10px' }}>Consulter</button>
                                 {!lc.viseParCenseur && (
                                   <button onClick={() => viserElementUnique(classeNom, cy.id, lc.id)} className="bouton bouton-succes" style={{ padding: '2px 8px', fontSize: '10px' }}>Viser</button>
@@ -744,8 +743,8 @@ export default function CenseurDashboard() {
                               .sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0))
                               .filter(sc => visaSemaineFiltre === 'TOUTES' || sc?.date === visaSemaineFiltre)
                               .map(sc => sc ? (
-                                <div key={sc.id} style={{ marginLeft: '16px', marginTop: '6px', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div key={sc.id} style={{ marginLeft: '8px', marginTop: '6px', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px' }}>
                                     <input 
                                       type="checkbox" 
                                       checked={elementsSelectionnes.includes(sc.id)}
@@ -756,7 +755,7 @@ export default function CenseurDashboard() {
                                     />
                                     <span>• Séance #{sc.numero} : {sc.titre} ({sc.date}) - <em>Enseignant: {prog?.enseignant || 'Kouassi Jean'}</em></span>
                                   </div>
-                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                     <button onClick={() => setModalConsultation({ ouvert: true, element: sc, type: 'seance' })} className="bouton bouton-secondaire" style={{ padding: '2px 6px', fontSize: '10px' }}>Consulter</button>
                                     {!sc.viseParCenseur && (
                                       <button onClick={() => viserElementUnique(classeNom, cy.id, lc.id, sc.id)} className="bouton bouton-succes" style={{ padding: '2px 8px', fontSize: '10px' }}>Viser & Archiver</button>
@@ -797,12 +796,12 @@ export default function CenseurDashboard() {
                 <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune demande ni enseignant affilié.</p>
               ) : (
                 (affiliations || []).map(aff => aff ? (
-                  <div key={aff.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
+                  <div key={aff.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ flex: '1 1 200px' }}>
                       <strong style={{ color: '#1e40af', fontSize: '15px' }}>{aff.enseignant || 'Enseignant'}</strong> <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {aff.matricule || 'N/A'}</span><br/>
                       <small style={{ color: '#475569', display: 'block', marginTop: '4px' }}>Classes : {(aff.classes || []).join(', ')} | Email : {aff.email || 'N/A'}</small>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', borderRadius: '6px', backgroundColor: aff.statut === 'Validée' ? '#dcfce7' : '#fef3c7', color: aff.statut === 'Validée' ? '#166534' : '#92400e', marginRight: '8px' }}>
                         {aff.statut}
                       </span>
@@ -831,8 +830,8 @@ export default function CenseurDashboard() {
                 <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '30px' }}>Invitations envoyées (En attente de réponse)</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {(propositionsEnvoyees || []).map(prop => prop ? (
-                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
+                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                      <div style={{ flex: '1 1 200px' }}>
                         <strong style={{ color: '#92400e' }}>{prop.enseignantCible || prop.nomEnseignant}</strong> <span style={{ fontSize: '11px', color: '#b45309', backgroundColor: '#fefce8', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {prop.matricule || 'N/A'}</span><br/>
                         <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>Classes : {(prop.classes || []).join(', ')} | Email : {prop.email || 'N/A'}</small>
                       </div>
@@ -889,9 +888,9 @@ export default function CenseurDashboard() {
                 <p style={{ fontStyle: 'italic', color: '#94a3b8', textAlign: 'center', padding: '30px' }}>Aucune archive trouvée avec ces critères.</p>
               ) : (
                 (archiveFiltree || []).map(item => item ? (
-                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
                         <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>{item.classe}</span>
                         <span style={{ fontSize: '11px', color: '#64748b' }}>({item.matiere} - {item.anneeScolaire})</span>
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{item.titre}</strong>
@@ -924,7 +923,7 @@ export default function CenseurDashboard() {
               </button>
             </div>
 
-            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', width: '100%', boxSizing: 'border-box' }}>
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '8px' }}>Sélectionner les classes/niveaux à inclure dans le rapport :</label>
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                 {Object.keys(programmesClasses || {}).map(classeNom => {
@@ -945,18 +944,18 @@ export default function CenseurDashboard() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px', width: '100%' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ fontSize: '24px' }}>📈</span>
                 <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Total Cycles Validés ({infosCenseur?.niveauCharge || ''})</h4>
                 <p style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', margin: 0 }}>1</p>
               </div>
-              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ fontSize: '24px' }}>📚</span>
                 <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Fiches de Séances Archivées</h4>
                 <p style={{ fontSize: '22px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{(archiveEcole || []).length}</p>
               </div>
-              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ fontSize: '24px' }}>⏰</span>
                 <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Séances Reportées / Manquées</h4>
                 <p style={{ fontSize: '22px', fontWeight: '800', color: '#ef4444', margin: 0 }}>{(rapportsReports || []).length}</p>
@@ -969,8 +968,8 @@ export default function CenseurDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
                 {(rapportsReports || []).map(rep => rep ? (
-                  <div key={rep.id} style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '14px', borderRadius: '8px', fontSize: '13px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <div key={rep.id} style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '14px', borderRadius: '8px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '6px' }}>
                       <strong style={{ color: '#991b1b' }}>Professeur : {rep.enseignant} ({rep.matiere}) - Classe : {rep.classe}</strong>
                       <span style={{ fontSize: '11px', color: '#b91c1c', backgroundColor: '#fee2e2', padding: '2px 6px', borderRadius: '4px' }}>Date manquée : {rep.date}</span>
                     </div>
@@ -991,7 +990,7 @@ export default function CenseurDashboard() {
                 <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>⏰ Suivi Hebdomadaire & Rappels Automatiques</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Sélectionnez un ou plusieurs enseignants en retard pour leur envoyer des rappels groupés.</p>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={envoyerRappelMultiple} className="bouton bouton-danger">
                   ✉️ Envoyer un rappel aux sélectionnés
                 </button>
@@ -1002,8 +1001,8 @@ export default function CenseurDashboard() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef2f2', padding: '14px', borderRadius: '8px', border: '1px solid #fecaca', flexWrap: 'wrap', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef2f2', padding: '14px', borderRadius: '8px', border: '1px solid #fecaca', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 200px' }}>
                   <input 
                     type="checkbox" 
                     checked={(enseignantsSelectionnesRappel || []).includes('M. Kouassi Jean')}
@@ -1032,10 +1031,10 @@ export default function CenseurDashboard() {
 }
 
 const styles = {
-  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
-  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b', width: '100%', maxWidth: '100vw', overflowX: 'hidden' },
+  mainContentBody: { padding: '20px 16px', width: '100%', maxWidth: '100%', boxSizing: 'border-box', margin: '0 auto', overflowX: 'hidden' },
+  cardWide: { backgroundColor: '#ffffff', padding: '24px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   'champ-saisie': { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none' },
   toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' },

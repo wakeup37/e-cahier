@@ -429,7 +429,7 @@ export default function ChefEtablissementDashboard() {
         .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
         .bouton-secondaire:hover { background-color: #e2e8f0; }
         .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; }
-        .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 12px; }
         @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
         .anim-apparition { animation: apparition 0.2s ease-out forwards; }
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
@@ -443,7 +443,7 @@ export default function ChefEtablissementDashboard() {
       />
 
       {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CHEF */}
-      <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
+      <div style={{ backgroundColor: '#1e293b', padding: '10px 16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
         <button onClick={() => setActiveTab('censeurs')} className={`bouton ${activeTab === 'censeurs' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍💼 Gestion des Censeurs</button>
         <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Rapports</button>
         <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive Pédagogique</button>
@@ -463,10 +463,10 @@ export default function ChefEtablissementDashboard() {
         {/* MODAL CONFIRMATION TERMINER ANNÉE */}
         {modalConfirmationTerminer && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Confirmation requise</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>Êtes-vous sûr de vouloir <strong>terminer l'année scolaire</strong> ?</p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => setModalConfirmationTerminer(false)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={() => { setEcoleConfig(prev => ({ ...prev, anneeOuverte: false })); setModalConfirmationTerminer(false); showToast("🔒 Année scolaire terminée avec succès."); }} className="bouton bouton-danger">Oui, terminer l'année</button>
               </div>
@@ -477,10 +477,10 @@ export default function ChefEtablissementDashboard() {
         {/* MODALE CONFIRMATION QUITTER ÉCOLE */}
         {modalConfirmationQuitter && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>Êtes-vous sûr de vouloir <strong>quitter cet établissement</strong> ?</p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => setModalConfirmationQuitter(false)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={confirmerQuitterEcole} className="bouton bouton-danger">Oui, quitter l'école</button>
               </div>
@@ -491,9 +491,9 @@ export default function ChefEtablissementDashboard() {
         {/* MODALE POUR ADRESSER UNE PROPOSITION D'AFFILIATION ENRICHIE */}
         {modalProposition.ouvert && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ ...styles.cardWide, width: '600px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '16px' }}>✉️ Nouvelle Proposition d'Affiliation</h3>
                 <button onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: '' })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Veuillez remplir les informations d'identification complètes pour éviter tout doublon ou conflit d'intérêt.</p>
@@ -543,7 +543,7 @@ export default function ChefEtablissementDashboard() {
                   <input type="text" placeholder="Ex: 6ème et 5ème" value={modalProposition.niveauCharge} onChange={(e) => setModalProposition(prev => ({ ...prev, niveauCharge: e.target.value }))} className="champ-saisie" required />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                   <button type="button" onClick={() => setModalProposition({ ouvert: false, civilite: 'M.', nom: '', prenoms: '', dateNaissance: '', telephone: '', email: '', matricule: '', niveauCharge: '' })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Générer et envoyer l'invitation</button>
                 </div>
@@ -555,12 +555,12 @@ export default function ChefEtablissementDashboard() {
         {/* MODALE DE RETRAIT D'UN CENSEUR */}
         {modalRetraitCenseur.ouvert && (
           <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Retirer l'affiliation</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
                 Êtes-vous sûr de vouloir <strong>retirer l'affiliation du censeur {modalRetraitCenseur.censeurNom}</strong> à votre établissement ?
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => setModalRetraitCenseur({ ouvert: false, censeurId: null, censeurNom: '' })} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={confirmerRetraitCenseur} className="bouton bouton-danger">Oui, retirer l'affiliation</button>
               </div>
@@ -569,13 +569,13 @@ export default function ChefEtablissementDashboard() {
         )}
 
         {/* CARTES STATISTIQUES */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px', width: '100%' }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box' }}>
             <span style={{ fontSize: '24px' }}>🏫</span>
             <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px', color: '#64748b' }}>Nombre total de Classes</h4>
             <p style={{ fontSize: '26px', fontWeight: '800', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
           </div>
-          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box' }}>
             <span style={{ fontSize: '24px' }}>👥</span>
             <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px', color: '#64748b' }}>Personnes Connectées au Réseau</h4>
             <p style={{ fontSize: '26px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
@@ -604,12 +604,12 @@ export default function ChefEtablissementDashboard() {
                 <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune demande ni censeur affilié.</p>
               ) : (
                 (censeursAffiliations || []).map(cen => cen ? (
-                  <div key={cen.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
+                  <div key={cen.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ flex: '1 1 200px' }}>
                       <strong style={{ color: '#1e40af', fontSize: '15px' }}>{cen.nomComplet}</strong> <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {cen.matricule || 'N/A'}</span><br/>
                       <small style={{ color: '#475569', display: 'block', marginTop: '4px' }}>Niveaux : {cen.niveauCharge} | Tél : {cen.telephone || 'N/A'} | Email : {cen.email}</small>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', borderRadius: '6px', backgroundColor: cen.statut === 'Validé' ? '#dcfce7' : '#fef3c7', color: cen.statut === 'Validé' ? '#166534' : '#92400e', marginRight: '8px' }}>
                         {cen.statut}
                       </span>
@@ -632,8 +632,8 @@ export default function ChefEtablissementDashboard() {
                 <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', marginTop: '30px' }}>Invitations envoyées (En attente de réponse)</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {(propositionsEnvoyees || []).map(prop => prop ? (
-                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
+                    <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fef3c7', padding: '14px', borderRadius: '8px', border: '1px solid #fde68a', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                      <div style={{ flex: '1 1 200px' }}>
                         <strong style={{ color: '#92400e' }}>{prop.censeurCible}</strong> <span style={{ fontSize: '11px', color: '#b45309', backgroundColor: '#fefce8', padding: '2px 6px', borderRadius: '4px' }}>Matricule: {prop.matricule || 'N/A'}</span><br/>
                         <small style={{ color: '#b45309', display: 'block', marginTop: '4px' }}>Niveaux : {prop.niveauCharge} | Email : {prop.email || 'N/A'}</small>
                       </div>
@@ -658,13 +658,13 @@ export default function ChefEtablissementDashboard() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px', width: '100%' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ fontSize: '24px' }}>📈</span>
                 <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Rapports reçus</h4>
                 <p style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', margin: 0 }}>{Object.keys(rapportsCenseurs || {}).length}</p>
               </div>
-              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ fontSize: '24px' }}>📚</span>
                 <h4 style={{ margin: '8px 0 4px 0', fontSize: '15px' }}>Fiches Globales Archivées</h4>
                 <p style={{ fontSize: '22px', fontWeight: '800', color: '#16a34a', margin: 0 }}>{(archiveEcole || []).length}</p>
@@ -677,8 +677,8 @@ export default function ChefEtablissementDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {Object.entries(rapportsCenseurs || {}).map(([cle, rapport]) => (
-                  <div key={cle} style={{ backgroundColor: '#e0f2fe', padding: '14px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <div key={cle} style={{ backgroundColor: '#e0f2fe', padding: '14px', borderRadius: '8px', border: '1px solid #bae6fd', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
                       <strong style={{ color: '#0369a1', fontSize: '14px' }}>Rapport de : {rapport.censeur}</strong>
                       <span style={{ fontSize: '11px', color: '#0284c7' }}>Date : {rapport.date}</span>
                     </div>
@@ -710,7 +710,7 @@ export default function ChefEtablissementDashboard() {
                   {Array.from(new Set((archiveEcole || []).map(a => a.classe))).map(cl => <option key={cl} value={cl}>{cl}</option>)}
                 </select>
               </div>
-              <div style={{ flex: '1 1 240px' }}>
+              <div style={{ flex: '1 1 200px' }}>
                 <label style={styles.labelFiltre}>Enseignant</label>
                 <select value={filtreArchiveEnseignant} onChange={(e) => setFiltreArchiveEnseignant(e.target.value)} className="champ-saisie">
                   <option value="TOUS">Tous les enseignants</option>
@@ -724,9 +724,9 @@ export default function ChefEtablissementDashboard() {
                 <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>L'archive globale est vide pour ces critères.</p>
               ) : (
                 (archiveFiltree || []).map(item => (
-                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
                         <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>{item.classe}</span>
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{item.titre}</strong>
                       </div>
@@ -747,15 +747,15 @@ export default function ChefEtablissementDashboard() {
 }
 
 const styles = {
-  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
-  setupCard: { backgroundColor: '#ffffff', padding: '36px', borderRadius: '14px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' },
-  mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
-  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b', width: '100%', maxWidth: '100vw', overflowX: 'hidden' },
+  setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', width: '100%', boxSizing: 'border-box' },
+  setupCard: { backgroundColor: '#ffffff', padding: '36px', borderRadius: '14px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)', boxSizing: 'border-box' },
+  mainContentBody: { padding: '20px 16px', width: '100%', maxWidth: '100%', boxSizing: 'border-box', margin: '0 auto', overflowX: 'hidden' },
+  cardWide: { backgroundColor: '#ffffff', padding: '24px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box' },
   label: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' },
   navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   sectionHeader: { marginBottom: '20px' }
 };

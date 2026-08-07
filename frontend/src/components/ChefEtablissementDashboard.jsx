@@ -435,27 +435,20 @@ export default function ChefEtablissementDashboard() {
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      {/* COMPOSANT HEADER HAUT DE GAMME AVEC MENU BURGER INTÉGRÉ */}
       <Header 
         title="E-cahier !" 
         roleName={`Chef d’Établissement - ${ecoleConfig?.nomEcole || infosChef?.etablissement || 'Établissement'}`} 
         onLogout={handleLogout} 
+        onglets={[
+          { id: 'censeurs', label: '👨‍💼 Gestion des Censeurs' },
+          { id: 'stats', label: '📊 Statistiques & Rapports' },
+          { id: 'archive', label: '📁 Archive Pédagogique' },
+          { id: 'quitter', label: '🚪 Quitter l\'école', action: () => setModalConfirmationQuitter(true) }
+        ]}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
       />
-
-      {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CHEF */}
-      <div style={{ backgroundColor: '#1e293b', padding: '10px 16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-        <button onClick={() => setActiveTab('censeurs')} className={`bouton ${activeTab === 'censeurs' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍💼 Gestion des Censeurs</button>
-        <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Rapports</button>
-        <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive Pédagogique</button>
-        
-        <button 
-          onClick={() => setModalConfirmationQuitter(true)} 
-          style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
-          title="Se détacher de cet établissement"
-        >
-          🚪 Quitter l'école
-        </button>
-      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}

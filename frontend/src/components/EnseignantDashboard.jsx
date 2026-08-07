@@ -763,7 +763,7 @@ export default function EnseignantDashboard() {
         {modalConfirmationQuitter.ouvert && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.modalCard, width: '420px', maxWidth: '100%', textAlign: 'center' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Qu quitter l'établissement</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
                 Êtes-vous sûr de vouloir <strong>quitter l'établissement {modalConfirmationQuitter.ecoleNom}</strong> ? Cette action rompura votre affiliation.
               </p>

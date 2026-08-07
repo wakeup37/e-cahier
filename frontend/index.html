@@ -1,20 +1,14 @@
 <!DOCTYPE html>
-<html lang="fr" class="h-full">
+<html lang="fr" style="width: 100%; height: 100%; margin: 0; padding: 0;">
   <head>
     <meta charset="UTF-8" />
-    {/* 
-      1. viewport bloquant le zoom non désiré et forçant l'échelle réelle mobile (1:1) 
-      2. maximum-scale=1.0 et user-scalable=no empêchent le pincement/zoom accidentel qui casse le design 
-    */}
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    
-    {/* Couleur de la barre de statut mobile pour un look application native (Silicon Valley style) */}
+    {/* Cette ligne bloque le zoom non désiré et force l'échelle mobile 1:1 */}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />
     <meta name="theme-color" content="#0f172a" />
-    
     <title>E-cahier !</title>
   </head>
-  <body class="h-full bg-slate-100 text-slate-900 antialiased overflow-x-hidden">
-    <div id="root" class="h-full flex flex-col"></div>
+  <body style="width: 100%; height: 100%; margin: 0; padding: 0; background-color: #f1f5f9; overflow-x: hidden;">
+    <div id="root" style="width: 100%; height: 100%;"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

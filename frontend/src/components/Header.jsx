@@ -7,7 +7,7 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
     <header className="bg-slate-900 text-white shadow-lg border-b border-slate-800 w-full relative z-50">
       <div className="w-full px-4 py-2.5 flex items-center justify-between">
         
-        {/* Logo & Rôle ultra-épuré (Façon appli native) */}
+        {/* Logo & Rôle ultra-épuré */}
         <div className="flex items-center gap-2 truncate">
           <span className="text-base font-bold tracking-wide text-blue-400">
             {title}
@@ -18,7 +18,7 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
           </span>
         </div>
 
-        {/* Bouton Menu Burger (Le gros bouton rouge a été totalement supprimé) */}
+        {/* Bouton Menu Burger */}
         <div className="flex items-center">
           <button 
             onClick={() => setMenuOuvert(!menuOuvert)}
@@ -31,7 +31,7 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
 
       </div>
 
-      {/* Menu Tiroir Mobile (Regroupe les onglets et la déconnexion fonctionnelle) */}
+      {/* Menu Tiroir Mobile */}
       {menuOuvert && (
         <div className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex flex-col gap-2 shadow-2xl w-full">
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
@@ -73,5 +73,4 @@ const Header = ({ title = "E-cahier !", roleName = "Espace Utilisateur", onLogou
   );
 };
 
-exports_default = Header;
 export default Header;

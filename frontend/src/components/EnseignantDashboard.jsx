@@ -742,55 +742,19 @@ export default function EnseignantDashboard() {
         .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 12px; }
       `}</style>
 
-      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      {/* COMPOSANT HEADER HAUT DE GAMME AVEC MENU BURGER INTÉGRÉ */}
       <Header 
         title="E-cahier !" 
-        roleName={`Espace Enseignant - ${ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || 'Enseignant'}`} 
+        roleName={`Enseignant - ${ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || 'Espace'}`} 
         onLogout={handleLogout} 
+        onglets={[
+          { id: 'cycles', label: '📊 Programme Annuel & Leçons' },
+          { id: 'bibliotheque', label: '📁 Bibliothèque & Réutilisation' },
+          { id: 'affiliation', label: '🏫 Gestion des Écoles' }
+        ]}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
       />
-
-      {/* BARRE DE NAVIGATION SECONDAIRE / ACTIONS ENSEIGNANT */}
-      <div style={{ backgroundColor: '#1e293b', padding: '10px 16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: '1 1 auto' }}>
-          <button onClick={() => setActiveTab('cycles')} className={`bouton ${activeTab === 'cycles' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Programme Annuel & Leçons</button>
-          <button onClick={() => setActiveTab('bibliotheque')} className={`bouton ${activeTab === 'bibliotheque' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Bibliothèque & Réutilisation</button>
-          <button onClick={() => setActiveTab('affiliation')} className={`bouton ${activeTab === 'affiliation' ? 'bouton-principal' : 'bouton-secondaire'}`}>🏫 Gestion des Écoles</button>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setModalReportMultiple(prev => ({ ...prev, ouvert: true, ecolesClassesSelectionnees: [], date: new Date().toISOString().split('T')[0], motif: '', fichiersJoints: [] }))} className="bouton bouton-danger" style={{ padding: '7px 12px', fontSize: '11px' }}>⏰ Reports multiples</button>
-          <button onClick={() => setModalAffiliation(true)} className="bouton bouton-succes" style={{ padding: '7px 12px', fontSize: '11px' }}>+ Demande d'Affiliation</button>
-          
-          <div style={{ position: 'relative' }} ref={notifRef}>
-            <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
-              <span>🔔 Notifs</span>
-              {(notifications || []).filter(n => n && !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{(notifications || []).filter(n => n && !n.lu).length}</span>}
-            </button>
-            {notifOuvert && (
-              <div style={styles.notificationDropdown} className="anim-apparition">
-                <div style={styles.dropdownHeader}>Notifications & Validations</div>
-                {(notifications || []).map(n => n ? (
-                  <div key={n.id} style={styles.notifItem}>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#334155' }}>{n.texte}</p>
-                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                  </div>
-                ) : null)}
-                {(propositionsCenseur || []).length > 0 && (
-                  <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '6px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb' }}>Propositions d'affiliation :</span>
-                    {(propositionsCenseur || []).map(p => p ? (
-                      <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '6px', borderRadius: '4px', marginTop: '4px', fontSize: '12px' }}>
-                        <strong>{p.ecole}</strong> ({p.censeur})<br/>
-                        <button onClick={() => accepterProposition(p)} className="bouton bouton-succes" style={{ padding: '2px 6px', fontSize: '10px', marginTop: '4px' }}>Accepter l'affiliation</button>
-                      </div>
-                    ) : null)}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess} className="anim-apparition">{message}</div>}

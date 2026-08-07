@@ -469,29 +469,22 @@ export default function CenseurDashboard() {
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      {/* COMPOSANT HEADER HAUT DE GAMME AVEC MENU BURGER INTÉGRÉ */}
       <Header 
         title="E-cahier !" 
         roleName={`Censeur Pédagogique - ${infosCenseur?.etablissement || 'Établissement'}`} 
         onLogout={handleLogout} 
+        onglets={[
+          { id: 'visa', label: '✍️ Visa & Validation' },
+          { id: 'affiliations', label: '👨‍🏫 Enseignants affiliés' },
+          { id: 'archive', label: '📁 Archive de l\'École' },
+          { id: 'stats', label: '📊 Statistiques & Progression' },
+          { id: 'suivi', label: '⏰ Suivi Hebdomadaire' },
+          { id: 'quitter', label: '🚪 Quitter l\'école', action: () => setModalConfirmationQuitter(true) }
+        ]}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
       />
-
-      {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CENSEUR */}
-      <div style={{ backgroundColor: '#1e293b', padding: '10px 16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-        <button onClick={() => setActiveTab('visa')} className={`bouton ${activeTab === 'visa' ? 'bouton-principal' : 'bouton-secondaire'}`}>✍️ Visa & Validation</button>
-        <button onClick={() => setActiveTab('affiliations')} className={`bouton ${activeTab === 'affiliations' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍🏫 Enseignants affiliés</button>
-        <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive de l'École</button>
-        <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Progression</button>
-        <button onClick={() => setActiveTab('suivi')} className={`bouton ${activeTab === 'suivi' ? 'bouton-principal' : 'bouton-secondaire'}`}>⏰ Suivi Hebdomadaire</button>
-        
-        <button 
-          onClick={() => setModalConfirmationQuitter(true)} 
-          style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
-          title="Se détacher de cet établissement"
-        >
-          🚪 Quitter l'école
-        </button>
-      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
@@ -500,7 +493,7 @@ export default function CenseurDashboard() {
         {modalConfirmationQuitter && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.cardWide, width: '420px', maxWidth: '100%', textAlign: 'center' }}>
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Qu quitter l'établissement</h3>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Quitter l'établissement</h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
                 Êtes-vous sûr de vouloir <strong>quitter cet établissement</strong> ? Votre établissement actuel sera réinitialisé.
               </p>

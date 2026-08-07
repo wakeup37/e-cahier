@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import Header from '../components/Header'; // Importation du Header centralisé et responsive
 
 export default function EnseignantDashboard() {
   
@@ -159,16 +160,10 @@ export default function EnseignantDashboard() {
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
   const [formProfil, setFormProfil] = useState({ ...(infosEnseignant || {}) });
 
-  const [menuOuvert, setMenuOuvert] = useState(false);
-  const [profilOuvert, setProfilOuvert] = useState(false);
-
-  const menuRef = useRef(null);
-  const profilRef = useRef(null);
+  const notifRefArea = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOuvert(false);
-      if (profilRef.current && !profilRef.current.contains(event.target)) setProfilOuvert(false);
       if (notifRef.current && !notifRef.current.contains(event.target)) setNotifOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -285,18 +280,20 @@ export default function EnseignantDashboard() {
     ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {}
   });
 
-  const [modalDuplication, setModalDuplication] = useState({
-    ouvert: false, type: null, itemSource: null, cycleIdParent: null, leconIdParent: null, classesSelectionnees: [], datesParClasse: {}
-  });
-
   const [modalAffiliation, setModalAffiliation] = useState(false);
   const [nouvelleEcoleSaisie, setNouvelleEcoleSaisie] = useState('');
-  const [codeOuProviseur, setCodeOuProviseur] = useState(''); // NOUVEAU: Champ sécurisé
+  const [codeOuProviseur, setCodeOuProviseur] = useState('');
   const [nouvellesClassesSaisies, setNouvellesClassesSaisies] = useState('6ème A, 5ème A');
 
   const showToast = (msg) => {
     setMessage(msg);
     setTimeout(() => setMessage(''), 4000);
+  };
+
+  // Gestion de la déconnexion
+  const handleLogout = () => {
+    localStorage.removeItem('app_enseignant_profil');
+    showToast("🚪 Déconnexion réussie.");
   };
 
   const handleEnregistrerProfil = (e) => {
@@ -314,65 +311,6 @@ export default function EnseignantDashboard() {
       setFormProfil(prev => ({ ...prev, photoProfil: reader.result }));
     };
     reader.readAsDataURL(file);
-  };
-
-  const lancerScanIA = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setModalAssistant(prev => ({ ...prev, enCoursScan: true, fichierNom: file.name }));
-
-    setTimeout(() => {
-      setModalAssistant(prev => ({ ...prev, enCoursScan: false }));
-      
-      let extrait = {};
-      const niveau = modalAssistant.niveauCible;
-      if (niveau === 'cycle') {
-        extrait = { titreCycle: `Cycle extrait : ${file.name.split('.')[0]} (Généré par IA)`, competenceCycle: 'Maîtriser les fondamentaux technico-tactiques.', dateDebutCycle: '2026-03-01', dateFinCycle: '2026-04-15' };
-      } else if (niveau === 'lecon') {
-        extrait = { titreLecon: `Leçon extraite : Chapitre interactif (${file.name.split('.')[0]})`, nombreSeancesLecon: '4' };
-      } else {
-        extrait = { titreSeance: `Séance extraite : Pratique encadrée (${file.name.split('.')[0]})`, habilites: 'Appliquer rigoureusement les consignes de sécurité et de motricité.', contenus: 'Mise en place des ateliers d’apprentissage progressif.', exercices: 'Séries répétitives par groupes de niveau.', evaluations: 'Grille d’observation formative.' };
-      }
-
-      setModalAIPreview({ ouvert: true, donneesExtraites: extrait, niveauCible: niveau });
-      showToast("✨ Document analysé par l'IA avec succès ! Vérifiez et validez.");
-    }, 1500);
-  };
-
-  const validerDonneesAI = (e) => {
-    e.preventDefault();
-    const { donneesExtraites, niveauCible } = modalAIPreview;
-    
-    if (niveauCible === 'cycle') {
-      setModalAssistant(prev => ({
-        ...prev,
-        titreCycle: donneesExtraites?.titreCycle || '',
-        competenceCycle: donneesExtraites?.competenceCycle || '',
-        dateDebutCycle: donneesExtraites?.dateDebutCycle || '',
-        dateFinCycle: donneesExtraites?.dateFinCycle || '',
-        ouvert: true
-      }));
-    } else if (niveauCible === 'lecon') {
-      setModalAssistant(prev => ({
-        ...prev,
-        titreLecon: donneesExtraites?.titreLecon || '',
-        nombreSeancesLecon: donneesExtraites?.nombreSeancesLecon || '3',
-        ouvert: true
-      }));
-    } else {
-      setModalAssistant(prev => ({
-        ...prev,
-        titreSeance: donneesExtraites?.titreSeance || '',
-        habilites: donneesExtraites?.habilites || '',
-        contenus: donneesExtraites?.contenus || '',
-        exercices: donneesExtraites?.exercices || '',
-        evaluations: donneesExtraites?.evaluations || '',
-        ouvert: true
-      }));
-    }
-    setModalAIPreview({ ouvert: false, donneesExtraites: null, niveauCible: null });
-    showToast("✅ Données IA intégrées dans le formulaire !");
   };
 
   const initialiserProgrammeClasse = (cleUnique) => {
@@ -676,14 +614,13 @@ export default function EnseignantDashboard() {
     showToast(`✅ Proposition d'affiliation acceptée pour ${prop.ecole} !`);
   };
 
-  // --- SOUMISSION DE LA DEMANDE D'AFFILIATION ENRICHIE (AVEC CODE OU PROVISEUR) ---
   const soumettreDemandeAffiliation = (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim()) return;
     const nouvelleAff = { 
       id: Date.now(), 
       ecole: nouvelleEcoleSaisie.trim(), 
-      codeOuProviseur: codeOuProviseur.trim(), // Enregistrement de la nouvelle donnée
+      codeOuProviseur: codeOuProviseur.trim(), 
       statut: 'En attente', 
       classes: (nouvellesClassesSaisies || '').split(',').map(c => c.trim()).filter(Boolean) 
     };
@@ -694,7 +631,6 @@ export default function EnseignantDashboard() {
     showToast("🚀 Demande d'affiliation transmise au censeur de l'école !");
   };
 
-  // --- ACTIONS DES CLASSES AUTONOMES (MODE SANS AFFILIATION) ---
   const ajouterClasseLibre = (e) => {
     e.preventDefault();
     if (!nouvelleClasseLibre.trim()) return;
@@ -816,127 +752,55 @@ export default function EnseignantDashboard() {
         .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
       `}</style>
 
-      {/* BARRE SUPÉRIEURE NOIRE */}
-      <header style={styles.darkNavbar}>
-        <div style={styles.topBarMainRow}>
-          <h1 style={styles.navbarAppTitle}>Tableau de Bord Enseignant</h1>
-          
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }} ref={notifRef}>
-              <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
-                <span>🔔 Notifications</span>
-                {(notifications || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notifications || []).filter(n => n && !n.lu).length}</span>}
-              </button>
-              {notifOuvert && (
-                <div style={styles.notificationDropdown} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Notifications & Validations</div>
-                  {(notifications || []).map(n => n ? (
-                    <div key={n.id} style={styles.notifItem}>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#334155' }}>{n.texte}</p>
-                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                    </div>
-                  ) : null)}
-                  {(propositionsCenseur || []).length > 0 && (
-                    <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '6px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb' }}>Propositions d'affiliation :</span>
-                      {(propositionsCenseur || []).map(p => p ? (
-                        <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '6px', borderRadius: '4px', marginTop: '4px', fontSize: '12px' }}>
-                          <strong>{p.ecole}</strong> ({p.censeur})<br/>
-                          <button onClick={() => accepterProposition(p)} className="bouton bouton-succes" style={{ padding: '2px 6px', fontSize: '10px', marginTop: '4px' }}>Accepter l'affiliation</button>
-                        </div>
-                      ) : null)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* BOUTON REPORT DE SÉANCES MULTIPLES AVEC MULTI-ÉCOLES */}
-            <button onClick={() => setModalReportMultiple(prev => ({ ...prev, ouvert: true, ecolesClassesSelectionnees: [], date: new Date().toISOString().split('T')[0], motif: '', fichiersJoints: [] }))} className="bouton bouton-danger" style={{ padding: '7px 12px', fontSize: '11px' }}>⏰ Reports multiples</button>
-            <button onClick={() => setModalAffiliation(true)} className="bouton bouton-succes" style={{ padding: '7px 12px', fontSize: '11px' }}>+ Demande d'Affiliation</button>
-          </div>
+      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      <Header 
+        title="E-cahier !" 
+        roleName={`Espace Enseignant - ${ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || 'Enseignant'}`} 
+        onLogout={handleLogout} 
+      />
+
+      {/* BARRE DE NAVIGATION SECONDAIRE / ACTIONS ENSEIGNANT */}
+      <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={() => setActiveTab('cycles')} className={`bouton ${activeTab === 'cycles' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Programme Annuel & Leçons</button>
+          <button onClick={() => setActiveTab('bibliotheque')} className={`bouton ${activeTab === 'bibliotheque' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Bibliothèque & Réutilisation</button>
+          <button onClick={() => setActiveTab('affiliation')} className={`bouton ${activeTab === 'affiliation' ? 'bouton-principal' : 'bouton-secondaire'}`}>🏫 Gestion des Écoles</button>
         </div>
 
-        <div style={styles.bottomBarRow}>
-          <div style={{ position: 'relative' }} ref={profilRef}>
-            <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
-              <div style={styles.avatarNavbarContainer}>
-                {infosEnseignant?.photoProfil ? (
-                  <img src={infosEnseignant.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
-                ) : (
-                  <div style={styles.avatarNavbarPlaceholder}>👤</div>
-                )}
-              </div>
-              <div style={styles.navbarTeacherInfo}>
-                <span style={styles.navbarTeacherName}>{infosEnseignant?.civilite || ''} {infosEnseignant?.nom || ''} {infosEnseignant?.prenoms || ''}</span>
-                <span style={styles.navbarTeacherDetails}>
-                  {infosEnseignant?.ville || ''} - {modeSansAffiliation ? 'Mode Sans Affiliation (Payant)' : estAffiliationValidee ? 'Affilié & Validé' : 'Affiliation en attente (Profil Verrouillé)'}
-                </span>
-              </div>
-              <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>{profilOuvert ? '▲' : '▼'}</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setModalReportMultiple(prev => ({ ...prev, ouvert: true, ecolesClassesSelectionnees: [], date: new Date().toISOString().split('T')[0], motif: '', fichiersJoints: [] }))} className="bouton bouton-danger" style={{ padding: '7px 12px', fontSize: '11px' }}>⏰ Reports multiples</button>
+          <button onClick={() => setModalAffiliation(true)} className="bouton bouton-succes" style={{ padding: '7px 12px', fontSize: '11px' }}>+ Demande d'Affiliation</button>
+          
+          <div style={{ position: 'relative' }} ref={notifRef}>
+            <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
+              <span>🔔 Notifs</span>
+              {(notifications || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notifications || []).filter(n => n && !n.lu).length}</span>}
             </button>
-
-            {profilOuvert && (
-              <div style={{ ...styles.notificationDropdown, width: '280px', left: 0, top: '50px' }} className="anim-apparition">
-                <div style={styles.dropdownHeader}>Mon Compte Enseignant</div>
-                <div style={{ padding: '8px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' }}>
-                  <strong>{infosEnseignant?.civilite || ''} {infosEnseignant?.nom || ''} {infosEnseignant?.prenoms || ''}</strong><br />
-                  <span style={{ color: '#64748b', fontSize: '11px' }}>
-                    {infosEnseignant?.ville || ''}<br />
-                    <em>{infosEnseignant?.matiere || ''}</em>
-                  </span>
-                </div>
-                {estAffiliationValidee || modeSansAffiliation ? (
-                  <button 
-                    onClick={() => {
-                      setFormProfil({ ...(infosEnseignant || {}) });
-                      setModalProfilOuvert(true);
-                      setProfilOuvert(false);
-                    }} 
-                    className="option-menu"
-                  >
-                    ⚙️ Modifier mon profil & photo
-                  </button>
-                ) : (
-                  <div style={{ padding: '8px', fontSize: '11px', color: '#b91c1c', fontStyle: 'italic' }}>
-                    🔒 Profil verrouillé en attente de validation par le censeur.
+            {notifOuvert && (
+              <div style={styles.notificationDropdown} className="anim-apparition">
+                <div style={styles.dropdownHeader}>Notifications & Validations</div>
+                {(notifications || []).map(n => n ? (
+                  <div key={n.id} style={styles.notifItem}>
+                    <p style={{ margin: 0, fontSize: '12px', color: '#334155' }}>{n.texte}</p>
+                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                  </div>
+                ) : null)}
+                {(propositionsCenseur || []).length > 0 && (
+                  <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '6px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb' }}>Propositions d'affiliation :</span>
+                    {(propositionsCenseur || []).map(p => p ? (
+                      <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '6px', borderRadius: '4px', marginTop: '4px', fontSize: '12px' }}>
+                        <strong>{p.ecole}</strong> ({p.censeur})<br/>
+                        <button onClick={() => accepterProposition(p)} className="bouton bouton-succes" style={{ padding: '2px 6px', fontSize: '10px', marginTop: '4px' }}>Accepter l'affiliation</button>
+                      </div>
+                    ) : null)}
                   </div>
                 )}
-                <button 
-                  onClick={() => {
-                    if (!modeSansAffiliation) setModalPaiement(true);
-                    else { setModeSansAffiliation(false); showToast("Mode sans affiliation désactivé."); }
-                    setProfilOuvert(false);
-                  }} 
-                  className="option-menu"
-                  style={{ color: '#d97706', fontWeight: '700' }}
-                >
-                  {modeSansAffiliation ? '🔄 Quitter le mode sans affiliation' : '💳 Activer Mode Sans Affiliation (Payant)'}
-                </button>
               </div>
             )}
           </div>
-
-          <div style={styles.schoolTitleContainer}>
-            <span style={styles.schoolMainTitle}>{ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || 'Sélectionnez un Établissement'}</span>
-          </div>
-
-          <div style={styles.navActionsRight}>
-            <div style={{ position: 'relative' }} ref={menuRef}>
-              <button onClick={() => setMenuOuvert(!menuOuvert)} style={styles.navDarkBtn}>
-                <span>⚙️ Navigation</span>
-                <span style={{ fontSize: '10px' }}>{menuOuvert ? '▲' : '▼'}</span>
-              </button>
-              {menuOuvert && (
-                <div style={{ ...styles.multitaskDropdown, right: 0, left: 'auto' }} className="anim-apparition">
-                  <button onClick={() => { setActiveTab('cycles'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'cycles' ? 'actif' : ''}`}>📊 Programme Annuel & Leçons</button>
-                  <button onClick={() => { setActiveTab('bibliotheque'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'bibliotheque' ? 'actif' : ''}`}>📁 Bibliothèque & Réutilisation</button>
-                  <button onClick={() => { setActiveTab('affiliation'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'affiliation' ? 'actif' : ''}`}>🏫 Gestion des Écoles</button>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
-      </header>
+      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess} className="anim-apparition">{message}</div>}
@@ -957,7 +821,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL DE REPORT DE SÉANCE UNIQUE AVEC MULTI-ÉCOLES & FICHIERS MULTIMÉDIA */}
+        {/* MODAL DE REPORT DE SÉANCE UNIQUE */}
         {modalReportSeance.ouvert && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.modalCard, width: '500px', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
@@ -1017,7 +881,6 @@ export default function EnseignantDashboard() {
                   <textarea placeholder="Ex: Intempéries, absence justifiée, grève..." value={modalReportSeance.motif} onChange={(e) => setModalReportSeance(prev => ({...prev, motif: e.target.value}))} className="champ-saisie" style={{ height: '70px' }} required />
                 </div>
 
-                {/* BOUTON D'IMPORT MULTIMÉDIA */}
                 <div style={{ backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px dashed #94a3b8' }}>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Pièces jointes (Photos, PDF, Certificats médicaux...)</label>
                   <input 
@@ -1046,7 +909,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL DE REPORT DE SÉANCES MULTIPLES AVEC MULTI-ÉCOLES & FICHIERS MULTIMÉDIA */}
+        {/* MODAL DE REPORT DE SÉANCES MULTIPLES */}
         {modalReportMultiple.ouvert && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.modalCard, width: '500px', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
@@ -1100,7 +963,6 @@ export default function EnseignantDashboard() {
                   <textarea placeholder="Ex: Absence pour raison médicale, intempéries..." value={modalReportMultiple.motif} onChange={(e) => setModalReportMultiple(prev => ({...prev, motif: e.target.value}))} className="champ-saisie" style={{ height: '70px' }} required />
                 </div>
 
-                {/* BOUTON D'IMPORT MULTIMÉDIA */}
                 <div style={{ backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px dashed #94a3b8' }}>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Pièces jointes (Photos, PDF, Certificats médicaux...)</label>
                   <input 
@@ -1183,57 +1045,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL PAIEMENT HAUT DE GAMME À 1 900 FCFA / MOIS AVEC LOGOS OFFICIELS DES MOYENS DE PAIEMENT */}
-        {modalPaiement && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '480px' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>💳 Abonnement Mode Sans Affiliation</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-                Ce mode vous permet de définir vos propres classes en toute autonomie. Montant : <strong>1 900 FCFA / mois</strong>.
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                <label style={{ ...styles.label, marginBottom: '6px' }}>Choisissez votre moyen de paiement :</label>
-                
-                <div onClick={() => setMethodePaiement('wave')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'wave' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0083ff', borderRadius: '8px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>W</div>
-                  <div style={{ flex: 1 }}><strong>Wave Mobile Money</strong><br/><small style={{ color: '#64748b' }}>Paiement instantané par QR code</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('orange')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'orange' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#ff6600', borderRadius: '8px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>OM</div>
-                  <div style={{ flex: 1 }}><strong>Orange Money</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé via code marchand</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('mtn')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'mtn' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#ffcc00', borderRadius: '8px', color: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '11px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>MTN</div>
-                  <div style={{ flex: 1 }}><strong>MTN MoMo</strong><br/><small style={{ color: '#64748b' }}>Validation par code PIN</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('moov')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'moov' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0066cc', borderRadius: '8px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '11px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>MOOV</div>
-                  <div style={{ flex: 1 }}><strong>Moov Money</strong><br/><small style={{ color: '#64748b' }}>Paiement direct mobile</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('carte')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'carte' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0f172a', borderRadius: '8px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '16px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>💳</div>
-                  <div style={{ flex: 1 }}><strong>Visa / Mastercard</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé par carte bancaire</small></div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setModalPaiement(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button type="button" onClick={() => {
-                  setModeSansAffiliation(true);
-                  setModalPaiement(false);
-                  showToast("💳 Paiement validé avec succès ! Mode Sans Affiliation activé.");
-                }} className="bouton bouton-principal">Procéder au paiement (1 900 FCFA / mois)</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL NOUVELLE DEMANDE D'AFFILIATION EN COURS D'ANNÉE */}
+        {/* MODAL NOUVELLE DEMANDE D'AFFILIATION */}
         {modalAffiliation && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.modalCard, width: '460px' }} className="anim-modale">
@@ -1261,38 +1073,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL PRÉVISUALISATION IA (OCR) */}
-        {modalAIPreview.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '540px' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>✨ Résultat de l'analyse IA - Relecture</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>L'intelligence artificielle a extrait les éléments suivants. Modifiez si nécessaire avant validation :</p>
-              <form onSubmit={validerDonneesAI} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {Object.entries(modalAIPreview.donneesExtraites || {}).map(([cle, val]) => (
-                  <div key={cle}>
-                    <label style={styles.label}>{cle.toUpperCase()}</label>
-                    <input 
-                      type="text" 
-                      value={val || ''} 
-                      onChange={(e) => {
-                        const newVal = e.target.value;
-                        setModalAIPreview(prev => ({ ...prev, donneesExtraites: { ...(prev.donneesExtraites || {}), [cle]: newVal } }));
-                      }} 
-                      className="champ-saisie" 
-                      required 
-                    />
-                  </div>
-                ))}
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalAIPreview({ ouvert: false, donneesExtraites: null, niveauCible: null })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Valider et Intégrer</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL ASSISTANT DE CRÉATION AVEC DUPLICATION PERSONNALISÉE PAR CLASSE ET MODÉLISATION */}
+        {/* ASSISTANT DE CRÉATION ET DUPLICATION MULTI-ÉCOLES */}
         {modalAssistant.ouvert && (
           <div className="fond-modale anim-apparition">
             <div style={{ ...styles.modalCard, width: '680px', maxHeight: '95vh', overflowY: 'auto' }} className="anim-modale">
@@ -1305,7 +1086,6 @@ export default function EnseignantDashboard() {
                 <button onClick={() => setModalAssistant(prev => ({ ...prev, ouvert: false }))} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
 
-              {/* SÉLECTION PERSONNALISÉE : COCHER ET ASSIGNER UNE DATE À CHAQUE CLASSE */}
               <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '14px' }}>
                 <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '8px' }}>
                   Sélectionnez les classes de vos établissements et définissez leur date respective :
@@ -1410,7 +1190,6 @@ export default function EnseignantDashboard() {
                       </div>
                     </div>
 
-                    {/* AFFICHAGE CONDITIONNEL DES CHAMPS PAR DÉFAUT */}
                     {modeleFiche.champsDefaut.habilites && (
                       <div>
                         <label style={styles.label}>🎯 Habilités</label>
@@ -1438,7 +1217,6 @@ export default function EnseignantDashboard() {
                   </>
                 )}
 
-                {/* PERSONNALISATION ET MODÉLISATION DE LA FICHE */}
                 <div style={{ marginTop: '14px', padding: '14px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
                     <span style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>⚙️ Modéliser votre fiche (Champs sur-mesure)</span>
@@ -1454,47 +1232,14 @@ export default function EnseignantDashboard() {
                       >
                         + Ajouter un champ
                       </button>
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          const labels = (modalAssistant.champsPersonnalises || []).map(c => c.label).filter(l => l.trim() !== '');
-                          setModeleFiche(prev => ({ ...prev, champsPersoLabels: labels }));
-                          showToast("✅ Modèle de fiche mémorisé avec succès !");
-                        }}
-                        className="bouton bouton-succes" 
-                        style={{ padding: '4px 8px', fontSize: '11px' }}
-                      >
-                        💾 Mémoriser ce modèle
-                      </button>
                     </div>
                   </div>
-                  <p style={{ fontSize: '11px', color: '#64748b', marginBottom: '14px' }}>Ajoutez vos propres rubriques ou retirez les champs par défaut pour adapter l'assistant à votre matière.</p>
 
-                  {/* Boutons pour masquer/afficher les champs par défaut */}
-                  {modalAssistant.niveauCible === 'seance' && (
-                    <div style={{ marginBottom: '14px', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>Champs par défaut à afficher :</span>
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                        {['habilites', 'contenus', 'exercices', 'evaluations'].map(champKey => (
-                          <label key={champKey} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer', color: '#475569' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={modeleFiche.champsDefaut[champKey]} 
-                              onChange={(e) => setModeleFiche(prev => ({ ...prev, champsDefaut: { ...prev.champsDefaut, [champKey]: e.target.checked } }))} 
-                            />
-                            {champKey.charAt(0).toUpperCase() + champKey.slice(1)}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Champs dynamiques personnalisés */}
                   {(modalAssistant.champsPersonnalises || []).map((champ, index) => (
                     <div key={champ.id} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                       <input 
                         type="text" 
-                        placeholder="Nom du champ (ex: Objectif, Matériel...)" 
+                        placeholder="Nom du champ..." 
                         value={champ.label} 
                         onChange={(e) => {
                           const nouveauxChamps = [...(modalAssistant.champsPersonnalises || [])];
@@ -1506,7 +1251,7 @@ export default function EnseignantDashboard() {
                       />
                       <input 
                         type="text" 
-                        placeholder="Contenu / Valeur" 
+                        placeholder="Valeur..." 
                         value={champ.valeur} 
                         onChange={(e) => {
                           const nouveauxChamps = [...(modalAssistant.champsPersonnalises || [])];
@@ -1527,26 +1272,6 @@ export default function EnseignantDashboard() {
                       >✕</button>
                     </div>
                   ))}
-                </div>
-
-                {/* IMPORT MULTIMÉDIA GLOBAL DANS L'ASSISTANT */}
-                <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px dashed #94a3b8', marginTop: '10px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Importer des fichiers multimédias (Images, PDF, Schémas...)</label>
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="image/*,.pdf" 
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files).map(f => f.name);
-                      setModalAssistant(prev => ({ ...prev, fichiersMultimedias: files }));
-                    }} 
-                    style={{ fontSize: '11px' }} 
-                  />
-                  {(modalAssistant.fichiersMultimedias || []).length > 0 && (
-                    <p style={{ fontSize: '11px', color: '#166534', marginTop: '4px', margin: 0 }}>
-                      Fichiers joints : {(modalAssistant.fichiersMultimedias || []).join(', ')}
-                    </p>
-                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
@@ -1592,8 +1317,6 @@ export default function EnseignantDashboard() {
                 <h3 style={{ margin: 0, color: '#0f172a' }}>👁️ Consulter, Modifier & Réutiliser la Fiche</h3>
                 <button onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
               </div>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Vous pouvez consulter les détails ci-dessous, modifier les champs à votre guise, puis sélectionner les classes cibles.</p>
-
               <form onSubmit={executerConsultationEtReutilisation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
                   <label style={styles.label}>Titre de la fiche / séance</label>
@@ -1607,43 +1330,6 @@ export default function EnseignantDashboard() {
                   <label style={styles.label}>📚 Contenus</label>
                   <textarea value={modalConsulterReutiliser.donneesModifiees?.contenus || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), contenus: e.target.value } }))} className="champ-saisie" style={{ height: '60px' }} />
                 </div>
-                <div>
-                  <label style={styles.label}>⚡ Exercices</label>
-                  <textarea value={modalConsulterReutiliser.donneesModifiees?.exercices || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), exercices: e.target.value } }))} className="champ-saisie" style={{ height: '60px' }} />
-                </div>
-                <div>
-                  <label style={styles.label}>📝 Évaluations</label>
-                  <textarea value={modalConsulterReutiliser.donneesModifiees?.evaluations || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), evaluations: e.target.value } }))} className="champ-saisie" style={{ height: '60px' }} />
-                </div>
-
-                <div style={{ marginTop: '10px' }}>
-                  <label style={{ ...styles.label, marginBottom: '8px' }}>Sélectionner les classes cibles et leurs dates :</label>
-                  {(ecolesActivesValidees || []).flatMap(ecole => (getClassesParEcole(ecole) || []).map(cl => `${ecole} - ${cl}`)).map(cleUnique => {
-                    const estSelectionne = (modalConsulterReutiliser.classesSelectionnees || []).includes(cleUnique);
-                    return (
-                      <div key={cleUnique} style={{ border: '1px solid #e2e8f0', padding: '10px', borderRadius: '8px', backgroundColor: '#f8fafc', marginBottom: '6px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={estSelectionne} 
-                            onChange={() => {
-                              const updatedClasses = estSelectionne ? (modalConsulterReutiliser.classesSelectionnees || []).filter(c => c !== cleUnique) : [...(modalConsulterReutiliser.classesSelectionnees || []), cleUnique];
-                              setModalConsulterReutiliser(prev => ({ ...prev, classesSelectionnees: updatedClasses }));
-                            }} 
-                          />
-                          {cleUnique}
-                        </label>
-                        {estSelectionne && (
-                          <div style={{ marginTop: '6px', marginLeft: '22px' }}>
-                            <label style={{ fontSize: '11px', color: '#475569', display: 'block', marginBottom: '2px' }}>Date pour {cleUnique} :</label>
-                            <input type="date" value={(modalConsulterReutiliser.datesParClasse && modalConsulterReutiliser.datesParClasse[cleUnique]) || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, datesParClasse: { ...(prev.datesParClasse || {}), [cleUnique]: e.target.value } }))} className="champ-saisie" style={{ padding: '6px 10px' }} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '14px' }}>
                   <button type="button" onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer & Réutiliser</button>
@@ -1705,7 +1391,6 @@ export default function EnseignantDashboard() {
               </div>
             ) : (
               <div>
-                {/* En-tête de la classe et de l'école */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
                     <button onClick={() => setClasseSelectionneeVue(null)} className="bouton bouton-secondaire" style={{ marginBottom: '8px' }}>← Retour aux classes de {ecoleSelectionneeVue}</button>
@@ -1729,7 +1414,6 @@ export default function EnseignantDashboard() {
                   </div>
                 </div>
 
-                {/* LISTE DES CYCLES DE LA CLASSE */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {((programmesClasses && programmesClasses[classeSelectionneeVue]?.cycles) || []).map(cycle => (
                     <div key={cycle.id} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', borderLeft: '6px solid #2563eb' }}>
@@ -1751,7 +1435,6 @@ export default function EnseignantDashboard() {
                         </div>
                       </div>
 
-                      {/* LEÇONS DU CYCLE */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#334155', margin: 0 }}>Leçons de ce cycle :</h4>
@@ -1782,7 +1465,6 @@ export default function EnseignantDashboard() {
                               </div>
                             </div>
 
-                            {/* SÉANCES DE LA LEÇON */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '10px', marginTop: '10px' }}>
                               {(lecon.seances || []).map(seance => {
                                 const estReportee = !!(seancesReportees && seancesReportees[seance.id]);
@@ -1804,24 +1486,6 @@ export default function EnseignantDashboard() {
                                         {seance.exercices && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Exercices :</strong> {seance.exercices}</p>}
                                         {seance.evaluations && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Évaluations :</strong> {seance.evaluations}</p>}
                                       </div>
-
-                                      {/* AFFICHAGE DES CHAMPS PERSONNALISÉS DE LA FICHE */}
-                                      {(seance.champsPersonnalises || []).length > 0 && (
-                                        <div style={{ marginTop: '8px', padding: '6px', backgroundColor: '#f8fafc', borderRadius: '4px', border: '1px dashed #cbd5e1' }}>
-                                          {(seance.champsPersonnalises || []).map(cp => (
-                                            <p key={cp.id} style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}>
-                                              <strong>{cp.label} :</strong> {cp.valeur}
-                                            </p>
-                                          ))}
-                                        </div>
-                                      )}
-
-                                      {/* AFFICHAGE DES FICHIERS JOINTS */}
-                                      {(seance.fichiersMultimedias || []).length > 0 && (
-                                        <p style={{ fontSize: '11px', color: '#2563eb', margin: '6px 0 0 0' }}>
-                                          📎 Fichiers joints : {(seance.fichiersMultimedias || []).join(', ')}
-                                        </p>
-                                      )}
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                       <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
@@ -1843,7 +1507,6 @@ export default function EnseignantDashboard() {
                                 );
                               })}
 
-                              {/* Bouton pour ajouter une nouvelle séance */}
                               <div style={{ marginTop: '8px' }}>
                                 <button onClick={() => setModalAssistant(prev => ({ 
                                   ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, ecolesClassesCibles: [classeSelectionneeVue],
@@ -1930,7 +1593,6 @@ export default function EnseignantDashboard() {
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 16px 0' }}>Gestion de vos Établissements & Affiliations</h2>
             
-            {/* VUE MODE SANS AFFILIATION : GESTION DES CLASSES AUTONOMES */}
             {modeSansAffiliation && (
               <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fefce8', borderRadius: '8px', border: '1px solid #fde68a' }}>
                 <h3 style={{ fontSize: '15px', color: '#92400e', marginTop: 0, marginBottom: '12px' }}>🛠️ Vos Classes Autonomes (Mode Sans Affiliation)</h3>
@@ -1978,23 +1640,7 @@ export default function EnseignantDashboard() {
 
 const styles = {
   container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
-  topBarMainRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  navbarAppTitle: { fontSize: '18px', fontWeight: '700', margin: 0, color: '#ffffff' },
-  schoolTitleContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
-  schoolMainTitle: { fontSize: '18px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px', textTransform: 'uppercase' },
-  bottomBarRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
-  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  navbarTeacherName: { fontSize: '12px', fontWeight: '700', color: '#ffffff' },
-  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8' },
-  navActionsRight: { display: 'flex', gap: '12px', alignItems: 'center' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
   mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto', position: 'relative' },
-  multitaskDropdown: { position: 'absolute', top: '44px', right: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '6px' },
   notificationDropdown: { position: 'absolute', top: '44px', right: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '300px', zIndex: 100, padding: '10px' },
   dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
   notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
@@ -2005,5 +1651,7 @@ const styles = {
   modalCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '14px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0' },
   label: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' }
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  pastille-alerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '700' }
 };

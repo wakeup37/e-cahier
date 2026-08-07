@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import Header from '../components/Header'; // Assure-toi que le chemin d'importation correspond à ton arborescence
 
 export default function CenseurDashboard() {
   
@@ -19,9 +20,6 @@ export default function CenseurDashboard() {
 
   const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
   const [formProfilCenseur, setFormProfilCenseur] = useState({ ...(infosCenseur || {}) });
-  const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
-  const profilCenseurRef = useRef(null);
-
   const [modalConfirmationQuitter, setModalConfirmationQuitter] = useState(false);
 
   // --- SYNCHRONISATION AVEC LES DONNÉES ENSEIGNANTS ---
@@ -105,9 +103,6 @@ export default function CenseurDashboard() {
     } catch {}
   }, [notificationsCenseur]);
 
-  const [notifCenseurOuvert, setNotifCenseurOuvert] = useState(false);
-  const notifCenseurRef = useRef(null);
-
   // --- RAPPORTS TRANSMIS AU CHEF D'ÉTABLISSEMENT ---
   const [rapportsEnvoyesChef, setRapportsEnvoyesChef] = useState(() => {
     try {
@@ -153,7 +148,7 @@ export default function CenseurDashboard() {
     } catch {}
   }, [propositionsEnvoyees]);
 
-  // --- NOUVEAU: MODALE DE PROPOSITION ENRICHIE ---
+  // --- MODALE DE PROPOSITION ENRICHIE ---
   const [modalProposition, setModalProposition] = useState({
     ouvert: false,
     civilite: 'M.',
@@ -166,7 +161,7 @@ export default function CenseurDashboard() {
     classesProposees: ''
   });
 
-  // --- NOUVEAU: MODALE DE RETRAIT D'UN ENSEIGNANT ---
+  // --- MODALE DE RETRAIT D'UN ENSEIGNANT ---
   const [modalRetraitEnseignant, setModalRetraitEnseignant] = useState({
     ouvert: false,
     enseignantId: null,
@@ -205,15 +200,6 @@ export default function CenseurDashboard() {
     setTimeout(() => setMessage(''), 4000);
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (profilCenseurRef.current && !profilCenseurRef.current.contains(event.target)) setProfilCenseurOuvert(false);
-      if (notifCenseurRef.current && !notifCenseurRef.current.contains(event.target)) setNotifCenseurOuvert(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const handleEnregistrerProfilCenseur = (e) => {
     e.preventDefault();
     setInfosCenseur({ ...formProfilCenseur });
@@ -233,6 +219,13 @@ export default function CenseurDashboard() {
     setInfosCenseur(prev => ({ ...prev, etablissement: '' }));
     setModalConfirmationQuitter(false);
     showToast("🔄 Vous avez quitté l'établissement.");
+  };
+
+  // Gestion de la déconnexion
+  const handleLogout = () => {
+    localStorage.removeItem('app_censeur_profil');
+    showToast("🚪 Déconnexion réussie.");
+    // Redirection possible vers la page de connexion ici si nécessaire
   };
 
   // --- ACTIONS DES AFFILIATIONS ---
@@ -264,7 +257,6 @@ export default function CenseurDashboard() {
     showToast(`❌ Affiliation de l'enseignant ${modalRetraitEnseignant.enseignantNom} retirée avec succès.`);
   };
 
-  // --- ADRESSER UNE PROPOSITION ENRICHIE (ANTI-DOUBLONS) ---
   const envoyerPropositionAffiliation = (e) => {
     e.preventDefault();
     if (!modalProposition.nom.trim() || !modalProposition.matricule.trim() || !modalProposition.email.trim()) {
@@ -299,7 +291,7 @@ export default function CenseurDashboard() {
     }
     const cleRapport = classesSelectionneesRapport.sort().join('_');
     if (rapportsEnvoyesChef[cleRapport]) {
-      showToast("⚠️ Le rapport pour cette sélection a déjà été transmitted au Chef d'Établissement.");
+      showToast("⚠️ Le rapport pour cette sélection a déjà été transmis au Chef d'Établissement.");
       return;
     }
     setRapportsEnvoyesChef(prev => ({
@@ -478,176 +470,32 @@ export default function CenseurDashboard() {
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* EN-TÊTE NAVBAR CENSEUR */}
-      <header style={styles.darkNavbar}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-          
-          {/* BLOC PROFIL CENSEUR CLIQUABLE AVEC PHOTO & BOUTON NOTIFICATIONS */}
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }} ref={profilCenseurRef}>
-              <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
-                <div style={styles.avatarNavbarContainer}>
-                  {infosCenseur?.photoProfil ? (
-                    <img src={infosCenseur.photoProfil} alt="Profil Censeur" style={styles.avatarNavbarImg} />
-                  ) : (
-                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
-                  )}
-                </div>
-                <div style={styles.navbarTeacherInfo}>
-                  <span style={styles.navbarTeacherName}>{infosCenseur?.civilite || ''} {infosCenseur?.nom || ''} {infosCenseur?.prenoms || ''}</span>
-                  <span style={styles.navbarTeacherDetails}>
-                    {infosCenseur?.etablissement || ''} - Compte : {infosCenseur?.statutCompte || ''}
-                  </span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>{profilCenseurOuvert ? '▲' : '▼'}</span>
-              </button>
+      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      <Header 
+        title="E-cahier !" 
+        roleName={`Censeur Pédagogique - ${infosCenseur?.etablissement || 'Établissement'}`} 
+        onLogout={handleLogout} 
+      />
 
-              {profilCenseurOuvert && (
-                <div style={styles.notificationDropdown} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Mon Compte Censeur</div>
-                  <div style={{ padding: '8px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' }}>
-                    <strong>{infosCenseur?.civilite || ''} {infosCenseur?.nom || ''} {infosCenseur?.prenoms || ''}</strong><br />
-                    <span style={{ color: '#64748b', fontSize: '11px' }}>
-                      {infosCenseur?.etablissement || ''}<br />
-                      <em>Statut : {infosCenseur?.statutCompte || ''}</em>
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setFormProfilCenseur({ ...(infosCenseur || {}) });
-                      setModalProfilCenseurOuvert(true);
-                      setProfilCenseurOuvert(false);
-                    }} 
-                    style={styles.optionMenu}
-                  >
-                    ⚙️ Modifier mon profil & photo
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setModalConfirmationQuitter(true);
-                      setProfilCenseurOuvert(false);
-                    }} 
-                    style={{ ...styles.optionMenu, color: '#ef4444' }}
-                  >
-                    🚪 Quitter l'établissement / Changer
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* BOUTON DE NOTIFICATIONS CENSEUR */}
-            <div style={{ position: 'relative' }} ref={notifCenseurRef}>
-              <button onClick={() => setNotifCenseurOuvert(!notifCenseurOuvert)} style={styles.navDarkBtn}>
-                <span>🔔 Notifications</span>
-                {(notificationsCenseur || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notificationsCenseur || []).filter(n => n && !n.lu).length}</span>}
-              </button>
-              {notifCenseurOuvert && (
-                <div style={styles.notificationDropdown} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Notifications & Fiches à Valider</div>
-                  {(notificationsCenseur || []).map(n => n ? (
-                    <div 
-                      key={n.id} 
-                      onClick={() => {
-                        setActiveTab('visa');
-                        setNotifCenseurOuvert(false);
-                      }}
-                      style={{ ...styles.notifItem, cursor: 'pointer' }}
-                    >
-                      <p style={{ margin: 0, fontSize: '12px', color: '#334155', fontWeight: n.texte && n.texte.includes('Nouvelle fiche') ? '700' : 'normal' }}>{n.texte}</p>
-                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                    </div>
-                  ) : null)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* NOM DE L'ÉTABLISSEMENT AFFICHÉ AU CENTRE DE LA NAVBAR */}
-          <div style={styles.schoolTitleContainer}>
-            <span style={styles.schoolMainTitle}>{infosCenseur?.etablissement || 'Établissement non défini'}</span>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button onClick={() => setActiveTab('visa')} className={`bouton ${activeTab === 'visa' ? 'bouton-principal' : 'bouton-secondaire'}`}>✍️ Visa & Validation</button>
-            <button onClick={() => setActiveTab('affiliations')} className={`bouton ${activeTab === 'affiliations' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍🏫 Enseignants affiliés</button>
-            <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive de l'École</button>
-            <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Progression</button>
-            <button onClick={() => setActiveTab('suivi')} className={`bouton ${activeTab === 'suivi' ? 'bouton-principal' : 'bouton-secondaire'}`}>⏰ Suivi Hebdomadaire</button>
-            
-            {/* BOUTON QUITTER L'ÉCOLE DANS LA NAVBAR */}
-            <button 
-              onClick={() => setModalConfirmationQuitter(true)} 
-              style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
-              title="Se détacher de cet établissement"
-            >
-              🚪 Quitter l'école
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CENSEUR */}
+      <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <button onClick={() => setActiveTab('visa')} className={`bouton ${activeTab === 'visa' ? 'bouton-principal' : 'bouton-secondaire'}`}>✍️ Visa & Validation</button>
+        <button onClick={() => setActiveTab('affiliations')} className={`bouton ${activeTab === 'affiliations' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍🏫 Enseignants affiliés</button>
+        <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive de l'École</button>
+        <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Progression</button>
+        <button onClick={() => setActiveTab('suivi')} className={`bouton ${activeTab === 'suivi' ? 'bouton-principal' : 'bouton-secondaire'}`}>⏰ Suivi Hebdomadaire</button>
+        
+        <button 
+          onClick={() => setModalConfirmationQuitter(true)} 
+          style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
+          title="Se détacher de cet établissement"
+        >
+          🚪 Quitter l'école
+        </button>
+      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
-
-        {/* MODAL DE MODIFICATION DU PROFIL CENSEUR & PHOTO */}
-        {modalProfilCenseurOuvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>👤 Paramètres du Profil Censeur & Photo</h3>
-              
-              <form onSubmit={handleEnregistrerProfilCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
-                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
-                    {formProfilCenseur?.photoProfil ? (
-                      <img src={formProfilCenseur.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <span style={{ fontSize: '28px' }}>👤</span>
-                    )}
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo de profil (Fichier)</label>
-                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilCenseur} style={{ fontSize: '11px', cursor: 'pointer' }} />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                  <div>
-                    <label style={styles.label}>Civilité</label>
-                    <select value={formProfilCenseur?.civilite || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, civilite: e.target.value})} className="champ-saisie">
-                      <option value="M.">M.</option>
-                      <option value="Mme">Mme</option>
-                      <option value="Dr">Dr</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Nom</label>
-                    <input type="text" value={formProfilCenseur?.nom || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, nom: e.target.value})} className="champ-saisie" required />
-                  </div>
-                </div>
-
-                <div>
-                  <label style={styles.label}>Prénoms</label>
-                  <input type="text" value={formProfilCenseur?.prenoms || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, prenoms: e.target.value})} className="champ-saisie" required />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Niveau en charge</label>
-                  <input type="text" value={formProfilCenseur?.niveauCharge || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, niveauCharge: e.target.value})} className="champ-saisie" required />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Statut du compte (soumis à validation du chef d'établissement)</label>
-                  <input type="text" value={formProfilCenseur?.statutCompte || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, statutCompte: e.target.value})} className="champ-saisie" required />
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button type="button" onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* MODAL DE CONFIRMATION POUR QUITTER L'ÉCOLE */}
         {modalConfirmationQuitter && (
@@ -804,7 +652,7 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ONGLET 1 : VISA & VALIDATION (TIMELINE DE LA PLUS RÉCENTE À LA MOINS RÉCENTE) */}
+        {/* ONGLET 1 : VISA & VALIDATION */}
         {activeTab === 'visa' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
@@ -818,7 +666,6 @@ export default function CenseurDashboard() {
               </div>
             </div>
 
-            {/* BARRE DE FILTRES : CLASSE -> MATIÈRE -> SEMAINE */}
             <div style={styles.bibliothequeFilterBox}>
               <div style={{ flex: '1 1 180px' }}>
                 <label style={styles.labelFiltre}>1. Filtrer par Classe</label>
@@ -1000,7 +847,7 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ONGLET 2 : ARCHIVE PÉDAGOGIQUE DE L'ÉTABLISSEMENT */}
+        {/* ONGLET 2 : ARCHIVE PÉDAGOGIQUE */}
         {activeTab === 'archive' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 4px 0' }}>📁 Archive Pédagogique Permanente de l'École</h2>
@@ -1061,7 +908,7 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ONGLET 3 : STATISTIQUES, PROGRESSION PAR NIVEAU & ENSEIGNANT */}
+        {/* ONGLET 3 : STATISTIQUES & PROGRESSION */}
         {activeTab === 'stats' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
@@ -1133,34 +980,10 @@ export default function CenseurDashboard() {
                 ) : null)}
               </div>
             )}
-
-            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>Tableau comparatif détaillé (Par Niveau et par Enseignant)</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left' }}>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Niveau</th>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Classe</th>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Enseignant</th>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Matière</th>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Cycles & Fréquence</th>
-                  <th style={{ padding: '10px', border: '1px solid #cbd5e1' }}>Progression</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontWeight: '700', color: '#2563eb' }}>6ème</td>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>6ème A</td>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>M. Kouassi Jean</td>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>EPS</td>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}>1 cycle / 1 leçon</td>
-                  <td style={{ padding: '10px', border: '1px solid #cbd5e1' }}><div style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontWeight: '700', textAlign: 'center' }}>25% (Régulier)</div></td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         )}
 
-        {/* ONGLET 4 : SUIVI HEBDOMADAIRE & RAPPELS EN MASSE */}
+        {/* ONGLET 4 : SUIVI HEBDOMADAIRE */}
         {activeTab === 'suivi' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
@@ -1210,27 +1033,12 @@ export default function CenseurDashboard() {
 
 const styles = {
   container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
-  topBarMainRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  schoolTitleContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
-  schoolMainTitle: { fontSize: '20px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px', textTransform: 'uppercase' },
-  bottomBarRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
-  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  navbarTeacherName: { fontSize: '12px', fontWeight: '700', color: '#ffffff' },
-  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8' },
-  notificationDropdown: { position: 'absolute', top: '48px', left: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, padding: '10px' },
-  dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
-  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '6px' },
-  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
   mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)' },
   bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   'champ-saisie': { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none' },
-  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' }
+  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  label: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import API from '../../api.js'; // Importation du client API configuré sur le port 5002
+import Header from '../components/Header'; // Importation du Header centralisé et responsive
 
 export default function ChefEtablissementDashboard() {
   
@@ -41,8 +42,6 @@ export default function ChefEtablissementDashboard() {
 
   const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
   const [formProfilChef, setFormProfilChef] = useState({ ...(infosChef || {}) });
-  const [profilChefOuvert, setProfilChefOuvert] = useState(false);
-  const profilChefRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -132,9 +131,6 @@ export default function ChefEtablissementDashboard() {
     } catch {}
   }, [notificationsChef]);
 
-  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
-  const notifChefRef = useRef(null);
-
   // --- DONNÉES RÉCUPÉRÉES DEPUIS LE BACKEND API ---
   const [apiEtablissements, setApiEtablissements] = useState([]);
 
@@ -142,7 +138,6 @@ export default function ChefEtablissementDashboard() {
     const fetchApiEtablissements = async () => {
       try {
         const response = await API.get('/etablissements');
-        // 🛠️ CORRECTION : Le backend renvoie directement un tableau d'établissements
         if (response.data && Array.isArray(response.data)) {
           setApiEtablissements(response.data);
         }
@@ -218,19 +213,6 @@ export default function ChefEtablissementDashboard() {
     };
   }, [censeursAffiliations]);
 
-  const [menuOuvert, setMenuOuvert] = useState(false);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOuvert(false);
-      if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
-      if (notifChefRef.current && !notifChefRef.current.contains(event.target)) setNotifChefOuvert(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const handleCreerOuConnecterEcole = async (e, type) => {
     e.preventDefault();
     if (!inputNomEcole.trim()) {
@@ -242,7 +224,6 @@ export default function ChefEtablissementDashboard() {
     setInfosChef(prev => ({ ...prev, etablissement: nouvelleConfig.nomEcole }));
     
     try { 
-      // 🚀 Envoi direct vers ton backend Node.js / Supabase
       await API.post('/etablissements', { 
         nom: nouvelleConfig.nomEcole, 
         annee_scolaire_active: nouvelleConfig.anneeScolaire 
@@ -276,15 +257,10 @@ export default function ChefEtablissementDashboard() {
     reader.readAsDataURL(file);
   };
 
-  const ouvrirAnneeScolaire = () => {
-    setEcoleConfig(prev => ({ ...prev, anneeOuverte: true }));
-    showToast("🚀 Année scolaire ouverte et démarrée avec succès !");
-  };
-
-  const confirmerTerminerAnnee = () => {
-    setEcoleConfig(prev => ({ ...prev, anneeOuverte: false }));
-    setModalConfirmationTerminer(false);
-    showToast("🔒 Année scolaire terminée avec succès.");
+  // Gestion de la déconnexion
+  const handleLogout = () => {
+    localStorage.removeItem('app_chef_profil');
+    showToast("🚪 Déconnexion réussie.");
   };
 
   const validerCenseur = (id) => {
@@ -303,7 +279,6 @@ export default function ChefEtablissementDashboard() {
     showToast(`❌ Affiliation de ${modalRetraitCenseur.censeurNom} retirée avec succès.`);
   };
 
-  // --- ENVOI DE LA PROPOSITION ENRICHIE ---
   const envoyerPropositionCenseur = (e) => {
     e.preventDefault();
     if (!modalProposition.nom.trim() || !modalProposition.matricule.trim() || !modalProposition.email.trim()) {
@@ -460,129 +435,30 @@ export default function ChefEtablissementDashboard() {
         .pastille-alerte { background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; }
       `}</style>
 
-      {/* EN-TÊTE NAVBAR CHEF D'ÉTABLISSEMENT */}
-      <header style={styles.darkNavbar}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-          
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }} ref={profilChefRef}>
-              <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
-                <div style={styles.avatarNavbarContainer}>
-                  {infosChef?.photoProfil ? (
-                    <img src={infosChef.photoProfil} alt="Profil Chef" style={styles.avatarNavbarImg} />
-                  ) : (
-                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
-                  )}
-                </div>
-                <div style={styles.navbarTeacherInfo}>
-                  <span style={styles.navbarTeacherName}>{infosChef?.civilite || ''} {infosChef?.nom || ''} {infosChef?.prenoms || ''}</span>
-                  <span style={styles.navbarTeacherDetails}>{infosChef?.role || 'Chef d’Établissement'}</span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>{profilChefOuvert ? '▲' : '▼'}</span>
-              </button>
+      {/* COMPOSANT HEADER CENTRALISÉ ET RESPONSIVE */}
+      <Header 
+        title="E-cahier !" 
+        roleName={`Chef d’Établissement - ${ecoleConfig?.nomEcole || infosChef?.etablissement || 'Établissement'}`} 
+        onLogout={handleLogout} 
+      />
 
-              {profilChefOuvert && (
-                <div style={styles.notificationDropdown} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                  <div style={{ padding: '8px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' }}>
-                    <strong>{infosChef?.civilite || ''} {infosChef?.nom || ''} {infosChef?.prenoms || ''}</strong><br />
-                    <span style={{ color: '#64748b', fontSize: '11px' }}>{infosChef?.etablissement || ecoleConfig?.nomEcole || ''}</span>
-                  </div>
-                  <button onClick={() => { setFormProfilChef({ ...(infosChef || {}) }); setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>
-                    ⚙️ Modifier mon profil & photo
-                  </button>
-                  <button onClick={() => { setModalConfirmationQuitter(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444' }}>
-                    🚪 Quitter l'établissement / Changer
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div style={{ position: 'relative' }} ref={notifChefRef}>
-              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
-                <span>🔔 Rapports Censeurs</span>
-                {(notificationsChef || []).filter(n => n && !n.lu).length > 0 && <span className="pastille-alerte">{(notificationsChef || []).filter(n => n && !n.lu).length}</span>}
-              </button>
-              {notifChefOuvert && (
-                <div style={styles.notificationDropdown} className="anim-apparition">
-                  <div style={styles.dropdownHeader}>Notifications des Rapports</div>
-                  {(notificationsChef || []).map(n => n ? (
-                    <div key={n.id} style={styles.notifItem}>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#334155' }}>{n.texte}</p>
-                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                    </div>
-                  ) : null)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div style={styles.schoolTitleContainer}>
-            <span style={styles.schoolMainTitle}>{ecoleConfig?.nomEcole || infosChef?.etablissement || 'Établissement non défini'}</span>
-          </div>
-
-          <div style={styles.navActionsRight}>
-            <div style={{ position: 'relative' }} ref={menuRef}>
-              <button onClick={() => setMenuOuvert(!menuOuvert)} style={styles.navDarkBtn}>
-                <span>⚙️ Navigation</span>
-                <span style={{ fontSize: '10px' }}>{menuOuvert ? '▲' : '▼'}</span>
-              </button>
-              {menuOuvert && (
-                <div style={{ ...styles.multitaskDropdown, right: 0, left: 'auto' }} className="anim-apparition">
-                  <button onClick={() => { setActiveTab('censeurs'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'censeurs' ? 'actif' : ''}`}>👨‍💼 Gestion des Censeurs</button>
-                  <button onClick={() => { setActiveTab('stats'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'stats' ? 'actif' : ''}`}>📊 Statistiques & Rapports</button>
-                  <button onClick={() => { setActiveTab('archive'); setMenuOuvert(false); }} className={`option-menu ${activeTab === 'archive' ? 'actif' : ''}`}>📁 Archive Pédagogique</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* BARRE DE NAVIGATION SECONDAIRE DES ONGLETS CHEF */}
+      <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <button onClick={() => setActiveTab('censeurs')} className={`bouton ${activeTab === 'censeurs' ? 'bouton-principal' : 'bouton-secondaire'}`}>👨‍💼 Gestion des Censeurs</button>
+        <button onClick={() => setActiveTab('stats')} className={`bouton ${activeTab === 'stats' ? 'bouton-principal' : 'bouton-secondaire'}`}>📊 Statistiques & Rapports</button>
+        <button onClick={() => setActiveTab('archive')} className={`bouton ${activeTab === 'archive' ? 'bouton-principal' : 'bouton-secondaire'}`}>📁 Archive Pédagogique</button>
+        
+        <button 
+          onClick={() => setModalConfirmationQuitter(true)} 
+          style={{ ...styles.navDarkBtn, backgroundColor: '#7f1d1d', borderColor: '#991b1b', color: '#f8fafc' }}
+          title="Se détacher de cet établissement"
+        >
+          🚪 Quitter l'école
+        </button>
+      </div>
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
-
-        {/* MODAL PROFIL CHEF */}
-        {modalProfilChefOuvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>👤 Paramètres du Profil & Photo</h3>
-              <form onSubmit={handleEnregistrerProfilChef} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
-                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
-                    {formProfilChef?.photoProfil ? (
-                      <img src={formProfilChef.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <span style={{ fontSize: '28px' }}>👤</span>
-                    )}
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo de profil</label>
-                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilChef} style={{ fontSize: '11px' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
-                  <div>
-                    <label style={styles.label}>Civilité</label>
-                    <select value={formProfilChef?.civilite || ''} onChange={(e) => setFormProfilChef({...formProfilChef, civilite: e.target.value})} className="champ-saisie">
-                      <option value="M.">M.</option><option value="Mme">Mme</option><option value="Dr">Dr</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Nom</label>
-                    <input type="text" value={formProfilChef?.nom || ''} onChange={(e) => setFormProfilChef({...formProfilChef, nom: e.target.value})} className="champ-saisie" required />
-                  </div>
-                </div>
-                <div><label style={styles.label}>Prénoms</label><input type="text" value={formProfilChef?.prenoms || ''} onChange={(e) => setFormProfilChef({...formProfilChef, prenoms: e.target.value})} className="champ-saisie" required /></div>
-                <div><label style={styles.label}>Établissement</label><input type="text" value={formProfilChef?.etablissement || ''} onChange={(e) => setFormProfilChef({...formProfilChef, etablissement: e.target.value})} className="champ-saisie" required /></div>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button type="button" onClick={() => setModalProfilChefOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* MODAL CONFIRMATION TERMINER ANNÉE */}
         {modalConfirmationTerminer && (
@@ -592,7 +468,7 @@ export default function ChefEtablissementDashboard() {
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>Êtes-vous sûr de vouloir <strong>terminer l'année scolaire</strong> ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalConfirmationTerminer(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={confirmerTerminerAnnee} className="bouton bouton-danger">Oui, terminer l'année</button>
+                <button onClick={() => { setEcoleConfig(prev => ({ ...prev, anneeOuverte: false })); setModalConfirmationTerminer(false); showToast("🔒 Année scolaire terminée avec succès."); }} className="bouton bouton-danger">Oui, terminer l'année</button>
               </div>
             </div>
           </div>
@@ -874,31 +750,12 @@ const styles = {
   container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b' },
   setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
   setupCard: { backgroundColor: '#ffffff', padding: '36px', borderRadius: '14px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 30px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
-  topBarMainRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  navbarAppTitle: { fontSize: '18px', fontWeight: '700', margin: 0, color: '#ffffff' },
-  schoolTitleContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
-  schoolMainTitle: { fontSize: '18px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px', textTransform: 'uppercase' },
-  bottomBarRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' },
   mainContentBody: { padding: '30px', maxWidth: '1280px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
-  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' },
   label: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
-  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  navbarTeacherName: { fontSize: '12px', fontWeight: '700', color: '#ffffff' },
-  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8' },
-  notificationDropdown: { position: 'absolute', top: '48px', left: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '300px', zIndex: 100, padding: '10px' },
-  dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
-  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '6px' },
-  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
   navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  navActionsRight: { display: 'flex', gap: '12px', alignItems: 'center' },
-  multitaskDropdown: { position: 'absolute', top: '44px', right: 0, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '6px' },
   bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
   sectionHeader: { marginBottom: '20px' }
 };

@@ -26,6 +26,18 @@ export default function Application() {
     anciennete: '1 à 5 ans', matiere: '', secteurEnseignement: 'Public', typeStatutPublic: 'Titulaire', numeroMatricule: '', email: '', motDePasse: ''
   });
 
+  // --- ÉTAT DU PROFIL UTILISATEUR & MENU BURGER ---
+  const [menuBurgerOuvert, setMenuBurgerOuvert] = useState(false);
+  const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
+  const [profilUtilisateur, setProfilUtilisateur] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('app_profil_utilisateur')) || { civilite: 'M.', nom: 'Kouassi', prenoms: 'Jean', telephone: '+225 01020304', photo: '' }; }
+    catch { return { civilite: 'M.', nom: 'Kouassi', prenoms: 'Jean', telephone: '+225 01020304', photo: '' }; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('app_profil_utilisateur', JSON.stringify(profilUtilisateur)); } catch {}
+  }, [profilUtilisateur]);
+
   const [demandesAffiliationEnseignants, setDemandesAffiliationEnseignants] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_demandes_affiliation')) || []; } catch { return []; }
   });
@@ -75,6 +87,7 @@ export default function Application() {
     }
     localStorage.setItem('app_enseignant_statut', 'nouveau');
     setAuthContext('inscription');
+    setProfilUtilisateur(prev => ({ ...prev, nom: formInscription.nom, prenoms: formInscription.prenoms, civilite: formInscription.civilite, telephone: formInscription.telephone }));
     if (formInscription.role === 'chef') { setEtapeChefEcole(true); return; }
     afficherNotification("Compte créé avec succès ! Procédez à l'affiliation.");
     setTimeout(() => setUserRole(formInscription.role), 600);
@@ -119,6 +132,16 @@ export default function Application() {
     setFormNouvelleEcole({ nomEcole: '', codeMinistere: '', ville: '', commune: '', quartier: '', typeEtablissement: 'Public' });
     setCodeOuNomRejoins(''); localStorage.removeItem('app_enseignant_statut');
     setFormConnexion({ email: '', motDePasse: '', roleAttendu: 'enseignant' });
+    setMenuBurgerOuvert(false);
+    afficherNotification("🚪 Déconnexion réussie.");
+  };
+
+  const handleChangerPhotoProfil = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setProfilUtilisateur(prev => ({ ...prev, photo: reader.result }));
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -130,54 +153,146 @@ export default function Application() {
         .anim-apparition { animation: apparition 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes apparition { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Boutons Premium */
-        .bouton-principal { background-color: #0f172a; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; width: 100%; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
-        .bouton-principal:hover { background-color: #1e293b; transform: translateY(-1px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .bouton-principal { background-color: #0f172a; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; width: 100%; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .bouton-principal:hover { background-color: #1e293b; transform: translateY(-1px); }
         
         .bouton-inscription { background-color: #2563eb; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; width: 100%; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); }
-        .bouton-inscription:hover { background-color: #1d4ed8; transform: translateY(-1px); box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3); }
+        .bouton-inscription:hover { background-color: #1d4ed8; transform: translateY(-1px); }
         
         .bouton-secondaire { background-color: #f1f5f9; color: #475569; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .bouton-secondaire:hover { background-color: #e2e8f0; color: #0f172a; }
 
-        /* Champs de saisie High-End */
         .champ-saisie { width: 100%; padding: 12px 16px; border-radius: 10px; border: 1px solid #e2e8f0; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; transition: all 0.2s ease; }
         .champ-saisie:focus { border-color: #3b82f6; background-color: #ffffff; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15); }
         
-        /* Conteneurs & Layouts */
-        .carte-auth { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01); border: 1px solid #f1f5f9; width: 100%; max-width: 500px; margin: 0 auto; }
+        .carte-auth { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid #f1f5f9; width: 100%; max-width: 500px; margin: 0 auto; }
         .libelle { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         
-        /* Sélecteurs stylisés (Tabs) */
         .onglet-conteneur { display: flex; background-color: #f1f5f9; border-radius: 12px; padding: 4px; margin-bottom: 24px; }
         .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; background: transparent; color: #64748b; }
         .onglet-btn.actif { background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 
         .option-paiement { display: flex; align-items: center; gap: 16px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; cursor: pointer; transition: all 0.2s ease; background: #ffffff; margin-bottom: 10px; }
-        .option-paiement:hover { border-color: #cbd5e1; }
         .option-paiement.selectionne { border-color: #3b82f6; background: #eff6ff; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
 
-        /* Navigation Responsive */
         .nav-header { display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 16px 32px; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 50; }
         .nav-logo-container { display: flex; align-items: center; gap: 12px; }
         .nav-title { font-weight: 800; font-size: 18px; color: #0f172a; letter-spacing: -0.5px; }
         .nav-role { font-weight: 600; color: #64748b; font-size: 13px; background: #f1f5f9; padding: 4px 12px; border-radius: 99px; }
-        .bouton-deconnexion { background-color: transparent; color: #ef4444; border: 1px solid #fee2e2; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.2s; }
-        .bouton-deconnexion:hover { background-color: #fef2f2; border-color: #fca5a5; }
 
-        /* Media Queries pour la perfection Mobile */
-        @media (max-width: 640px) {
-          .carte-auth { padding: 24px 20px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-          .form-grid { grid-template-columns: 1fr; gap: 12px; }
-          .nav-header { flex-direction: column; gap: 16px; padding: 16px 20px; text-align: center; }
-          .nav-logo-container { flex-direction: column; gap: 6px; }
-          .bouton-deconnexion { width: 100%; }
-        }
+        /* Style Avatar & Menu Burger */
+        .avatar-container { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 6px 12px; border-radius: 12px; transition: background 0.2s; border: 1px solid transparent; }
+        .avatar-container:hover { background: #f8fafc; border-color: #e2e8f0; }
+        .avatar-cercle { width: 40px; height: 40px; border-radius: 50%; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; object-fit: cover; }
+        
+        .menu-burger-btn { background: none; border: none; font-size: 22px; cursor: pointer; padding: 8px; border-radius: 8px; color: #0f172a; }
+        .menu-burger-btn:hover { background: #f1f5f9; }
+
+        /* Modal Profile Overlay */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 16px; }
+        .modal-card { background: #ffffff; width: 100%; max-width: 480px; padding: 32px; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+
+        /* Menu Burger Drawer */
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); z-index: 1000; display: flex; justify-content: flex-end; }
+        .drawer-content { width: 100%; max-width: 320px; background: #ffffff; height: 100%; padding: 24px; display: flex; flexDirection: column; box-shadow: -10px 0 25px rgba(0,0,0,0.1); }
       `}</style>
 
       {!estEnLigne && <div style={styles.bandeauHorsLigne}>⚠️ Mode hors ligne actif. Sauvegarde locale activée.</div>}
       {notification && <div style={styles.conteneurNotification}><div style={styles.texteNotification}>{notification}</div></div>}
+
+      {/* --- MODAL DE GESTION DU PROFIL (OUVERT VIA L'AVATAR) --- */}
+      {modalProfilOuvert && (
+        <div className="modal-overlay anim-apparition">
+          <div className="modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>⚙️ Gestion de mon Profil</h3>
+              <button onClick={() => setModalProfilOuvert(false)} className="bouton-secondaire" style={{ padding: '6px 12px', fontSize: '12px' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <div className="avatar-cercle" style={{ width: '56px', height: '56px', fontSize: '20px' }}>
+                  {profilUtilisateur.photo ? <img src={profilUtilisateur.photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : `${profilUtilisateur.nom?.[0] || 'U'}`}
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#2563eb', cursor: 'pointer', display: 'inline-block' }}>
+                    Changer la photo de profil
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfil} style={{ display: 'none' }} />
+                  </label>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b' }}>Format PNG ou JPG recommandé.</p>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <div>
+                  <label className="libelle">Civilité</label>
+                  <select value={profilUtilisateur.civilite} onChange={e => setProfilUtilisateur({...profilUtilisateur, civilite: e.target.value})} className="champ-saisie">
+                    <option value="M.">M.</option><option value="Mme">Mme</option><option value="Dr">Dr</option><option value="Pr">Pr</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="libelle">Nom</label>
+                  <input type="text" value={profilUtilisateur.nom} onChange={e => setProfilUtilisateur({...profilUtilisateur, nom: e.target.value})} className="champ-saisie" />
+                </div>
+              </div>
+
+              <div>
+                <label className="libelle">Prénoms</label>
+                <input type="text" value={profilUtilisateur.prenoms} onChange={e => setProfilUtilisateur({...profilUtilisateur, prenoms: e.target.value})} className="champ-saisie" />
+              </div>
+
+              <div>
+                <label className="libelle">Téléphone / WhatsApp</label>
+                <input type="text" value={profilUtilisateur.telephone} onChange={e => setProfilUtilisateur({...profilUtilisateur, telephone: e.target.value})} className="champ-saisie" />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button onClick={() => setModalProfilOuvert(false)} className="bouton-secondaire" style={{ flex: 1 }}>Fermer</button>
+                <button onClick={() => { setModalProfilOuvert(false); afficherNotification("✅ Modifications de profil enregistrées !"); }} className="bouton-principal" style={{ flex: 2 }}>Enregistrer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MENU BURGER DRAWER (CONTIENT LA DÉCONNEXION) --- */}
+      {menuBurgerOuvert && (
+        <div className="drawer-overlay anim-apparition" onClick={() => setMenuBurgerOuvert(false)}>
+          <div className="drawer-content" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '20px' }}>📖</span>
+                <span style={{ fontWeight: '800', fontSize: '16px', color: '#0f172a' }}>Menu E-cahier</span>
+              </div>
+              <button onClick={() => setMenuBurgerOuvert(false)} className="menu-burger-btn">✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#64748b' }}>Connecté en tant que</p>
+                <p style={{ margin: 0, fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>{profilUtilisateur.civilite} {profilUtilisateur.prenoms} {profilUtilisateur.nom}</p>
+              </div>
+
+              <button onClick={() => { setMenuBurgerOuvert(false); setModalProfilOuvert(true); }} style={styles.menuItem}>
+                👤 Modifier mon profil
+              </button>
+              <button onClick={() => { setMenuBurgerOuvert(false); afficherNotification("📌 Centre d'aide et documentation actif."); }} style={styles.menuItem}>
+                📚 Guide d'utilisation
+              </button>
+              <button onClick={() => { setMenuBurgerOuvert(false); afficherNotification("🛡️ Version sécurisée 2.4.0 (Ministère)"); }} style={styles.menuItem}>
+                🔒 Sécurité & Paramètres
+              </button>
+            </div>
+
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+              <button type="button" onClick={handleLogout} style={styles.boutonDeconnexionBurger}>
+                🚪 Se déconnecter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- ÉCRAN INTERMÉDIAIRE CHEF --- */}
       {etapeChefEcole && (
@@ -405,7 +520,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- DASHBOARDS ET NAVIGATION --- */}
+      {/* --- DASHBOARDS ET NAVIGATION HAUT DE GAMME --- */}
       {userRole && (
         <div className="anim-apparition">
           <header className="nav-header">
@@ -418,7 +533,23 @@ export default function Application() {
                 {userRole === 'chef' && `Direction Générale`}
               </span>
             </div>
-            <button type="button" className="bouton-deconnexion" onClick={handleLogout}>Déconnexion</button>
+
+            {/* PARTIE DROITE : Avatar pour le profil & Bouton pour le Menu Burger */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div className="avatar-container" onClick={() => setModalProfilOuvert(true)} title="Gérer mon profil">
+                <div className="avatar-cercle">
+                  {profilUtilisateur.photo ? <img src={profilUtilisateur.photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : `${profilUtilisateur.nom?.[0] || 'U'}`}
+                </div>
+                <div style={{ textAlign: 'left', display: 'inline-block' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>{profilUtilisateur.nom} {profilUtilisateur.prenoms?.[0]}.</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Mon profil</div>
+                </div>
+              </div>
+
+              <button type="button" className="menu-burger-btn" onClick={() => setMenuBurgerOuvert(true)} title="Ouvrir le menu">
+                ☰
+              </button>
+            </div>
           </header>
 
           <main style={{ padding: '24px 16px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -443,5 +574,7 @@ const styles = {
   bandeauHorsLigne: { backgroundColor: '#f59e0b', color: '#ffffff', padding: '8px 20px', textAlign: 'center', fontSize: '13px', fontWeight: '600', position: 'sticky', top: 0, zIndex: 10000 },
   ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '40px 20px' },
   conteneurNotification: { position: 'fixed', top: '24px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
-  texteNotification: { backgroundColor: '#0f172a', color: '#ffffff', padding: '14px 24px', borderRadius: '12px', fontSize: '14px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }
+  texteNotification: { backgroundColor: '#0f172a', color: '#ffffff', padding: '14px 24px', borderRadius: '12px', fontSize: '14px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' },
+  menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#334155', transition: 'background 0.2s', width: '100%' },
+  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', width: '100%', textAlign: 'center', transition: 'all 0.2s' }
 };

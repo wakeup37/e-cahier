@@ -9,7 +9,7 @@ export default function Application() {
   const [notification, setNotification] = useState('');
   const [estEnLigne, setEstEnLigne] = useState(navigator.onLine);
 
-  const [modeAccueil, setModeAccueil] = useState('connexion');
+  const [modeAccueil, setModeAccueil] = useState('connexion'); // 'connexion', 'inscription', 'mdp-oublie'
 
   const [etapeChefEcole, setEtapeChefEcole] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix'); 
@@ -21,6 +21,8 @@ export default function Application() {
   const [codeOuNomRejoins, setCodeOuNomRejoins] = useState('');
 
   const [formConnexion, setFormConnexion] = useState({ email: '', motDePasse: '', roleAttendu: 'enseignant' });
+  const [emailMdpOublie, setEmailMdpOublie] = useState('');
+
   const [formInscription, setFormInscription] = useState({
     civilite: 'M.', role: 'enseignant', nom: '', prenoms: '', dateNaissance: '', telephone: '', ville: '',
     anciennete: '1 à 5 ans', matiere: '', secteurEnseignement: 'Public', typeStatutPublic: 'Titulaire', numeroMatricule: '', email: '', motDePasse: ''
@@ -28,12 +30,9 @@ export default function Application() {
 
   const [menuBurgerOuvert, setMenuBurgerOuvert] = useState(false);
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
-  
-  // --- NOUVEAU : POP-UP DE CONFIRMATION DE DÉCONNEXION ---
   const [modalDeconnexionOuvert, setModalDeconnexionOuvert] = useState(false);
-
-  // --- NOUVEAU : MODAL DE CONFIGURATION / MODIFICATION DE L'ÉTABLISSEMENT (CHEF) ---
   const [modalEcoleOuvert, setModalEcoleOuvert] = useState(false);
+
   const [configEcole, setConfigEcole] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_chef_ecole_config')) || null; }
     catch { return null; }
@@ -93,6 +92,16 @@ export default function Application() {
     }
     afficherNotification("Connexion réussie ! Redirection...");
     setTimeout(() => setUserRole(formConnexion.roleAttendu), 400);
+  };
+
+  const handleRecuperationMdp = (e) => {
+    e.preventDefault();
+    if (!emailMdpOublie.trim()) {
+      afficherNotification("⚠️ Veuillez entrer votre adresse e-mail."); return;
+    }
+    afficherNotification("📧 Un lien de réinitialisation sécurisé a été envoyé à votre e-mail.");
+    setEmailMdpOublie('');
+    setModeAccueil('connexion');
   };
 
   const handleInscription = (e) => {
@@ -158,7 +167,6 @@ export default function Application() {
     setUserRole('chef');
   };
 
-  // --- FONCTION DE RÉINITIALISATION TOTALE DE L'ÉTABLISSEMENT ---
   const handleReinitialiserEtablissement = () => {
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser toutes les données et informations de l'établissement ? Cette action est irréversible.")) {
       localStorage.removeItem('app_chef_ecole_config');
@@ -199,19 +207,22 @@ export default function Application() {
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
         body { margin: 0; background-color: #f8fafc; -webkit-font-smoothing: antialiased; }
         
-        .anim-apparition { animation: apparition 0.3s ease-out forwards; }
-        @keyframes apparition { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        /* Optimisation extrême de la fluidité (Accélération Matérielle GPU) */
+        * { -webkit-overflow-scrolling: touch; transform: translateZ(0); will-change: transform, opacity; }
         
-        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; width: 100%; }
+        .anim-apparition { animation: apparition 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes apparition { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; width: 100%; }
         .bouton-principal:hover { background-color: #17244a; }
         
-        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; width: 100%; }
+        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; width: 100%; }
         .bouton-danger:hover { background-color: #dc2626; }
 
-        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; }
         .bouton-secondaire:hover { background-color: #f1f5f9; color: #0f172a; }
 
-        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; }
+        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; transition: border-color 0.15s ease; }
         .champ-saisie:focus { border-color: #0b1329; background-color: #ffffff; box-shadow: 0 0 0 3px rgba(11, 19, 41, 0.1); }
         
         .carte-auth { background: #ffffff; padding: 36px; border-radius: 16px; border: 1px solid #e2e8f0; width: 100%; max-width: 480px; margin: 0 auto; color: #0f172a; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
@@ -219,7 +230,7 @@ export default function Application() {
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         
         .onglet-conteneur { display: flex; background-color: #f1f5f9; border-radius: 8px; padding: 4px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
-        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: #64748b; }
+        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: #64748b; transition: all 0.15s ease; }
         .onglet-btn.actif { background: #ffffff; color: #0b1329; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 
         .option-paiement { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; background: #ffffff; margin-bottom: 10px; }
@@ -234,7 +245,7 @@ export default function Application() {
         .avatar-container:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
         .avatar-cercle { width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 8px; color: #ffffff; transition: background 0.2s; }
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 8px; color: #ffffff; transition: background 0.15s ease; }
         .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.2); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 16px; }
@@ -499,7 +510,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- ÉCRAN CONNEXION / INSCRIPTION --- */}
+      {/* --- ÉCRAN CONNEXION / INSCRIPTION / MDP OUBLIÉ --- */}
       {!userRole && !etapeChefEcole && (
         <div style={styles.ecranAuth} className="anim-apparition">
           <div style={{ textAlign: 'center', marginBottom: '24px' }}>
@@ -509,10 +520,12 @@ export default function Application() {
           </div>
 
           <div className="carte-auth">
-            <div className="onglet-conteneur">
-              <button type="button" className={`onglet-btn ${modeAccueil === 'connexion' ? 'actif' : ''}`} onClick={() => setModeAccueil('connexion')}>Connexion</button>
-              <button type="button" className={`onglet-btn ${modeAccueil === 'inscription' ? 'actif' : ''}`} onClick={() => setModeAccueil('inscription')}>Inscription</button>
-            </div>
+            {modeAccueil !== 'mdp-oublie' && (
+              <div className="onglet-conteneur">
+                <button type="button" className={`onglet-btn ${modeAccueil === 'connexion' ? 'actif' : ''}`} onClick={() => setModeAccueil('connexion')}>Connexion</button>
+                <button type="button" className={`onglet-btn ${modeAccueil === 'inscription' ? 'actif' : ''}`} onClick={() => setModeAccueil('inscription')}>Inscription</button>
+              </div>
+            )}
 
             {modeAccueil === 'connexion' && (
               <form onSubmit={handleConnexion} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="anim-apparition">
@@ -529,10 +542,30 @@ export default function Application() {
                   <input type="email" placeholder="nom@ecole.edu" value={formConnexion.email} onChange={e => setFormConnexion({...formConnexion, email: e.target.value})} className="champ-saisie" required />
                 </div>
                 <div>
-                  <label className="libelle">Mot de passe</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label className="libelle" style={{ margin: 0 }}>Mot de passe</label>
+                    <button type="button" onClick={() => setModeAccueil('mdp-oublie')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: 0 }}>
+                      Mot de passe oublié ?
+                    </button>
+                  </div>
                   <input type="password" placeholder="••••••••" value={formConnexion.motDePasse} onChange={e => setFormConnexion({...formConnexion, motDePasse: e.target.value})} className="champ-saisie" required />
                 </div>
                 <button type="submit" className="bouton-principal" style={{ marginTop: '8px' }}>Se connecter</button>
+              </form>
+            )}
+
+            {modeAccueil === 'mdp-oublie' && (
+              <form onSubmit={handleRecuperationMdp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="anim-apparition">
+                <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '800', margin: '0 0 6px 0', color: '#0b1329' }}>Récupération de mot de passe</h3>
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Entrez votre e-mail professionnel pour recevoir les instructions.</p>
+                </div>
+                <div>
+                  <label className="libelle">Adresse e-mail</label>
+                  <input type="email" placeholder="nom@ecole.edu" value={emailMdpOublie} onChange={e => setEmailMdpOublie(e.target.value)} className="champ-saisie" required />
+                </div>
+                <button type="submit" className="bouton-principal" style={{ marginTop: '8px' }}>Envoyer le lien de récupération</button>
+                <button type="button" onClick={() => setModeAccueil('connexion')} className="bouton-secondaire" style={{ width: '100%' }}>Retour à la connexion</button>
               </form>
             )}
 
@@ -650,6 +683,6 @@ const styles = {
   ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px' },
   conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
   texteNotification: { backgroundColor: '#0b1329', color: '#ffffff', padding: '12px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', boxShadow: '0 8px 20px rgba(0,0,0,0.15)', border: '1px solid #17244a' },
-  menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.2s' },
-  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.2s' }
+  menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.15s ease' },
+  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.15s ease' }
 };

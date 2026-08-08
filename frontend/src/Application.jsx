@@ -296,6 +296,7 @@ export default function Application() {
         .option-paiement:hover { border-color: #cbd5e1; }
         .option-paiement.selectionne { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
 
+        /* En-tête fixe parfaitement aligné */
         .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 16px 32px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
         .nav-logo-container { display: flex; align-items: center; gap: 14px; }
         .nav-title { font-weight: 800; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; }
@@ -305,7 +306,7 @@ export default function Application() {
         .avatar-container:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.1); }
         .avatar-cercle { width: 40px; height: 40px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 20px; cursor: pointer; padding: 10px 14px; border-radius: 12px; color: #ffffff; transition: background 0.2s ease; }
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 20px; cursor: pointer; padding: 10px 14px; border-radius: 12px; color: #ffffff; transition: background 0.2s ease; display: flex; align-items: center; justify-content: center; }
         .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.65); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 16px; }

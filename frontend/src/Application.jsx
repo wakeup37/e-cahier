@@ -216,12 +216,10 @@ export default function Application() {
   };
 
   const basculerEnModeSansAffiliation = () => {
-    if (window.confirm("⚠️ Attention : En passant en mode sans affiliation, vos classes actuelles disparaîtront et vous passerez sur l'abonnement indépendant de 1 900 FCFA/mois. Continuer ?")) {
-      setModeSansAffiliationActif(true);
-      setSeancesEnseignants([]);
-      setModalPaiementSansAffiliation(true);
-      setMenuBurgerOuvert(false);
-    }
+    setModeSansAffiliationActif(true);
+    setSeancesEnseignants([]);
+    setModalPaiementSansAffiliation(true);
+    setMenuBurgerOuvert(false);
   };
 
   const validerPaiementSansAffiliation = () => {
@@ -285,17 +283,18 @@ export default function Application() {
         .option-paiement:hover { border-color: #cbd5e1; }
         .option-paiement.selectionne { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
 
-        /* En-tête fixe fluide avec espacement optimisé pour le menu burger (décalé à gauche pour éviter le débordement) */
-        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 16px 36px 16px 24px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        .nav-logo-container { display: flex; align-items: center; gap: 14px; }
-        .nav-title { font-weight: 800; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; }
-        .nav-ecole-badge { font-weight: 500; color: #cbd5e1; font-size: 13px; border-left: 1px solid #334155; padding-left: 14px; display: flex; align-items: center; gap: 8px; }
+        /* En-tête fixe parfaitement aligné sur une seule ligne (fixe le bug du logo cassé sur 2 lignes) */
+        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 16px 24px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; }
+        .nav-logo-container { display: flex; align-items: center; gap: 10px; white-space: nowrap; flex-shrink: 0; }
+        .nav-title { font-weight: 800; font-size: 17px; color: #ffffff; letter-spacing: -0.3px; display: inline-flex; align-items: center; }
+        .nav-ecole-badge { font-weight: 500; color: #cbd5e1; font-size: 12px; border-left: 1px solid #334155; padding-left: 10px; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 
-        .avatar-container { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 6px 12px; border-radius: 12px; transition: background 0.2s ease; border: 1px solid transparent; }
-        .avatar-container:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.1); }
-        .avatar-cercle { width: 40px; height: 40px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        .avatar-container { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 8px; border-radius: 10px; transition: background 0.2s ease; border: 1px solid transparent; flex-shrink: 0; }
+        .avatar-container:hover { background: rgba(255, 255, 255, 0.08); }
+        .avatar-cercle { width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15); flex-shrink: 0; }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 20px; cursor: pointer; padding: 10px 14px; border-radius: 12px; color: #ffffff; transition: background 0.2s ease; margin-right: 8px; display: flex; align-items: center; justify-content: center; }
+        /* Menu burger replacé légèrement vers la gauche pour éviter le débordement à l'écran */
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 10px; color: #ffffff; transition: background 0.2s ease; margin-left: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.65); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 16px; }
@@ -329,7 +328,7 @@ export default function Application() {
           <div className="modal-card" style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '36px', display: 'block', marginBottom: '12px' }}>💳</span>
             <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: '800' }}>Mode Sans Affiliation</h3>
-            <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>Accès indépendant enseignant : <strong>1 900 FCFA / mois</strong>.</p>
+            <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>Abonnement indépendant enseignant : <strong>1 900 FCFA / mois</strong>.</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
               <div className="option-paiement" onClick={() => setMoyenPaiement('wave')} style={{ borderColor: moyenPaiement === 'wave' ? '#2563eb' : '#e2e8f0', background: moyenPaiement === 'wave' ? '#eff6ff' : '#fff' }}>
@@ -537,7 +536,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- ÉCRAN INTERMÉDIAIRE CHEF D'ÉTABLISSEMENT (OBLIGATION DE CHOISIR / CRÉATION PAYANTE) --- */}
+      {/* --- ÉCRAN INTERMÉDIAIRE CHEF D'ÉTABLISSEMENT --- */}
       {etapeChefEcole && (
         <div style={styles.ecranAuth} className="anim-apparition">
           <div className="carte-auth" style={{ textAlign: 'center' }}>
@@ -750,12 +749,12 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- DASHBOARD ET NAVIGATION (IDENTITÉ UNIQUE "E-cahier !" SANS DOUBLON) --- */}
+      {/* --- DASHBOARD ET NAVIGATION (EN-TÊTE UNIQUE SANS DOUBLON "E-cahier !") --- */}
       {userRole && (
         <div className="anim-apparition">
           <header className="nav-header">
             <div className="nav-logo-container">
-              <span style={{ fontSize: '20px' }}>📖</span>
+              <span style={{ fontSize: '18px' }}>📖</span>
               <span className="nav-title">E-cahier !</span>
               <div className="nav-ecole-badge">
                 <span>🏫</span>
@@ -763,14 +762,14 @@ export default function Application() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div className="avatar-container" onClick={() => setModalProfilOuvert(true)} title="Gérer mon profil">
                 <div className="avatar-cercle">
                   {profilUtilisateur.photo ? <img src={profilUtilisateur.photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : `${profilUtilisateur.nom?.[0] || 'U'}`}
                 </div>
                 <div style={{ textAlign: 'left', display: 'inline-block' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>{profilUtilisateur.nom}</div>
-                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>{userRole === 'enseignant' ? (modeSansAffiliationActif ? 'Sans Affiliation' : 'Enseignant') : userRole === 'censeur' ? 'Censeur' : 'Direction'}</div>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff' }}>{profilUtilisateur.nom}</div>
+                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>{userRole === 'enseignant' ? (modeSansAffiliationActif ? 'Sans Affiliation' : 'Enseignant') : userRole === 'censeur' ? 'Censeur' : 'Direction'}</div>
                 </div>
               </div>
 

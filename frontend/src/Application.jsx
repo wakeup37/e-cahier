@@ -35,7 +35,7 @@ export default function Application() {
   const [modalEcoleOuvert, setModalEcoleOuvert] = useState(false);
   const [modalAffiliationOuvert, setModalAffiliationOuvert] = useState(false);
   
-  // --- NOUVEAU : GESTION DU MODE SANS AFFILIATION (1900 FCFA / MOIS) ---
+  // Mode sans affiliation (exclusivement enseignant)
   const [modalPaiementSansAffiliation, setModalPaiementSansAffiliation] = useState(false);
   const [modeSansAffiliationActif, setModeSansAffiliationActif] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_mode_sans_affiliation')) || false; }
@@ -101,6 +101,7 @@ export default function Application() {
     localStorage.setItem('app_enseignant_statut', 'actif');
     setAuthContext('connexion'); 
     
+    // Si c'est un chef d'établissement, on vérifie s'il a déjà un établissement configuré
     if (formConnexion.roleAttendu === 'chef') { 
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
@@ -131,25 +132,27 @@ export default function Application() {
     setAuthContext('inscription');
     setProfilUtilisateur(prev => ({ ...prev, nom: formInscription.nom, prenoms: formInscription.prenoms, civilite: formInscription.civilite, telephone: formInscription.telephone }));
     
-    if (formInscription.codeAffiliation.trim()) {
-      setModeSansAffiliationActif(false);
-      const nouvelleDemande = {
-        id: Date.now(),
-        enseignantNom: `${formInscription.civilite} ${formInscription.prenoms} ${formInscription.nom}`,
-        matiere: formInscription.matiere || 'Non spécifiée',
-        etablissementCible: formInscription.codeAffiliation.trim(),
-        statut: 'En attente'
-      };
-      setDemandesAffiliationEnseignants(prev => [nouvelleDemande, ...prev]);
-    } else {
-      // Pas d'affiliation fournie à l'inscription -> Passage direct en mode sans affiliation payant
-      setModeSansAffiliationActif(true);
-      setSeancesEnseignants([]); // Les classes disparaissent
+    if (formInscription.role === 'enseignant') {
+      if (formInscription.codeAffiliation.trim()) {
+        setModeSansAffiliationActif(false);
+        const nouvelleDemande = {
+          id: Date.now(),
+          enseignantNom: `${formInscription.civilite} ${formInscription.prenoms} ${formInscription.nom}`,
+          matiere: formInscription.matiere || 'Non spécifiée',
+          etablissementCible: formInscription.codeAffiliation.trim(),
+          statut: 'En attente'
+        };
+        setDemandesAffiliationEnseignants(prev => [nouvelleDemande, ...prev]);
+      } else {
+        setModeSansAffiliationActif(true);
+        setSeancesEnseignants([]);
+      }
     }
 
     if (formInscription.role === 'chef') { 
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
+    
     afficherNotification("Compte créé avec succès !");
     setTimeout(() => setUserRole(formInscription.role), 200);
   };
@@ -176,7 +179,7 @@ export default function Application() {
     };
     setConfigEcole(nouvelleConfig);
     setEtapeChefEcole(false);
-    afficherNotification(`💳 Établissement enregistré (${montant}) avec facturation mensuelle active !`);
+    afficherNotification(`💳 Établissement enregistré (${montant}) !`);
     setUserRole('chef');
   };
 
@@ -216,11 +219,10 @@ export default function Application() {
     afficherNotification("📨 Demande d'affiliation transmise à la direction.");
   };
 
-  // --- ACTIVER LE MODE SANS AFFILIATION VOLONTAIREMENT (DISPARITION DES CLASSES + PAIEMENT 1900F) ---
   const basculerEnModeSansAffiliation = () => {
-    if (window.confirm("⚠️ Attention : En passant en mode sans affiliation, vos classes actuelles disparaîtront et vous passerez sur l'abonnement indépendant de 1 900 FCFA/mois. Continuer ?")) {
+    if (window.confirm("⚠️ Attention : En passant en mode sans affiliation (réservé aux enseignants), vos classes actuelles disparaîtront et vous passerez sur l'abonnement indépendant de 1 900 FCFA/mois. Continuer ?")) {
       setModeSansAffiliationActif(true);
-      setSeancesEnseignants([]); // Vidage des classes
+      setSeancesEnseignants([]);
       setModalPaiementSansAffiliation(true);
       setMenuBurgerOuvert(false);
     }
@@ -232,7 +234,7 @@ export default function Application() {
   };
 
   const handleReinitialiserEtablissement = () => {
-    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser toutes les données de l'établissement ?")) {
+    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser l'établissement ?")) {
       localStorage.removeItem('app_chef_ecole_config');
       setConfigEcole(null);
       setModalEcoleOuvert(false);
@@ -269,7 +271,6 @@ export default function Application() {
     <div style={styles.conteneurGlobal}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-        
         html, body { margin: 0; padding: 0; background-color: #f8fafc; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
         
         .anim-apparition { animation: apparition 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
@@ -284,7 +285,7 @@ export default function Application() {
         .bouton-secondaire { background-color: #ffffff; color: #475569; border: 1px solid #e2e8f0; padding: 13px 20px; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
         .bouton-secondaire:hover { background-color: #f1f5f9; color: #0f172a; border-color: #cbd5e1; }
 
-        .champ-saisie { width: 100%; padding: 13px 16px; border-radius: 12px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #ffffff; color: #0f172a; outline: none; transition: all 0.2s ease; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); }
+        .champ-saisie { width: 100%; padding: 13px 16px; border-radius: 12px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #ffffff; color: #0f172a; outline: none; transition: all 0.2s ease; }
         .champ-saisie:focus { border-color: #2563eb; background-color: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
         
         .carte-auth { background: #ffffff; padding: 40px; border-radius: 24px; border: 1px solid #e2e8f0; width: 100%; max-width: 480px; margin: 0 auto; color: #0f172a; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.08); }
@@ -341,8 +342,8 @@ export default function Application() {
         <div className="modal-overlay anim-apparition">
           <div className="modal-card" style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '42px', display: 'block', marginBottom: '16px' }}>💳</span>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800' }}>Mode Sans Affiliation</h3>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>Puisque vous n'êtes rattaché à aucune école, l'accès indépendant est facturé à <strong>1 900 FCFA par mois</strong>.</p>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800' }}>Mode Sans Affiliation (Enseignant)</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>L'accès indépendant pour enseignant est facturé à <strong>1 900 FCFA par mois</strong>.</p>
             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
               <span style={{ fontSize: '24px', fontWeight: '800', color: '#0b1329' }}>1 900 FCFA / mois</span>
             </div>
@@ -367,7 +368,7 @@ export default function Application() {
                 <label className="libelle">Code officiel ou nom de l'établissement cible</label>
                 <input type="text" name="codeEtablissement" placeholder="Ex: LYC-MOD-01" className="champ-saisie" required />
               </div>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.5' }}>Votre demande sera transmise au Censeur ou au Chef d'établissement pour validation.</p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.5' }}>Votre demande sera transmise à la direction pour validation.</p>
               <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setModalAffiliationOuvert(false)} className="bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
                 <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Envoyer la demande</button>
@@ -500,7 +501,6 @@ export default function Application() {
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                 <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Session active</p>
                 <p style={{ margin: 0, fontWeight: '800', fontSize: '14px', color: '#0b1329' }}>{profilUtilisateur.civilite} {profilUtilisateur.prenoms} {profilUtilisateur.nom}</p>
-                {modeSansAffiliationActif && <span style={{ display: 'inline-block', marginTop: '6px', background: '#fef3c7', color: '#d97706', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '99px' }}>Mode Sans Affiliation (1 900F/mois)</span>}
               </div>
 
               <button onClick={() => { setMenuBurgerOuvert(false); setModalProfilOuvert(true); }} style={styles.menuItem}>
@@ -539,7 +539,7 @@ export default function Application() {
           <div className="carte-auth" style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '42px', display: 'block', marginBottom: '16px' }}>🏫</span>
             <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 8px 0' }}>Espace Direction</h2>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '28px', lineHeight: '1.5' }}>En tant que Chef, la création d'école est payante (avec facturation mensuelle) ou connectez-vous par code.</p>
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '28px', lineHeight: '1.5' }}>Le chef d'établissement doit configurer ou lier son établissement unique.</p>
 
             {choixModeEcole === 'choix' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -764,7 +764,7 @@ export default function Application() {
                 </div>
                 <div style={{ textAlign: 'left', display: 'inline-block' }}>
                   <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>{profilUtilisateur.nom}</div>
-                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>{userRole === 'enseignant' ? (modeSansAffiliationActif ? 'Sans Affiliation (1900F/m)' : 'Enseignant') : userRole === 'censeur' ? 'Censeur' : 'Direction'}</div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>{userRole === 'enseignant' ? (modeSansAffiliationActif ? 'Sans Affiliation' : 'Enseignant') : userRole === 'censeur' ? 'Censeur' : 'Direction'}</div>
                 </div>
               </div>
 

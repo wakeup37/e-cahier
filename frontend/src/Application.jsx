@@ -9,7 +9,7 @@ export default function Application() {
   const [notification, setNotification] = useState('');
   const [estEnLigne, setEstEnLigne] = useState(navigator.onLine);
 
-  const [modeAccueil, setModeAccueil] = useState('connexion'); // 'connexion', 'inscription', 'mdp-oublie'
+  const [modeAccueil, setModeAccueil] = useState('connexion');
 
   const [etapeChefEcole, setEtapeChefEcole] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix'); 
@@ -35,7 +35,6 @@ export default function Application() {
   const [modalEcoleOuvert, setModalEcoleOuvert] = useState(false);
   const [modalAffiliationOuvert, setModalAffiliationOuvert] = useState(false);
   
-  // Mode sans affiliation (Strictement réservé à l'enseignant - 1 900 FCFA / mois)
   const [modalPaiementSansAffiliation, setModalPaiementSansAffiliation] = useState(false);
   const [modeSansAffiliationActif, setModeSansAffiliationActif] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_mode_sans_affiliation')) || false; }
@@ -87,10 +86,6 @@ export default function Application() {
     return () => { window.removeEventListener('online', gererEnLigne); window.removeEventListener('offline', gererHorsLigne); };
   }, []);
 
-  useEffect(() => { localStorage.setItem('app_demandes_affiliation', JSON.stringify(demandesAffiliationEnseignants)); }, [demandesAffiliationEnseignants]);
-  useEffect(() => { localStorage.setItem('app_seances_enseignants', JSON.stringify(seancesEnseignants)); }, [seancesEnseignants]);
-  useEffect(() => { localStorage.setItem('app_bibliotheque_fiches', JSON.stringify(bibliothequeFiches)); }, [bibliothequeFiches]);
-
   const afficherNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const handleConnexion = (e) => {
@@ -123,9 +118,6 @@ export default function Application() {
     e.preventDefault();
     if (!formInscription.nom || !formInscription.email || !formInscription.motDePasse) {
       afficherNotification("Veuillez renseigner tous les champs obligatoires."); return;
-    }
-    if (formInscription.secteurEnseignement === 'Public' && formInscription.typeStatutPublic === 'Titulaire' && !formInscription.numeroMatricule.trim()) {
-      afficherNotification("❌ Veuillez renseigner votre numéro matricule."); return;
     }
     localStorage.setItem('app_enseignant_statut', 'nouveau');
     setAuthContext('inscription');
@@ -797,5 +789,5 @@ const styles = {
   conteneurNotification: { position: 'fixed', top: '24px', left: '50%', transform: 'translateX(-50%)', zIndex: 3000 },
   texteNotification: { backgroundColor: '#0b1329', color: '#ffffff', padding: '14px 24px', borderRadius: '12px', fontSize: '14px', fontWeight: '600', boxShadow: '0 15px 30px rgba(0,0,0,0.2)', border: '1px solid #1e293b' },
   menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '14px 16px', borderRadius: '12px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.15s ease' },
-  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '14px 16px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', width: '100%', textAlign: 'center', transition: 'all 0.1s ease' }
+  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '14px 16px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', width: '100%', textAlign: 'center', transition: 'all 0.15s ease' }
 };

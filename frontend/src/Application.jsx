@@ -34,8 +34,8 @@ export default function Application() {
   const [modalEcoleOuvert, setModalEcoleOuvert] = useState(false);
 
   const [configEcole, setConfigEcole] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_chef_ecole_config')) || null; }
-    catch { return null; }
+    try { return JSON.parse(localStorage.getItem('app_chef_ecole_config')) || { nomEcole: 'Lycée Moderne d\'Abidjan' }; }
+    catch { return { nomEcole: 'Lycée Moderne d\'Abidjan' }; }
   });
 
   const [profilUtilisateur, setProfilUtilisateur] = useState(() => {
@@ -91,7 +91,7 @@ export default function Application() {
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
     afficherNotification("Connexion réussie ! Redirection...");
-    setTimeout(() => setUserRole(formConnexion.roleAttendu), 400);
+    setTimeout(() => setUserRole(formConnexion.roleAttendu), 300);
   };
 
   const handleRecuperationMdp = (e) => {
@@ -99,7 +99,7 @@ export default function Application() {
     if (!emailMdpOublie.trim()) {
       afficherNotification("⚠️ Veuillez entrer votre adresse e-mail."); return;
     }
-    afficherNotification("📧 Un lien de réinitialisation sécurisé a été envoyé à votre e-mail.");
+    afficherNotification("📧 Instructions de réinitialisation envoyées par e-mail.");
     setEmailMdpOublie('');
     setModeAccueil('connexion');
   };
@@ -119,7 +119,7 @@ export default function Application() {
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
     afficherNotification("Compte créé avec succès !");
-    setTimeout(() => setUserRole(formInscription.role), 600);
+    setTimeout(() => setUserRole(formInscription.role), 300);
   };
 
   const preparerPaiementCodeEcole = (e) => {
@@ -144,13 +144,13 @@ export default function Application() {
     };
     setConfigEcole(nouvelleConfig);
     setEtapeChefEcole(false);
-    afficherNotification(`💳 Établissement enregistré avec succès (${montant}) !`);
+    afficherNotification(`💳 Établissement enregistré (${montant}) !`);
     setUserRole('chef');
   };
 
   const validerConnexionEcoleExistante = (e) => {
     e.preventDefault();
-    if (!codeOuNomRejoins.trim()) { afficherNotification("⚠️ Veuillez entrer le code officiel du Ministère ou le nom."); return; }
+    if (!codeOuNomRejoins.trim()) { afficherNotification("⚠️ Veuillez entrer le code officiel ou le nom."); return; }
     const nouvelleConfig = {
       nomEcole: codeOuNomRejoins.trim(), 
       codeEtablissement: codeOuNomRejoins.trim().toUpperCase(),
@@ -168,7 +168,7 @@ export default function Application() {
   };
 
   const handleReinitialiserEtablissement = () => {
-    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser toutes les données et informations de l'établissement ? Cette action est irréversible.")) {
+    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser toutes les données de l'établissement ?")) {
       localStorage.removeItem('app_chef_ecole_config');
       setConfigEcole(null);
       setModalEcoleOuvert(false);
@@ -207,52 +207,53 @@ export default function Application() {
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
         body { margin: 0; background-color: #f8fafc; -webkit-font-smoothing: antialiased; }
         
-        /* Optimisation extrême de la fluidité (Accélération Matérielle GPU) */
-        * { -webkit-overflow-scrolling: touch; transform: translateZ(0); will-change: transform, opacity; }
+        /* Fluidité type Meta / Instagram : Accélération matérielle GPU & scroll natif ultra-fluide */
+        * { -webkit-overflow-scrolling: touch; transform: translateZ(0); will-change: transform; backface-visibility: hidden; }
         
-        .anim-apparition { animation: apparition 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        @keyframes apparition { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .anim-apparition { animation: apparition 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes apparition { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
         
-        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; width: 100%; }
-        .bouton-principal:hover { background-color: #17244a; }
+        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.15s ease; width: 100%; }
+        .bouton-principal:hover { opacity: 0.9; }
         
-        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; width: 100%; }
-        .bouton-danger:hover { background-color: #dc2626; }
+        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.15s ease; width: 100%; }
+        .bouton-danger:hover { opacity: 0.9; }
 
-        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.15s ease; }
+        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.15s ease; }
         .bouton-secondaire:hover { background-color: #f1f5f9; color: #0f172a; }
 
-        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; transition: border-color 0.15s ease; }
+        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; transition: border-color 0.15s ease; }
         .champ-saisie:focus { border-color: #0b1329; background-color: #ffffff; box-shadow: 0 0 0 3px rgba(11, 19, 41, 0.1); }
         
-        .carte-auth { background: #ffffff; padding: 36px; border-radius: 16px; border: 1px solid #e2e8f0; width: 100%; max-width: 480px; margin: 0 auto; color: #0f172a; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-        .libelle { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; text-transform: uppercase; }
+        .carte-auth { background: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #e2e8f0; width: 100%; max-width: 440px; margin: 0 auto; color: #0f172a; box-shadow: 0 15px 35px rgba(0,0,0,0.04); }
+        .libelle { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         
-        .onglet-conteneur { display: flex; background-color: #f1f5f9; border-radius: 8px; padding: 4px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
-        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: #64748b; transition: all 0.15s ease; }
-        .onglet-btn.actif { background: #ffffff; color: #0b1329; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .onglet-conteneur { display: flex; background-color: #f1f5f9; border-radius: 10px; padding: 4px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
+        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: #64748b; transition: all 0.15s ease; }
+        .onglet-btn.actif { background: #ffffff; color: #0b1329; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
 
-        .option-paiement { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; background: #ffffff; margin-bottom: 10px; }
+        .option-paiement { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; background: #ffffff; margin-bottom: 10px; transition: border-color 0.15s ease; }
         .option-paiement.selectionne { border-color: #0b1329; background: #f8fafc; box-shadow: 0 0 0 2px rgba(11, 19, 41, 0.1); }
 
-        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 14px 28px; border-bottom: 1px solid #17244a; position: sticky; top: 0; z-index: 50; }
-        .nav-logo-container { display: flex; align-items: center; gap: 10px; }
-        .nav-title { font-weight: 800; font-size: 18px; color: #ffffff; }
-        .nav-role { font-weight: 600; color: #ffffff; font-size: 12px; background: rgba(255, 255, 255, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); }
+        /* En-tête méticuleusement taillé et aligné */
+        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 12px 24px; border-bottom: 1px solid #17244a; position: sticky; top: 0; z-index: 50; }
+        .nav-logo-container { display: flex; align-items: center; gap: 12px; }
+        .nav-title { font-weight: 800; font-size: 17px; color: #ffffff; letter-spacing: -0.3px; }
+        .nav-ecole-badge { font-weight: 500; color: #94a3b8; font-size: 12px; border-left: 1px solid #334155; padding-left: 12px; display: flex; align-items: center; gap: 6px; }
 
-        .avatar-container { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 10px; border-radius: 8px; border: 1px solid transparent; }
-        .avatar-container:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+        .avatar-container { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 10px; border-radius: 10px; transition: background 0.15s ease; border: 1px solid transparent; }
+        .avatar-container:hover { background: rgba(255, 255, 255, 0.08); }
         .avatar-cercle { width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 8px; color: #ffffff; transition: background 0.15s ease; }
-        .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.2); }
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 10px; color: #ffffff; transition: background 0.15s ease; }
+        .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 16px; }
-        .modal-card { background: #ffffff; width: 100%; max-width: 440px; padding: 30px; border-radius: 16px; border: 1px solid #e2e8f0; color: #0f172a; box-shadow: 0 20px 40px rgba(0,0,0,0.15); }
+        .modal-card { background: #ffffff; width: 100%; max-width: 440px; padding: 30px; border-radius: 20px; border: 1px solid #e2e8f0; color: #0f172a; box-shadow: 0 25px 50px rgba(0,0,0,0.15); }
 
         .drawer-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.6); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: flex-end; }
-        .drawer-content { width: 100%; max-width: 320px; background: #ffffff; height: 100%; padding: 24px; display: flex; flex-direction: column; border-left: 1px solid #e2e8f0; color: #0f172a; box-shadow: -10px 0 25px rgba(0,0,0,0.1); }
+        .drawer-content { width: 100%; max-width: 320px; background: #ffffff; height: 100%; padding: 24px; display: flex; flex-direction: column; border-left: 1px solid #e2e8f0; color: #0f172a; box-shadow: -15px 0 30px rgba(0,0,0,0.1); }
       `}</style>
 
       {!estEnLigne && <div style={styles.bandeauHorsLigne}>⚠️ Mode hors ligne actif. Sauvegarde locale activée.</div>}
@@ -273,7 +274,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- MODAL DE GESTION DE L'ÉTABLISSEMENT (RÉSERVÉ AU CHEF) --- */}
+      {/* --- MODAL DE GESTION DE L'ÉTABLISSEMENT --- */}
       {modalEcoleOuvert && configEcole && (
         <div className="modal-overlay anim-apparition">
           <div className="modal-card" style={{ maxWidth: '500px' }}>
@@ -293,21 +294,21 @@ export default function Application() {
               </div>
               <div>
                 <label className="libelle">Code Officiel (Ministère)</label>
-                <input type="text" value={configEcole.codeEtablissement} onChange={e => setConfigEcole({...configEcole, codeEtablissement: e.target.value})} className="champ-saisie" required />
+                <input type="text" value={configEcole.codeEtablissement || ''} onChange={e => setConfigEcole({...configEcole, codeEtablissement: e.target.value})} className="champ-saisie" required />
               </div>
               <div className="form-grid">
                 <div>
                   <label className="libelle">Ville</label>
-                  <input type="text" value={configEcole.ville} onChange={e => setConfigEcole({...configEcole, ville: e.target.value})} className="champ-saisie" required />
+                  <input type="text" value={configEcole.ville || ''} onChange={e => setConfigEcole({...configEcole, ville: e.target.value})} className="champ-saisie" required />
                 </div>
                 <div>
                   <label className="libelle">Commune</label>
-                  <input type="text" value={configEcole.commune} onChange={e => setConfigEcole({...configEcole, commune: e.target.value})} className="champ-saisie" required />
+                  <input type="text" value={configEcole.commune || ''} onChange={e => setConfigEcole({...configEcole, commune: e.target.value})} className="champ-saisie" required />
                 </div>
               </div>
               <div>
                 <label className="libelle">Type d'établissement</label>
-                <select value={configEcole.typeEtablissement} onChange={e => setConfigEcole({...configEcole, typeEtablissement: e.target.value})} className="champ-saisie">
+                <select value={configEcole.typeEtablissement || 'Public'} onChange={e => setConfigEcole({...configEcole, typeEtablissement: e.target.value})} className="champ-saisie">
                   <option value="Public">Public</option>
                   <option value="Privé">Privé</option>
                 </select>
@@ -338,7 +339,7 @@ export default function Application() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                 <div className="avatar-cercle" style={{ width: '48px', height: '48px', fontSize: '18px', background: '#0b1329', color: '#ffffff' }}>
                   {profilUtilisateur.photo ? <img src={profilUtilisateur.photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : `${profilUtilisateur.nom?.[0] || 'U'}`}
                 </div>
@@ -382,7 +383,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- MENU BURGER DRAWER (FONCTIONNEL) --- */}
+      {/* --- MENU BURGER DRAWER --- */}
       {menuBurgerOuvert && (
         <div className="drawer-overlay anim-apparition" onClick={() => setMenuBurgerOuvert(false)}>
           <div className="drawer-content" onClick={e => e.stopPropagation()}>
@@ -392,7 +393,7 @@ export default function Application() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                 <p style={{ margin: '0 0 2px 0', fontSize: '11px', color: '#64748b' }}>Connecté en tant que</p>
                 <p style={{ margin: 0, fontWeight: '700', fontSize: '13px', color: '#0b1329' }}>{profilUtilisateur.civilite} {profilUtilisateur.prenoms} {profilUtilisateur.nom}</p>
               </div>
@@ -475,7 +476,7 @@ export default function Application() {
 
             {choixModeEcole === 'paiement' && (
               <div style={{ textAlign: 'left' }}>
-                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center', border: '1px solid #cbd5e1' }}>
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center', border: '1px solid #cbd5e1' }}>
                   <p style={{ margin: '0 0 4px 0', color: '#64748b', fontSize: '12px' }}>Montant à régler</p>
                   <p style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#0b1329' }}>{formNouvelleEcole.typeEtablissement === 'Privé' ? '50 000 FCFA' : '30 000 FCFA'}</p>
                 </div>
@@ -636,11 +637,10 @@ export default function Application() {
             <div className="nav-logo-container">
               <span style={{ fontSize: '18px' }}>📖</span>
               <span className="nav-title">E-cahier !</span>
-              <span className="nav-role">
-                {userRole === 'enseignant' && `Enseignant`}
-                {userRole === 'censeur' && `Censeur`}
-                {userRole === 'chef' && `Direction`}
-              </span>
+              <div className="nav-ecole-badge">
+                <span>🏫</span>
+                <span style={{ fontWeight: '700', color: '#ffffff' }}>{configEcole?.nomEcole || 'Établissement'}</span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -650,7 +650,7 @@ export default function Application() {
                 </div>
                 <div style={{ textAlign: 'left', display: 'inline-block' }}>
                   <div style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff' }}>{profilUtilisateur.nom}</div>
-                  <div style={{ fontSize: '10px', color: '#cbd5e1' }}>Profil</div>
+                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>{userRole === 'enseignant' ? 'Enseignant' : userRole === 'censeur' ? 'Censeur' : 'Direction'}</div>
                 </div>
               </div>
 
@@ -660,7 +660,7 @@ export default function Application() {
             </div>
           </header>
 
-          <main style={{ padding: '20px 16px', maxWidth: '1200px', margin: '0 auto' }}>
+          <main style={{ padding: '24px 16px', maxWidth: '1200px', margin: '0 auto' }}>
             {userRole === 'enseignant' && (
               <EnseignantDashboard authContext={authContext} demandesAffiliation={demandesAffiliationEnseignants} setDemandesAffiliation={setDemandesAffiliationEnseignants} seances={seancesEnseignants} setSeances={setSeancesEnseignants} />
             )}
@@ -682,7 +682,7 @@ const styles = {
   bandeauHorsLigne: { backgroundColor: '#0b1329', color: '#ffffff', padding: '8px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '600', position: 'sticky', top: 0, zIndex: 10000 },
   ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px' },
   conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
-  texteNotification: { backgroundColor: '#0b1329', color: '#ffffff', padding: '12px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', boxShadow: '0 8px 20px rgba(0,0,0,0.15)', border: '1px solid #17244a' },
+  texteNotification: { backgroundColor: '#0b1329', color: '#ffffff', padding: '12px 20px', borderRadius: '10px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', border: '1px solid #17244a' },
   menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.15s ease' },
-  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.15s ease' }
+  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.15s ease' }
 };

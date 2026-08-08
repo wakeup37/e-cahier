@@ -25,17 +25,19 @@ export default function Application() {
 
   const [formInscription, setFormInscription] = useState({
     civilite: 'M.', role: 'enseignant', nom: '', prenoms: '', dateNaissance: '', telephone: '', ville: '',
-    anciennete: '1 à 5 ans', matiere: '', secteurEnseignement: 'Public', typeStatutPublic: 'Titulaire', numeroMatricule: '', email: '', motDePasse: ''
+    anciennete: '1 à 5 ans', matiere: '', secteurEnseignement: 'Public', typeStatutPublic: 'Titulaire', numeroMatricule: '', email: '', motDePasse: '',
+    codeAffiliation: ''
   });
 
   const [menuBurgerOuvert, setMenuBurgerOuvert] = useState(false);
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
   const [modalDeconnexionOuvert, setModalDeconnexionOuvert] = useState(false);
   const [modalEcoleOuvert, setModalEcoleOuvert] = useState(false);
+  const [modalAffiliationOuvert, setModalAffiliationOuvert] = useState(false);
 
   const [configEcole, setConfigEcole] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_chef_ecole_config')) || { nomEcole: 'Lycée Moderne d\'Abidjan' }; }
-    catch { return { nomEcole: 'Lycée Moderne d\'Abidjan' }; }
+    try { return JSON.parse(localStorage.getItem('app_chef_ecole_config')) || { nomEcole: "Lycée Moderne d'Abidjan" }; }
+    catch { return { nomEcole: "Lycée Moderne d'Abidjan" }; }
   });
 
   const [profilUtilisateur, setProfilUtilisateur] = useState(() => {
@@ -78,7 +80,7 @@ export default function Application() {
   useEffect(() => { localStorage.setItem('app_seances_enseignants', JSON.stringify(seancesEnseignants)); }, [seancesEnseignants]);
   useEffect(() => { localStorage.setItem('app_bibliotheque_fiches', JSON.stringify(bibliothequeFiches)); }, [bibliothequeFiches]);
 
-  const afficherNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 4000); };
+  const afficherNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const handleConnexion = (e) => {
     e.preventDefault();
@@ -91,7 +93,7 @@ export default function Application() {
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
     afficherNotification("Connexion réussie ! Redirection...");
-    setTimeout(() => setUserRole(formConnexion.roleAttendu), 300);
+    setTimeout(() => setUserRole(formConnexion.roleAttendu), 200);
   };
 
   const handleRecuperationMdp = (e) => {
@@ -115,11 +117,23 @@ export default function Application() {
     localStorage.setItem('app_enseignant_statut', 'nouveau');
     setAuthContext('inscription');
     setProfilUtilisateur(prev => ({ ...prev, nom: formInscription.nom, prenoms: formInscription.prenoms, civilite: formInscription.civilite, telephone: formInscription.telephone }));
+    
+    if (formInscription.codeAffiliation.trim()) {
+      const nouvelleDemande = {
+        id: Date.now(),
+        enseignantNom: `${formInscription.civilite} ${formInscription.prenoms} ${formInscription.nom}`,
+        matiere: formInscription.matiere || 'Non spécifiée',
+        etablissementCible: formInscription.codeAffiliation.trim(),
+        statut: 'En attente'
+      };
+      setDemandesAffiliationEnseignants(prev => [nouvelleDemande, ...prev]);
+    }
+
     if (formInscription.role === 'chef') { 
       if (!configEcole) { setEtapeChefEcole(true); return; }
     }
     afficherNotification("Compte créé avec succès !");
-    setTimeout(() => setUserRole(formInscription.role), 300);
+    setTimeout(() => setUserRole(formInscription.role), 200);
   };
 
   const preparerPaiementCodeEcole = (e) => {
@@ -167,6 +181,23 @@ export default function Application() {
     setUserRole('chef');
   };
 
+  const handleDemandeAffiliationRapide = (e) => {
+    e.preventDefault();
+    const code = e.target.elements.codeEtablissement.value.trim();
+    if (!code) { afficherNotification("⚠️ Veuillez entrer un code valide."); return; }
+    
+    const nouvelleDemande = {
+      id: Date.now(),
+      enseignantNom: `${profilUtilisateur.civilite} ${profilUtilisateur.prenoms} ${profilUtilisateur.nom}`,
+      matiere: 'Enseignant',
+      etablissementCible: code,
+      statut: 'En attente'
+    };
+    setDemandesAffiliationEnseignants(prev => [nouvelleDemande, ...prev]);
+    setModalAffiliationOuvert(false);
+    afficherNotification("📨 Demande d'affiliation transmise à la direction.");
+  };
+
   const handleReinitialiserEtablissement = () => {
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser toutes les données de l'établissement ?")) {
       localStorage.removeItem('app_chef_ecole_config');
@@ -207,22 +238,22 @@ export default function Application() {
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
         body { margin: 0; background-color: #f8fafc; -webkit-font-smoothing: antialiased; }
         
-        /* Fluidité type Meta / Instagram : Accélération matérielle GPU & scroll natif ultra-fluide */
-        * { -webkit-overflow-scrolling: touch; transform: translateZ(0); will-change: transform; backface-visibility: hidden; }
+        /* Ultra-fluidité style Meta / Instagram : Accélération GPU native */
+        * { -webkit-overflow-scrolling: touch; transform: translateZ(0); will-change: auto; backface-visibility: hidden; }
         
-        .anim-apparition { animation: apparition 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        @keyframes apparition { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .anim-apparition { animation: apparition 0.15s ease-out forwards; }
+        @keyframes apparition { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
         
-        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.15s ease; width: 100%; }
+        .bouton-principal { background-color: #0b1329; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.1s ease; width: 100%; }
         .bouton-principal:hover { opacity: 0.9; }
         
-        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.15s ease; width: 100%; }
+        .bouton-danger { background-color: #ef4444; color: #ffffff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: opacity 0.1s ease; width: 100%; }
         .bouton-danger:hover { opacity: 0.9; }
 
-        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.15s ease; }
+        .bouton-secondaire { background-color: transparent; color: #475569; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.1s ease; }
         .bouton-secondaire:hover { background-color: #f1f5f9; color: #0f172a; }
 
-        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; transition: border-color 0.15s ease; }
+        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background-color: #f8fafc; color: #0f172a; outline: none; }
         .champ-saisie:focus { border-color: #0b1329; background-color: #ffffff; box-shadow: 0 0 0 3px rgba(11, 19, 41, 0.1); }
         
         .carte-auth { background: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #e2e8f0; width: 100%; max-width: 440px; margin: 0 auto; color: #0f172a; box-shadow: 0 15px 35px rgba(0,0,0,0.04); }
@@ -230,23 +261,22 @@ export default function Application() {
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         
         .onglet-conteneur { display: flex; background-color: #f1f5f9; border-radius: 10px; padding: 4px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
-        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: #64748b; transition: all 0.15s ease; }
+        .onglet-btn { flex: 1; padding: 10px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: #64748b; }
         .onglet-btn.actif { background: #ffffff; color: #0b1329; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
 
-        .option-paiement { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; background: #ffffff; margin-bottom: 10px; transition: border-color 0.15s ease; }
+        .option-paiement { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; cursor: pointer; background: #ffffff; margin-bottom: 10px; }
         .option-paiement.selectionne { border-color: #0b1329; background: #f8fafc; box-shadow: 0 0 0 2px rgba(11, 19, 41, 0.1); }
 
-        /* En-tête méticuleusement taillé et aligné */
         .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 12px 24px; border-bottom: 1px solid #17244a; position: sticky; top: 0; z-index: 50; }
         .nav-logo-container { display: flex; align-items: center; gap: 12px; }
         .nav-title { font-weight: 800; font-size: 17px; color: #ffffff; letter-spacing: -0.3px; }
         .nav-ecole-badge { font-weight: 500; color: #94a3b8; font-size: 12px; border-left: 1px solid #334155; padding-left: 12px; display: flex; align-items: center; gap: 6px; }
 
-        .avatar-container { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 10px; border-radius: 10px; transition: background 0.15s ease; border: 1px solid transparent; }
+        .avatar-container { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 10px; border-radius: 10px; transition: background 0.1s ease; border: 1px solid transparent; }
         .avatar-container:hover { background: rgba(255, 255, 255, 0.08); }
         .avatar-cercle { width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 10px; color: #ffffff; transition: background 0.15s ease; }
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 18px; cursor: pointer; padding: 8px 12px; border-radius: 10px; color: #ffffff; }
         .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 16px; }
@@ -259,7 +289,7 @@ export default function Application() {
       {!estEnLigne && <div style={styles.bandeauHorsLigne}>⚠️ Mode hors ligne actif. Sauvegarde locale activée.</div>}
       {notification && <div style={styles.conteneurNotification}><div style={styles.texteNotification}>{notification}</div></div>}
 
-      {/* --- POP-UP DE CONFIRMATION DE DÉCONNEXION --- */}
+      {/* --- POP-UP DE CONFIRMATION DE DÉCONNEXION (UNIQUE) --- */}
       {modalDeconnexionOuvert && (
         <div className="modal-overlay anim-apparition">
           <div className="modal-card" style={{ textAlign: 'center' }}>
@@ -270,6 +300,29 @@ export default function Application() {
               <button onClick={() => setModalDeconnexionOuvert(false)} className="bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
               <button onClick={handleLogout} className="bouton-danger" style={{ flex: 1 }}>Oui, me déconnecter</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE DEMANDE D'AFFILIATION RAPIDE --- */}
+      {modalAffiliationOuvert && (
+        <div className="modal-overlay anim-apparition">
+          <div className="modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>🔗 Demande d'affiliation</h3>
+              <button onClick={() => setModalAffiliationOuvert(false)} className="bouton-secondaire" style={{ padding: '4px 10px', fontSize: '12px' }}>✕</button>
+            </div>
+            <form onSubmit={handleDemandeAffiliationRapide} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label className="libelle">Code officiel ou nom de l'établissement cible</label>
+                <input type="text" name="codeEtablissement" placeholder="Ex: LYC-MOD-01" className="champ-saisie" required />
+              </div>
+              <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Votre demande sera transmise au Censeur ou au Chef d'établissement pour validation.</p>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setModalAffiliationOuvert(false)} className="bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
+                <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Envoyer la demande</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -383,7 +436,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- MENU BURGER DRAWER --- */}
+      {/* --- MENU BURGER DRAWER (UNIQUE ET ÉPURÉ) --- */}
       {menuBurgerOuvert && (
         <div className="drawer-overlay anim-apparition" onClick={() => setMenuBurgerOuvert(false)}>
           <div className="drawer-content" onClick={e => e.stopPropagation()}>
@@ -402,6 +455,10 @@ export default function Application() {
                 👤 Gérer mon profil
               </button>
 
+              <button onClick={() => { setMenuBurgerOuvert(false); setModalAffiliationOuvert(true); }} style={styles.menuItem}>
+                🔗 Demande d'affiliation à une école
+              </button>
+
               {userRole === 'chef' && (
                 <button onClick={() => { setMenuBurgerOuvert(false); setModalEcoleOuvert(true); }} style={styles.menuItem}>
                   🏫 Gérer l'Établissement (Réglages & Reset)
@@ -410,9 +467,6 @@ export default function Application() {
 
               <button onClick={() => { setMenuBurgerOuvert(false); afficherNotification("📚 Guide d'utilisation : Fiches et pointages sécurisés."); }} style={styles.menuItem}>
                 📖 Guide d'utilisation
-              </button>
-              <button onClick={() => { setMenuBurgerOuvert(false); afficherNotification("🔒 Sécurité active - Chiffrement institutionnel validé."); }} style={styles.menuItem}>
-                🛡️ Sécurité & Paramètres
               </button>
             </div>
 
@@ -609,9 +663,15 @@ export default function Application() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="libelle">Matière</label>
-                  <input type="text" placeholder="Ex: Mathématiques" value={formInscription.matiere} onChange={e => setFormInscription({...formInscription, matiere: e.target.value})} className="champ-saisie" required />
+                <div className="form-grid">
+                  <div>
+                    <label className="libelle">Matière</label>
+                    <input type="text" placeholder="Mathématiques" value={formInscription.matiere} onChange={e => setFormInscription({...formInscription, matiere: e.target.value})} className="champ-saisie" required />
+                  </div>
+                  <div>
+                    <label className="libelle">Code Affiliation (Optionnel)</label>
+                    <input type="text" placeholder="Code école" value={formInscription.codeAffiliation} onChange={e => setFormInscription({...formInscription, codeAffiliation: e.target.value})} className="champ-saisie" />
+                  </div>
                 </div>
 
                 <div>
@@ -683,6 +743,6 @@ const styles = {
   ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px' },
   conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
   texteNotification: { backgroundColor: '#0b1329', color: '#ffffff', padding: '12px 20px', borderRadius: '10px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', border: '1px solid #17244a' },
-  menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.15s ease' },
-  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.15s ease' }
+  menuItem: { background: 'none', border: 'none', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#1e293b', width: '100%', transition: 'background 0.1s ease' },
+  boutonDeconnexionBurger: { background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '12px 16px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', width: '100%', textAlign: 'center', transition: 'all 0.1s ease' }
 };

@@ -285,7 +285,6 @@ export default function Application() {
               </form>
             )}
 
-            {/* --- ÉTAPE DE PAIEMENT AVEC LOGOS ET MOYENS OFFICIELS --- */}
             {choixModeEcole === 'paiement' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left', backgroundColor: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                 <h3 style={{ fontSize: '16px', color: '#0f172a', margin: 0, textAlign: 'center' }}>💳 Choix du mode de paiement</h3>
@@ -294,8 +293,6 @@ export default function Application() {
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-                  
-                  {/* WAVE */}
                   <div className={`option-paiement ${moyenPaiement === 'wave' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('wave')}>
                     <span style={{ fontSize: '20px' }}>🔵</span>
                     <div style={{ flex: 1 }}>
@@ -304,34 +301,30 @@ export default function Application() {
                     </div>
                   </div>
 
-                  {/* ORANGE MONEY */}
                   <div className={`option-paiement ${moyenPaiement === 'orange' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('orange')}>
                     <span style={{ fontSize: '20px' }}>🟠</span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: '13px', color: '#0f172a' }}>Orange Money</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>#{144}# ou application Orange Money</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Application Orange Money</div>
                     </div>
                   </div>
 
-                  {/* MTN MONEY */}
                   <div className={`option-paiement ${moyenPaiement === 'mtn' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('mtn')}>
                     <span style={{ fontSize: '20px' }}>🟡</span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: '13px', color: '#0f172a' }}>MTN MoMo (Mobile Money)</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>*133# ou application MoMo</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Application MoMo</div>
                     </div>
                   </div>
 
-                  {/* MOOV MONEY */}
                   <div className={`option-paiement ${moyenPaiement === 'moov' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('moov')}>
                     <span style={{ fontSize: '20px' }}>🔵</span>
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: '13px', color: '#0f172a' }}>Moov Money</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>*155# ou application Moov</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Application Moov</div>
                     </div>
                   </div>
 
-                  {/* CARTE BANCAIRE (VISA / MASTERCARD) */}
                   <div className={`option-paiement ${moyenPaiement === 'carte' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('carte')}>
                     <span style={{ fontSize: '20px' }}>💳</span>
                     <div style={{ flex: 1 }}>
@@ -339,7 +332,6 @@ export default function Application() {
                       <div style={{ fontSize: '11px', color: '#64748b' }}>Paiement sécurisé en ligne</div>
                     </div>
                   </div>
-
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -368,7 +360,6 @@ export default function Application() {
       {/* --- ÉCRAN DE CONNEXION / INSCRIPTION STANDARD --- */}
       {!userRole && !etapeChefEcole && (
         <div style={styles.ecranAuth} className="anim-apparition">
-          
           <div style={{ textAlign: 'center', marginBottom: '24px', width: '100%' }}>
             <span style={{ fontSize: '42px' }}>📖</span>
             <h1 style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', margin: '8px 0 2px 0' }}>E-cahier !</h1>
@@ -376,25 +367,15 @@ export default function Application() {
           </div>
 
           <div className="carte-auth">
-            {/* SÉLECTEUR D'ONGLETS (CONNEXION / INSCRIPTION) */}
             <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-              <button 
-                type="button" 
-                className={`onglet-btn ${modeAccueil === 'connexion' ? 'actif' : ''}`}
-                onClick={() => setModeAccueil('connexion')}
-              >
+              <button type="button" className={`onglet-btn ${modeAccueil === 'connexion' ? 'actif' : ''}`} onClick={() => setModeAccueil('connexion')}>
                 🔑 Se connecter
               </button>
-              <button 
-                type="button" 
-                className={`onglet-btn ${modeAccueil === 'inscription' ? 'actif' : ''}`}
-                onClick={() => setModeAccueil('inscription')}
-              >
+              <button type="button" className={`onglet-btn ${modeAccueil === 'inscription' ? 'actif' : ''}`} onClick={() => setModeAccueil('inscription')}>
                 ✨ Créer un compte
               </button>
             </div>
 
-            {/* FORMULAIRE DE CONNEXION */}
             {modeAccueil === 'connexion' && (
               <form onSubmit={handleConnexion} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="anim-apparition">
                 <div>
@@ -417,7 +398,6 @@ export default function Application() {
               </form>
             )}
 
-            {/* FORMULAIRE D'INSCRIPTION COMPLET (CIVILITÉS RESTAURÉES) */}
             {modeAccueil === 'inscription' && (
               <form onSubmit={handleInscription} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }} className="anim-apparition">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
@@ -520,7 +500,6 @@ export default function Application() {
                 </button>
               </form>
             )}
-
           </div>
         </div>
       )}

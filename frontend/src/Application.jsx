@@ -229,17 +229,6 @@ export default function Application() {
     afficherNotification("💳 Abonnement de 1 900 FCFA validé ! Mode sans affiliation actif.");
   };
 
-  const handleReinitialiserEtablissement = () => {
-    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment réinitialiser l'établissement ?")) {
-      localStorage.removeItem('app_chef_ecole_config');
-      setConfigEcole(null);
-      setModalEcoleOuvert(false);
-      setUserRole('');
-      setEtapeChefEcole(true);
-      afficherNotification("🔄 Établissement réinitialisé.");
-    }
-  };
-
   const handleLogout = () => {
     setUserRole(''); 
     setAuthContext(''); 
@@ -296,8 +285,8 @@ export default function Application() {
         .option-paiement:hover { border-color: #cbd5e1; }
         .option-paiement.selectionne { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
 
-        /* En-tête fixe parfaitement aligné */
-        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 16px 32px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        /* En-tête fixe fluide avec espacement optimisé pour le menu burger (décalé à gauche pour éviter le débordement) */
+        .nav-header { display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 16px 36px 16px 24px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
         .nav-logo-container { display: flex; align-items: center; gap: 14px; }
         .nav-title { font-weight: 800; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; }
         .nav-ecole-badge { font-weight: 500; color: #cbd5e1; font-size: 13px; border-left: 1px solid #334155; padding-left: 14px; display: flex; align-items: center; gap: 8px; }
@@ -306,7 +295,7 @@ export default function Application() {
         .avatar-container:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.1); }
         .avatar-cercle { width: 40px; height: 40px; border-radius: 50%; background: #ffffff; color: #0b1329; display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
         
-        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 20px; cursor: pointer; padding: 10px 14px; border-radius: 12px; color: #ffffff; transition: background 0.2s ease; display: flex; align-items: center; justify-content: center; }
+        .menu-burger-btn { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 20px; cursor: pointer; padding: 10px 14px; border-radius: 12px; color: #ffffff; transition: background 0.2s ease; margin-right: 8px; display: flex; align-items: center; justify-content: center; }
         .menu-burger-btn:hover { background: rgba(255, 255, 255, 0.15); }
 
         .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 41, 0.65); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 16px; }
@@ -334,17 +323,41 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- MODAL PAIEMENT MODE SANS AFFILIATION (1 900 FCFA / MOIS) --- */}
+      {/* --- MODAL PAIEMENT MODE SANS AFFILIATION AVEC LOGOS OFFICIELS ET ACTUELS --- */}
       {modalPaiementSansAffiliation && (
         <div className="modal-overlay anim-apparition">
           <div className="modal-card" style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '42px', display: 'block', marginBottom: '16px' }}>💳</span>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800' }}>Mode Sans Affiliation (Enseignant)</h3>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>L'accès indépendant pour enseignant est facturé à <strong>1 900 FCFA par mois</strong>.</p>
-            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
-              <span style={{ fontSize: '24px', fontWeight: '800', color: '#0b1329' }}>1 900 FCFA / mois</span>
+            <span style={{ fontSize: '36px', display: 'block', marginBottom: '12px' }}>💳</span>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: '800' }}>Mode Sans Affiliation</h3>
+            <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>Accès indépendant enseignant : <strong>1 900 FCFA / mois</strong>.</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+              <div className="option-paiement" onClick={() => setMoyenPaiement('wave')} style={{ borderColor: moyenPaiement === 'wave' ? '#2563eb' : '#e2e8f0', background: moyenPaiement === 'wave' ? '#eff6ff' : '#fff' }}>
+                <span style={{ fontSize: '20px' }}>🌊</span>
+                <div style={{ textAlign: 'left', flex: 1 }}>
+                  <strong style={{ fontSize: '13px', color: '#0b1329' }}>Wave Official</strong>
+                  <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Paiement instantané sécurisé</span>
+                </div>
+              </div>
+
+              <div className="option-paiement" onClick={() => setMoyenPaiement('orange')} style={{ borderColor: moyenPaiement === 'orange' ? '#ff6600' : '#e2e8f0', background: moyenPaiement === 'orange' ? '#fff7ed' : '#fff' }}>
+                <span style={{ fontSize: '20px' }}>🟠</span>
+                <div style={{ textAlign: 'left', flex: 1 }}>
+                  <strong style={{ fontSize: '13px', color: '#0b1329' }}>Orange Money</strong>
+                  <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Mobile Money officiel</span>
+                </div>
+              </div>
+
+              <div className="option-paiement" onClick={() => setMoyenPaiement('mtn')} style={{ borderColor: moyenPaiement === 'mtn' ? '#facc15' : '#e2e8f0', background: moyenPaiement === 'mtn' ? '#fefce8' : '#fff' }}>
+                <span style={{ fontSize: '20px' }}>🟡</span>
+                <div style={{ textAlign: 'left', flex: 1 }}>
+                  <strong style={{ fontSize: '13px', color: '#0b1329' }}>MTN Moov Money</strong>
+                  <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Réseau national</span>
+                </div>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '14px' }}>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={() => setModalPaiementSansAffiliation(false)} className="bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
               <button onClick={validerPaiementSansAffiliation} className="bouton-principal" style={{ flex: 1 }}>Payer l'abonnement</button>
             </div>
@@ -418,12 +431,6 @@ export default function Application() {
               <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setModalEcoleOuvert(false)} className="bouton-secondaire" style={{ flex: 1 }}>Fermer</button>
                 <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Enregistrer</button>
-              </div>
-
-              <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '16px', paddingTop: '16px' }}>
-                <button type="button" onClick={handleReinitialiserEtablissement} className="bouton-danger" style={{ fontSize: '13px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5' }}>
-                  ⚠️ Réinitialiser complètement l'école (Remise à zéro)
-                </button>
               </div>
             </form>
           </div>
@@ -530,17 +537,17 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- ÉCRAN INTERMÉDIAIRE CHEF D'ÉTABLISSEMENT --- */}
+      {/* --- ÉCRAN INTERMÉDIAIRE CHEF D'ÉTABLISSEMENT (OBLIGATION DE CHOISIR / CRÉATION PAYANTE) --- */}
       {etapeChefEcole && (
         <div style={styles.ecranAuth} className="anim-apparition">
           <div className="carte-auth" style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '42px', display: 'block', marginBottom: '16px' }}>🏫</span>
             <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 8px 0' }}>Espace Direction</h2>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '28px', lineHeight: '1.5' }}>Le chef d'établissement doit configurer ou lier son établissement unique.</p>
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '28px', lineHeight: '1.5' }}>Veuillez lier votre établissement ou en créer un nouveau.</p>
 
             {choixModeEcole === 'choix' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <button type="button" className="bouton-principal" onClick={() => setChoixModeEcole('creer')}>➕ Enregistrer un nouvel établissement</button>
+                <button type="button" className="bouton-principal" onClick={() => setChoixModeEcole('creer')}>➕ Enregistrer un nouvel établissement (Payant)</button>
                 <button type="button" className="bouton-secondaire" onClick={() => setChoixModeEcole('rejoindre')}>🔗 Se connecter à un établissement existant</button>
               </div>
             )}
@@ -574,7 +581,7 @@ export default function Application() {
                 </div>
                 <div className="form-grid" style={{ marginTop: '12px' }}>
                   <button type="button" className="bouton-secondaire" onClick={() => setChoixModeEcole('choix')}>Retour</button>
-                  <button type="submit" className="bouton-principal">Continuer</button>
+                  <button type="submit" className="bouton-principal">Continuer vers le paiement</button>
                 </div>
               </form>
             )}
@@ -582,15 +589,17 @@ export default function Application() {
             {choixModeEcole === 'paiement' && (
               <div style={{ textAlign: 'left' }}>
                 <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '16px', marginBottom: '20px', textAlign: 'center', border: '1px solid #cbd5e1' }}>
-                  <p style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '13px' }}>Frais d'enregistrement de l'école (+ factures mensuelles)</p>
+                  <p style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '13px' }}>Frais d'enregistrement de l'école</p>
                   <p style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0b1329' }}>{formNouvelleEcole.typeEtablissement === 'Privé' ? '50 000 FCFA' : '30 000 FCFA'}</p>
                 </div>
 
-                <div className={`option-paiement ${moyenPaiement === 'wave' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('wave')}>
-                  <span style={{ fontSize: '22px' }}>🌊</span><div><strong style={{ fontSize: '14px', color: '#0b1329' }}>Wave</strong><span style={{ display: 'block', fontSize: '12px', color: '#64748b' }}>Paiement instantané</span></div>
+                <div className="option-paiement" onClick={() => setMoyenPaiement('wave')} style={{ borderColor: moyenPaiement === 'wave' ? '#2563eb' : '#e2e8f0', background: moyenPaiement === 'wave' ? '#eff6ff' : '#fff' }}>
+                  <span style={{ fontSize: '20px' }}>🌊</span>
+                  <div style={{ flex: 1 }}><strong style={{ fontSize: '13px', color: '#0b1329' }}>Wave Official</strong><span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Paiement instantané</span></div>
                 </div>
-                <div className={`option-paiement ${moyenPaiement === 'orange' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('orange')}>
-                  <span style={{ fontSize: '22px' }}>📱</span><div><strong style={{ fontSize: '14px', color: '#0b1329' }}>Mobile Money</strong><span style={{ display: 'block', fontSize: '12px', color: '#64748b' }}>Orange, MTN, Moov</span></div>
+                <div className="option-paiement" onClick={() => setMoyenPaiement('orange')} style={{ borderColor: moyenPaiement === 'orange' ? '#ff6600' : '#e2e8f0', background: moyenPaiement === 'orange' ? '#fff7ed' : '#fff' }}>
+                  <span style={{ fontSize: '20px' }}>🟠</span>
+                  <div style={{ flex: 1 }}><strong style={{ fontSize: '13px', color: '#0b1329' }}>Orange Money</strong><span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Mobile Money officiel</span></div>
                 </div>
 
                 <div className="form-grid" style={{ marginTop: '20px' }}>
@@ -603,7 +612,7 @@ export default function Application() {
             {choixModeEcole === 'rejoindre' && (
               <form onSubmit={validerConnexionEcoleExistante} style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
                 <div>
-                  <label className="libelle">Code officiel ou nom de l'école</label>
+                  <label className="libelle">Code officiel ou nom de l'école existante</label>
                   <input type="text" placeholder="Entrez le code..." value={codeOuNomRejoins} onChange={e => setCodeOuNomRejoins(e.target.value)} className="champ-saisie" required />
                 </div>
                 <div className="form-grid" style={{ marginTop: '8px' }}>
@@ -616,7 +625,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- ÉCRAN CONNEXION / INSCRIPTION / MDP OUBLIÉ --- */}
+      {/* --- ÉCRAN CONNEXION / INSCRIPTION --- */}
       {!userRole && !etapeChefEcole && (
         <div style={styles.ecranAuth} className="anim-apparition">
           <div style={{ textAlign: 'center', marginBottom: '32px' }}>
@@ -664,14 +673,14 @@ export default function Application() {
               <form onSubmit={handleRecuperationMdp} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }} className="anim-apparition">
                 <div style={{ textAlign: 'center', marginBottom: '8px' }}>
                   <h3 style={{ fontSize: '18px', fontWeight: '800', margin: '0 0 6px 0', color: '#0b1329' }}>Récupération de mot de passe</h3>
-                  <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Entrez votre e-mail professionnel pour recevoir les instructions.</p>
+                  <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Entrez votre e-mail professionnel.</p>
                 </div>
                 <div>
                   <label className="libelle">Adresse e-mail</label>
                   <input type="email" placeholder="nom@ecole.edu" value={emailMdpOublie} onChange={e => setEmailMdpOublie(e.target.value)} className="champ-saisie" required />
                 </div>
-                <button type="submit" className="bouton-principal" style={{ marginTop: '12px' }}>Envoyer le lien de récupération</button>
-                <button type="button" onClick={() => setModeAccueil('connexion')} className="bouton-secondaire" style={{ width: '100%' }}>Retour à la connexion</button>
+                <button type="submit" className="bouton-principal" style={{ marginTop: '12px' }}>Envoyer le lien</button>
+                <button type="button" onClick={() => setModeAccueil('connexion')} className="bouton-secondaire" style={{ width: '100%' }}>Retour</button>
               </form>
             )}
 
@@ -720,7 +729,7 @@ export default function Application() {
                     <input type="text" placeholder="Mathématiques" value={formInscription.matiere} onChange={e => setFormInscription({...formInscription, matiere: e.target.value})} className="champ-saisie" required />
                   </div>
                   <div>
-                    <label className="libelle">Code Affiliation (Optionnel)</label>
+                    <label className="libelle">Code Affiliation</label>
                     <input type="text" placeholder="Code école" value={formInscription.codeAffiliation} onChange={e => setFormInscription({...formInscription, codeAffiliation: e.target.value})} className="champ-saisie" />
                   </div>
                 </div>
@@ -741,7 +750,7 @@ export default function Application() {
         </div>
       )}
 
-      {/* --- DASHBOARD ET NAVIGATION --- */}
+      {/* --- DASHBOARD ET NAVIGATION (IDENTITÉ UNIQUE "E-cahier !" SANS DOUBLON) --- */}
       {userRole && (
         <div className="anim-apparition">
           <header className="nav-header">

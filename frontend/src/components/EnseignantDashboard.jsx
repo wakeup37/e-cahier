@@ -940,19 +940,21 @@ export default function EnseignantDashboard() {
         <head>
           <title>${titreEntite}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
-            .header-doc { text-align: center; border-bottom: 3px double #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
-            .header-doc h2 { margin: 0; color: #0f172a; font-size: 18px; text-transform: uppercase; }
-            .meta { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-size: 13px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; font-size: 13px; text-align: left; }
-            th { background-color: #f1f5f9; font-weight: 700; }
+            body { font-family: Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; background: #fff; }
+            .header-doc { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
+            .header-doc h2 { margin: 0; color: #0f172a; font-size: 16px; text-transform: uppercase; font-weight: 800; }
+            .meta { background: #f8fafc; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-size: 13px; }
+            .meta p { margin: 4px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #cbd5e1; padding: 12px 14px; font-size: 13px; text-align: left; vertical-align: top; }
+            th { background-color: #f1f5f9; font-weight: 700; color: #0f172a; width: 30%; }
+            td { color: #334155; width: 70%; }
           </style>
         </head>
         <body>
           <div class="header-doc">
-            <h2>RÉPUBLIQUE DE CÔTE D'IVOIRE - MINISTÈRE DE L'ÉDUCATION NATIONALE</h2>
-            <p>Document Pédagogique Officiel - ${infosEnseignant.etablissementSaisi}</p>
+            <h2>${infosEnseignant.etablissementSaisi}</h2>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #64748b;">E-cahier Numérique de Suivi Pédagogique</p>
           </div>
           <div class="meta">
             <p><strong>Enseignant(e) :</strong> ${infosEnseignant.civilite} ${infosEnseignant.nom} ${infosEnseignant.prenoms} (${infosEnseignant.matiere})</p>
@@ -960,48 +962,55 @@ export default function EnseignantDashboard() {
             <p><strong>Détails :</strong> ${sousTitre}</p>
           </div>
           ${contenuTableau}
-          <script>window.onload = function() { window.print(); window.close(); }</script>
+          <script>
+            window.onload = function() { 
+              setTimeout(function() {
+                window.print(); 
+              }, 300);
+            }
+          </script>
         </body>
       </html>
     `);
     fenetreImpression.document.close();
-    showToast(`📥 Document "${titreEntite}" téléchargé en PDF !`);
+    showToast(`📥 Document "${titreEntite}" prêt à l'impression / téléchargement !`);
   };
 
   const telechargerFicheSeancePDF = (seance, lecon, cycle) => {
-    let champsHtml = '';
+    let champsHtml = '<table>';
     if (Array.isArray(champsPersonnalises)) {
       champsPersonnalises.forEach(champ => {
         const valeur = (seance && seance.valeursChamps && seance.valeursChamps[champ.id]) || 'N/A';
-        champsHtml += `<tr><th>${champ.label}</th><td>${valeur}</td></tr>`;
+        champsHtml += `<tr><th>${champ.label}</th><td>${valeur.replace(/\n/g, '<br>')}</td></tr>`;
       });
     }
-
-    const html = `
-      <table>
-        ${champsHtml}
-        ${seance && Array.isArray(seance.fichiersMultimedias) && seance.fichiersMultimedias.length ? `<tr><th>📎 Fichiers Multimedias</th><td>${seance.fichiersMultimedias.join(', ')}</td></tr>` : ''}
-      </table>
-    `;
-    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Leçon: ${lecon?.titre || ''}`, html);
+    if (seance && Array.isArray(seance.fichiersMultimedias) && seance.fichiersMultimedias.length) {
+      champsHtml += `<tr><th>📎 Fichiers Multimedias</th><td>${seance.fichiersMultimedias.join(', ')}</td></tr>`;
+    }
+    champsHtml += '</table>';
+    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Leçon: ${lecon?.titre || ''}`, champsHtml);
   };
 
   const telechargerProgrammeAnnuelPDF = (progClasse, classeNom) => {
-    let htmlContent = '<h3>Programme Annuel Complet</h3>';
+    let htmlContent = '<h3 style="color: #0f172a; font-size: 15px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px;">Programme Annuel Complet</h3>';
     if (progClasse && Array.isArray(progClasse.cycles)) {
       progClasse.cycles.forEach(cy => {
-        htmlContent += `<h4 style="background:#e0f2fe; padding:8px; margin-top:15px;">📁 ${cy.titre} (Du ${cy.dateDebut} au ${cy.dateFin})</h4>`;
-        htmlContent += `<p><strong>Compétence :</strong> ${cy.competence}</p>`;
+        htmlContent += `<div style="margin-top: 15px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc;">`;
+        htmlContent += `<h4 style="margin: 0 0 6px 0; color: #2563eb; font-size: 14px;">📁 ${cy.titre} (Du ${cy.dateDebut} au ${cy.dateFin})</h4>`;
+        htmlContent += `<p style="margin: 0 0 8px 0; font-size: 12px;"><strong>Compétence :</strong> ${cy.competence}</p>`;
         if (Array.isArray(cy.lecons)) {
           cy.lecons.forEach(lc => {
-            htmlContent += `<p style="margin-left: 15px;"><strong>📖 Leçon :</strong> ${lc.titre}</p>`;
+            htmlContent += `<div style="margin-left: 10px; margin-top: 8px; border-top: 1px dashed #cbd5e1; paddingTop: 6px;">`;
+            htmlContent += `<p style="margin: 0 0 4px 0; font-size: 12px;"><strong>📖 Leçon :</strong> ${lc.titre}</p>`;
             if (Array.isArray(lc.seances)) {
               lc.seances.forEach(sc => {
-                htmlContent += `<p style="margin-left: 30px; font-size: 12px;">• Séance #${sc.numero}: ${sc.titre} (${sc.date})</p>`;
+                htmlContent += `<p style="margin: 2px 0 2px 15px; font-size: 11px; color: #475569;">• Séance #${sc.numero}: ${sc.titre} (${sc.date})</p>`;
               });
             }
+            htmlContent += `</div>`;
           });
         }
+        htmlContent += `</div>`;
       });
     }
     telechargerPDFEntite(`Programme Annuel - ${classeNom}`, `Année scolaire ${progClasse?.anneeScolaire || ''}`, htmlContent);
@@ -1193,7 +1202,7 @@ export default function EnseignantDashboard() {
 
         {/* MODALE DE CONFIRMATION DE SUPPRESSION D'UN CHAMP */}
         {champASupprimer && (
-          <div style={{ ...styles.fondModale, zIndex: 99999 }}>
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '16px' }}>
             <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Supprimer ce champ ?</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
@@ -2448,5 +2457,5 @@ const styles = {
   fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFactor: 'blur(4px)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', zIndex: '1000', padding: '16px' },
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
   burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
-  burgerDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 120, padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }
+  burgerDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '240px', zIndex: 120, padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }
 };

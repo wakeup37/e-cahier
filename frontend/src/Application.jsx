@@ -1,636 +1,762 @@
-import React, { useState, useEffect } from 'react';
-import EnseignantDashboard from './components/EnseignantDashboard';
-import CenseurDashboard from './components/CenseurDashboard';
-import ChefEtablissementDashboard from './components/ChefEtablissementDashboard';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
-export default function Application() {
-  const [userRole, setUserRole] = useState(''); // '', 'enseignant', 'censeur', 'chef'
-  const [authContext, setAuthContext] = useState(''); // 'connexion' ou 'inscription'
-  const [notification, setNotification] = useState('');
-  const [estEnLigne, setEstEnLigne] = useState(navigator.onLine);
+// =========================================================================
+// SÉCURISATION DES DONNÉES LOCALES
+// =========================================================================
+const safeGetArray = (key, defaultArr = []) => {
+  try {
+    const item = localStorage.getItem(key);
+    if (!item) return defaultArr;
+    const parsed = JSON.parse(item);
+    return Array.isArray(parsed) ? parsed : defaultArr;
+  } catch { return defaultArr; }
+};
 
-  // Gestion de l'affichage de l'accueil ('connexion' ou 'inscription')
-  const [modeAccueil, setModeAccueil] = useState('connexion');
+const safeGetObject = (key, defaultObj = {}) => {
+  try {
+    const item = localStorage.getItem(key);
+    if (!item) return defaultObj;
+    const parsed = JSON.parse(item);
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : defaultObj;
+  } catch { return defaultObj; }
+};
 
-  // --- ÉTAPE SUPPLÉMENTAIRE : CHOIX DE L'ÉCOLE POUR LE CHEF ---
-  const [etapeChefEcole, setEtapeChefEcole] = useState(false);
-  const [choixModeEcole, setChoixModeEcole] = useState('choix'); // 'choix', 'creer', 'rejoindre', 'paiement', 'oublie_code'
+export default function ChefEtablissementDashboard() {
   
-  // Champs pour la création avec le code officiel du Ministère
-  const [formNouvelleEcole, setFormNouvelleEcole] = useState({
-    nomEcole: '',
-    codeMinistere: '',
-    ville: '',
-    commune: '',
-    quartier: '',
-    typeEtablissement: 'Public' // 'Public' (30 000 FCFA) ou 'Privé' (50 000 FCFA)
-  });
-
-  // Mode de paiement sélectionné
-  const [moyenPaiement, setMoyenPaiement] = useState('wave');
-
-  // Champ pour se connecter à un établissement existant via son code officiel ou son nom
-  const [codeOuNomRejoins, setCodeOuNomRejoins] = useState('');
-
-  // Formulaire de connexion
-  const [formConnexion, setFormConnexion] = useState({ 
-    email: '', 
-    motDePasse: '',
-    roleAttendu: 'enseignant'
-  });
+  // --- ÉTATS GLOBAUX ---
+  const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
+  const [modeSetup, setModeSetup] = useState('CHOIX'); 
   
-  // Formulaire d'inscription complet avec toutes les civilités
-  const [formInscription, setFormInscription] = useState({
-    civilite: 'M.',
-    role: 'enseignant', 
-    nom: '',
-    prenoms: '',
-    dateNaissance: '',
-    telephone: '',
-    ville: '',
-    anciennete: '1 à 5 ans',
-    matiere: '',
-    secteurEnseignement: 'Public',
-    typeStatutPublic: 'Titulaire',
-    numeroMatricule: '',
-    email: '',
-    motDePasse: ''
-  });
+  const [inputNomEcole, setInputNomEcole] = useState('');
+  const [inputTypeEtablissement, setInputTypeEtablissement] = useState('public');
+  const [inputCodeEtablissement, setInputCodeEtablissement] = useState('');
+  const [inputSituationGeo, setInputSituationGeo] = useState('');
+  const [inputAnneeScolaire, setInputAnneeScolaire] = useState('2025-2026');
+  const [inputNombreEleves, setInputNombreEleves] = useState('450');
+  const [inputNombreEnseignants, setInputNombreEnseignants] = useState('25');
+  const [inputDateCreation, setInputDateCreation] = useState('2010-09-15');
+  const [inputEmailRecuperation, setInputEmailRecuperation] = useState('');
 
-  // --- DONNÉES GLOBALES ---
-  const [demandesAffiliationEnseignants, setDemandesAffiliationEnseignants] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_demandes_affiliation')) || []; } catch { return []; }
-  });
+  const [infosChef, setInfosChef] = useState(() => safeGetObject('app_chef_profil', {
+    civilite: 'M.', nom: 'Koffi', prenoms: 'Bernard', etablissement: '', role: 'Chef d’Établissement', photoProfil: '', emailSecurite: 'bernard.koffi@chef.ci'
+  }));
 
-  const [seancesEnseignants, setSeancesEnseignants] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_seances_enseignants')) || []; } catch { return []; }
-  });
+  useEffect(() => { localStorage.setItem('app_chef_profil', JSON.stringify(infosChef)); }, [infosChef]);
+  useEffect(() => { 
+    if (ecoleConfig) localStorage.setItem('app_chef_ecole_config', JSON.stringify(ecoleConfig)); 
+    else localStorage.removeItem('app_chef_ecole_config');
+  }, [ecoleConfig]);
 
-  const [bibliothequeFiches, setBibliothequeFiches] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_bibliotheque_fiches')) || []; } catch { return []; }
-  });
+  const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
+  const [formProfilChef, setFormProfilChef] = useState({ ...infosChef });
+  const [profilChefOuvert, setProfilChefOuvert] = useState(false);
+  const profilChefRef = useRef(null);
 
-  const [enseignantsSansFiche] = useState([
-    { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
-  ]);
+  const [modalSecurite, setModalSecurite] = useState(false);
+  const [ancienMdp, setAncienMdp] = useState('');
+  const [nouveauMdp, setNouveauMdp] = useState('');
 
-  useEffect(() => {
-    const gererEnLigne = () => { setEstEnLigne(true); afficherNotification("Connexion Internet rétablie."); };
-    const gererHorsLigne = () => { setEstEnLigne(false); afficherNotification("⚠️ Mode hors ligne activé."); };
+  const [modalQuitterEcole, setModalQuitterEcole] = useState(false);
+  const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
-    window.addEventListener('online', gererEnLigne);
-    window.addEventListener('offline', gererHorsLigne);
-    return () => { window.removeEventListener('online', gererEnLigne); window.removeEventListener('offline', gererHorsLigne); };
+  const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
+  const menuBurgerChefRef = useRef(null);
+
+  const [modalConfirmationActionAnnee, setModalConfirmationActionAnnee] = useState({ ouvert: false, actionType: null });
+  const [modeEditionEcole, setModeEditionEcole] = useState(false);
+  const [formEcoleEdition, setFormEcoleEdition] = useState(ecoleConfig || {});
+
+  const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', [
+    { id: 1, nomComplet: 'M. Touré Alpha', email: 'toure.alpha@ecole.ci', niveauCharge: '6ème', statut: 'En attente' }
+  ]));
+  useEffect(() => { localStorage.setItem('app_chef_censeurs_affiliations', JSON.stringify(censeursAffiliations)); }, [censeursAffiliations]);
+
+  const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
+  const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', [
+    { id: 1, texte: 'Bienvenue sur votre tableau de bord du réseau de l’établissement.', date: 'Aujourd’hui', lu: false }
+  ]));
+  useEffect(() => { localStorage.setItem('app_chef_notifications', JSON.stringify(notificationsChef)); }, [notificationsChef]);
+
+  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
+  const notifChefRef = useRef(null);
+
+  const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
+  useEffect(() => { localStorage.setItem('app_chef_archives_historiques', JSON.stringify(archivesHistoriques)); }, [archivesHistoriques]);
+
+  const [fichiersAdministratifsUploads, setFichiersAdministratifsUploads] = useState(() => safeGetArray('app_chef_fichiers_admin', []));
+  useEffect(() => { localStorage.setItem('app_chef_fichiers_admin', JSON.stringify(fichiersAdministratifsUploads)); }, [fichiersAdministratifsUploads]);
+
+  const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
+  useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
+
+  const [nouveauAdminNom, setNouveauAdminNom] = useState('');
+  const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
+  const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
+  const [nouveauAdminContact, setNouveauAdminContact] = useState('');
+  const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
+
+  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
+  const [anneeFichier, setAnneeFichier] = useState('2025-2026');
+  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
+
+  const [activeTab, setActiveTab] = useState('profil_ecole');
+  const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
+  const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
+  const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
+  const [anneeArchiveSelectionnee, setAnneeArchiveSelectionnee] = useState('TOUTES');
+
+  const nombreClassesAutomatique = useMemo(() => {
+    try {
+      const programmes = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes')) || {};
+      const count = Object.keys(programmes).length;
+      return count > 0 ? count : 1;
+    } catch { return 1; }
   }, []);
 
-  useEffect(() => { localStorage.setItem('app_demandes_affiliation', JSON.stringify(demandesAffiliationEnseignants)); }, [demandesAffiliationEnseignants]);
-  useEffect(() => { localStorage.setItem('app_seances_enseignants', JSON.stringify(seancesEnseignants)); }, [seancesEnseignants]);
-  useEffect(() => { localStorage.setItem('app_bibliotheque_fiches', JSON.stringify(bibliothequeFiches)); }, [bibliothequeFiches]);
+  const listeProfesseursEtablissement = useMemo(() => {
+    try {
+      const affs = JSON.parse(localStorage.getItem('app_enseignant_affiliations')) || [];
+      const profilActuel = JSON.parse(localStorage.getItem('app_enseignant_profil')) || { nom: 'Kouassi', prenoms: 'Jean', matiere: 'EPS', emailSecurite: 'jean.kouassi@prof.ci' };
+      
+      let enseignantsList = affs.map(a => ({
+        id: a.id, nomComplet: a.enseignant || 'M. Kouassi Jean', matiere: profilActuel.matiere || 'EPS', niveau: '6ème / 5ème', classes: a.classes || ['6ème A', '6ème B'], statut: a.statut || 'Validée', ecole: a.ecole, matricule: 'ENS-8821', contact: '0506070809', email: profilActuel.emailSecurite || 'jean.kouassi@prof.ci', dureeService: '1 an (En cours)'
+      }));
+      return enseignantsList.filter(item => item.ecole === ecoleConfig?.nomEcole);
+    } catch { return []; }
+  }, [ecoleConfig]);
 
-  const afficherNotification = (msg) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(''), 4000);
-  };
+  const fichesPedagogiquesEcole = useMemo(() => {
+    try {
+      const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
+      const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
+      let fusion = [...archiveCenseur, ...biblioEnseignant];
+      return fusion;
+    } catch { return []; }
+  }, []);
 
-  // --- ACTIONS D'AUTHENTIFICATION ---
-  const handleConnexion = (e) => {
-    e.preventDefault();
-    if (!formConnexion.email || !formConnexion.motDePasse) {
-      afficherNotification("Veuillez remplir vos identifiants.");
+  const professeursFiltres = useMemo(() => {
+    return listeProfesseursEtablissement.filter(prof => {
+      const matchMat = filtreProfMatiere === 'TOUTES' || prof.matiere === filtreProfMatiere;
+      const matchNiv = filtreProfNiveau === 'TOUS' || prof.niveau.includes(filtreProfNiveau);
+      const matchCl = filtreProfClasse === 'TOUTES' || (prof.classes && prof.classes.includes(filtreProfClasse));
+      return matchMat && matchNiv && matchCl;
+    });
+  }, [listeProfesseursEtablissement, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
+
+  const fichesFiltrees = useMemo(() => {
+    return fichesPedagogiquesEcole.filter(fiche => {
+      const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
+      const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
+      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === filtreProfClasse;
+      return matchMat && matchNiv && matchCl;
+    });
+  }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
+
+  const statistiquesReseau = useMemo(() => {
+    const censeursValidesCount = Array.isArray(censeursAffiliations) ? censeursAffiliations.filter(c => c.statut === 'Validé').length + 1 : 1;
+    return {
+      totalClasses: nombreClassesAutomatique,
+      totalPersonnesConnectees: censeursValidesCount + listeProfesseursEtablissement.length + personnelAdministratifManuel.length
+    };
+  }, [censeursAffiliations, nombreClassesAutomatique, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
+
+  const [message, setMessage] = useState('');
+  const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
+      if (notifChefRef.current && !notifChefRef.current.contains(event.target)) setNotifChefOuvert(false);
+      if (menuBurgerChefRef.current && !menuBurgerChefRef.current.contains(event.target)) setMenuBurgerChefOuvert(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // --- IMPRESSION PDF ---
+  const telechargerDocumentPDF = (titre, contenuHTML) => {
+    const fenetreImpression = window.open('', '_blank');
+    if (!fenetreImpression) {
+      showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
       return;
     }
     
-    localStorage.setItem('app_enseignant_statut', 'actif');
-    setAuthContext('connexion'); 
-
-    if (formConnexion.roleAttendu === 'chef') {
-      setEtapeChefEcole(true);
-      return;
-    }
-
-    afficherNotification("Connexion réussie ! Redirection vers vos classes...");
-    setTimeout(() => setUserRole(formConnexion.roleAttendu), 400);
+    fenetreImpression.document.write(`
+      <html>
+        <head>
+          <title>${titre}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; padding: 20px; margin: 0; }
+            .pdf-container { max-width: 800px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+            .pdf-header { display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
+            .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+            .btn-imprimer { background: #2563eb; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
+            .btn-retour { background: #ef4444; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
+            h1 { margin: 0; font-size: 20px; color: #0f172a; }
+            p { margin: 8px 0; font-size: 14px; line-height: 1.6; }
+            
+            @media print {
+              body { background: #fff; padding: 0; }
+              .pdf-container { box-shadow: none; padding: 0; }
+              .pdf-header .btn-group { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="pdf-container">
+            <div class="pdf-header">
+              <h1>${titre}</h1>
+              <div class="btn-group">
+                <button class="btn-imprimer" onclick="window.print()">🖨️ Imprimer / Sauvegarder</button>
+                <button class="btn-retour" onclick="window.close()">✕ Fermer & Retourner à l'app</button>
+              </div>
+            </div>
+            <div class="pdf-content">
+              ${contenuHTML}
+            </div>
+          </div>
+          <script>
+            window.onload = function() { setTimeout(function() { window.print(); }, 800); }
+          </script>
+        </body>
+      </html>
+    `);
+    fenetreImpression.document.close();
+    showToast(`📥 Document "${titre}" prêt !`);
   };
 
-  const handleInscription = (e) => {
+  const handleCreerOuConnecterEcole = (e, type) => {
     e.preventDefault();
-    if (!formInscription.nom || !formInscription.email || !formInscription.motDePasse) {
-      afficherNotification("Veuillez renseigner tous les champs obligatoires.");
-      return;
-    }
-    if (formInscription.secteurEnseignement === 'Public' && formInscription.typeStatutPublic === 'Titulaire' && !formInscription.numeroMatricule.trim()) {
-      afficherNotification("❌ Veuillez renseigner votre numéro matricule.");
-      return;
-    }
-    
-    localStorage.setItem('app_enseignant_statut', 'nouveau');
-    setAuthContext('inscription');
-
-    if (formInscription.role === 'chef') {
-      setEtapeChefEcole(true);
-      return;
-    }
-
-    afficherNotification("Compte créé avec succès ! Procédez à l'affiliation.");
-    setTimeout(() => setUserRole(formInscription.role), 600);
-  };
-
-  const preparerPaiementCodeEcole = (e) => {
-    e.preventDefault();
-    if (!formNouvelleEcole.nomEcole.trim() || !formNouvelleEcole.codeMinistere.trim() || !formNouvelleEcole.ville.trim() || !formNouvelleEcole.commune.trim()) {
-      afficherNotification("⚠️ Veuillez remplir tous les champs obligatoires.");
-      return;
-    }
-    setChoixModeEcole('paiement');
-  };
-
-  const validerPaiementEtFinaliserEcole = () => {
-    const montant = formNouvelleEcole.typeEtablissement === 'Privé' ? '50 000 FCFA' : '30 000 FCFA';
-
-    const configEcole = {
-      nomEcole: formNouvelleEcole.nomEcole.trim(),
-      codeEtablissement: formNouvelleEcole.codeMinistere.trim().toUpperCase(),
-      ville: formNouvelleEcole.ville.trim(),
-      commune: formNouvelleEcole.commune.trim(),
-      quartier: formNouvelleEcole.quartier.trim(),
-      typeEtablissement: formNouvelleEcole.typeEtablissement,
-      anneeScolaire: '2025-2026',
-      anneeOuverte: true
+    if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
+    const fraisCreation = type === 'CREER' ? (inputTypeEtablissement === 'prive' ? '50 000 FCFA' : '25 000 FCFA') : 'Gratuit (Connexion)';
+    const nouvelleConfig = {
+      nomEcole: inputNomEcole.trim(), typeEtablissement: type === 'CREER' ? inputTypeEtablissement : 'inconnu', codeEtablissement: inputCodeEtablissement.trim() || 'ETAB-001', situationGeo: inputSituationGeo.trim() || 'Non renseignée', anneeScolaire: inputAnneeScolaire.trim() || '2025-2026', nombreEleves: inputNombreEleves, nombreEnseignants: inputNombreEnseignants, dateCreation: inputDateCreation, anneeOuverte: true, fraisPayes: fraisCreation
     };
-
-    localStorage.setItem('app_chef_ecole_config', JSON.stringify(configEcole));
-    setEtapeChefEcole(false);
-    afficherNotification(`💳 Paiement de ${montant} validé via ${moyenPaiement.toUpperCase()} ! Établissement enregistré.`);
-    setUserRole('chef');
+    setEcoleConfig(nouvelleConfig);
+    setFormEcoleEdition(nouvelleConfig);
+    setInfosChef(prev => ({ ...prev, etablissement: nouvelleConfig.nomEcole }));
+    showToast(type === 'CREER' ? `🏫 Établissement créé !` : "🔗 Connecté avec succès !");
   };
 
-  const validerConnexionEcoleExistante = (e) => {
+  const handleEnregistrerCarteEcole = (e) => {
     e.preventDefault();
-    if (!codeOuNomRejoins.trim()) {
-      afficherNotification("⚠️ Veuillez entrer le code officiel du Ministère ou le nom de l'établissement.");
-      return;
+    setEcoleConfig(formEcoleEdition);
+    setModeEditionEcole(false);
+    showToast("✅ Carte d'identité de l'établissement mise à jour !");
+  };
+
+  const executerActionAnneeScolaire = () => {
+    const { actionType } = modalConfirmationActionAnnee;
+    if (actionType === 'ouvrir') {
+      setEcoleConfig(prev => ({ ...prev, anneeOuverte: true }));
+      showToast("🚀 Nouvelle année scolaire ouverte !");
+    } else if (actionType === 'fermer') {
+      try {
+        const archiveSession = {
+          annee: ecoleConfig.anneeScolaire,
+          dateCloture: new Date().toLocaleDateString(),
+          stats: statistiquesReseau,
+          personnelAdministratif: personnelAdministratifManuel,
+          personnelEnseignant: listeProfesseursEtablissement
+        };
+        setArchivesHistoriques(prev => [...prev, archiveSession]);
+      } catch {}
+      setEcoleConfig(prev => ({ ...prev, anneeOuverte: false }));
+      showToast("🔒 Année scolaire terminée avec succès.");
     }
-
-    const configEcole = {
-      nomEcole: codeOuNomRejoins.trim(),
-      codeEtablissement: codeOuNomRejoins.trim().toUpperCase(),
-      ville: 'Inconnue',
-      commune: 'Inconnue',
-      quartier: '',
-      typeEtablissement: 'Public',
-      anneeScolaire: '2025-2026',
-      anneeOuverte: true
-    };
-
-    localStorage.setItem('app_chef_ecole_config', JSON.stringify(configEcole));
-    setEtapeChefEcole(false);
-    afficherNotification("🔗 Connexion à l'établissement réussie via le code officiel !");
-    setUserRole('chef');
+    setModalConfirmationActionAnnee({ ouvert: false, actionType: null });
   };
 
-  const handleLogout = () => {
-    setUserRole('');
-    setAuthContext('');
-    setEtapeChefEcole(false);
-    setChoixModeEcole('choix');
-    setFormNouvelleEcole({ nomEcole: '', codeMinistere: '', ville: '', commune: '', quartier: '', typeEtablissement: 'Public' });
-    setCodeOuNomRejoins('');
-    localStorage.removeItem('app_enseignant_statut');
-    setFormConnexion({ email: '', motDePasse: '', roleAttendu: 'enseignant' });
+  const validerCenseur = (id) => { setCenseursAffiliations(prev => prev.map(c => c.id === id ? { ...c, statut: 'Validé' } : c)); showToast("✅ Censeur validé !"); };
+  const rejeterCenseur = (id) => { setCenseursAffiliations(prev => prev.filter(c => c.id !== id)); showToast("❌ Demande rejetée."); };
+
+  const ajouterPersonnelAdministratif = (e) => {
+    e.preventDefault();
+    if (!nouveauAdminNom.trim()) return;
+    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'MAT-000', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
+    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
+    setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
+    showToast("✅ Personnel administratif ajouté !");
   };
+  const supprimerPersonnelAdministratif = (id) => { setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id)); showToast("🗑️ Membre retiré."); };
+
+  const uploaderFichierAdministratifreel = (e) => {
+    e.preventDefault();
+    if (!nomNouveauFichier.trim()) return;
+    const nouveauFichier = { id: Date.now(), nom: nomNouveauFichier.trim(), annee: anneeFichier, nomFichierReel: fichierSelectionneObj ? fichierSelectionneObj.name : 'Document_officiel.pdf', dateAjout: new Date().toLocaleDateString() };
+    setFichiersAdministratifsUploads(prev => [nouveauFichier, ...prev]);
+    setNomNouveauFichier(''); setFichierSelectionneObj(null);
+    showToast("📎 Fichier stocké avec succès !");
+  };
+
+  const handleEnregistrerProfilChef = (e) => {
+    e.preventDefault();
+    setInfosChef({ ...formProfilChef });
+    setModalProfilChefOuvert(false);
+    showToast("✅ Profil et photo mis à jour avec succès !");
+  };
+
+  const handleChangerPhotoProfilChef = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => { setFormProfilChef(prev => ({ ...prev, photoProfil: reader.result })); };
+    reader.readAsDataURL(file);
+  };
+
+  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
+  if (!ecoleConfig) {
+    return (
+      <div style={styles.setupContainer}>
+        <div style={styles.setupCard}>
+          <div style={{ width: '50px', height: '50px', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', margin: '0 auto 16px auto' }}>🎓</div>
+          <h2 style={{ color: '#0f172a', marginBottom: '8px', textAlign: 'center', fontSize: '22px', fontWeight: '800' }}>Espace Chef d'Établissement</h2>
+          <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginBottom: '24px', lineHeight: '1.5' }}>
+            Veuillez rattacher votre session à un établissement pour accéder au réseau institutionnel.
+          </p>
+
+          {message && <div style={{ ...styles.toastSuccess, marginBottom: '16px' }}>{message}</div>}
+
+          {modeSetup === 'CHOIX' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button onClick={() => setModeSetup('CREER')} className="bouton bouton-principal">🏫 Créer un nouvel établissement</button>
+              <button onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire">🔗 Se connecter à un établissement existant</button>
+            </div>
+          )}
+
+          {modeSetup === 'CONNECTER' && (
+            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CONNECTER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
+              
+              <div>
+                <label style={styles.label}>Mot de passe de l'établissement</label>
+                <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  {/* CORRECTION ICI : onClick utilisé pour garantir la réactivité sur mobile dans un formulaire */}
+                  <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                    Mot de passe oublié ?
+                  </button>
+                </div>
+              </div>
+
+              <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
+            </form>
+          )}
+
+          {modeSetup === 'OUBLIE_CODE' && (
+            <form onSubmit={(e) => { e.preventDefault(); showToast("📩 Instructions envoyées !"); setModeSetup('CONNECTER'); setInputEmailRecuperation(''); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div><label style={styles.label}>Email institutionnel</label><input type="email" value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required /></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le mot de passe</button></div>
+            </form>
+          )}
+
+          {modeSetup === 'CREER' && (
+            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CREER')} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div><label style={styles.label}>Type d'établissement</label><select value={inputTypeEtablissement} onChange={(e) => setInputTypeEtablissement(e.target.value)} style={styles.inputStyle}><option value="public">Public (25 000 FCFA)</option><option value="prive">Privé (50 000 FCFA)</option></select></div>
+              <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Code</label><input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Année</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Élèves</label><input type="number" value={inputNombreEleves} onChange={(e) => setInputNombreEleves(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Enseignants</label><input type="number" value={inputNombreEnseignants} onChange={(e) => setInputNombreEnseignants(e.target.value)} style={styles.inputStyle} required /></div></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Créer</button></div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={styles.conteneurGlobal}>
-      <style>{`
-        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        @keyframes apparition { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .anim-apparition { animation: apparition 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
-        .bouton-principal { background-color: #2563eb; color: #ffffff; border: none; padding: 12px 20px; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s ease; width: 100%; box-shadow: 0 4px 12px rgba(37,99,235,0.2); }
-        .bouton-principal:hover { background-color: #1d4ed8; transform: translateY(-1px); }
-        
-        .bouton-inscription { background-color: #16a34a; color: #ffffff; border: none; padding: 12px 20px; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s ease; width: 100%; box-shadow: 0 4px 12px rgba(22,163,74,0.2); }
-        .bouton-inscription:hover { background-color: #15803d; transform: translateY(-1px); }
-        
-        .champ-saisie { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #f8fafc; color: #1e293b; outline: none; transition: all 0.2s; box-sizing: border-box; }
-        .champ-saisie:focus { border-color: #2563eb; background-color: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
-        
-        .carte-auth { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06); border: 1px solid #e2e8f0; width: 100%; max-width: 520px; }
-        .libelle { display: block; font-size: 11px; font-weight: 800; color: #475569; margin-bottom: 6px; text-transform: uppercase; }
-        
-        .onglet-btn { flex: 1; padding: 12px; font-size: 14px; font-weight: 800; background: #f8fafc; border: none; cursor: pointer; transition: all 0.2s; color: #64748b; }
-        .onglet-btn.actif { background: #ffffff; color: #2563eb; border-bottom: 3px solid #2563eb; }
-
-        .option-paiement { display: flex; align-items: center; gap: 12px; padding: 14px; border: 2px solid #cbd5e1; border-radius: 12px; cursor: pointer; transition: all 0.2s; background: #fff; }
-        .option-paiement.selectionne { border-color: #2563eb; background: #eff6ff; }
-      `}</style>
-
-      {!estEnLigne && <div style={styles.bandeauHorsLigne}>⚠️ Mode hors ligne actif. Sauvegarde locale activée.</div>}
-      {notification && <div style={styles.conteneurNotification}><div style={styles.texteNotification}>{notification}</div></div>}
-
-      {/* --- ÉCRAN INTERMÉDIAIRE POUR LE CHEF D'ÉTABLISSEMENT --- */}
-      {etapeChefEcole && (
-        <div style={styles.ecranAuth} className="anim-apparition">
-          <div className="carte-auth" style={{ textAlign: 'center', position: 'relative' }}>
-            
-            <button
-              type="button"
-              onClick={() => {
-                setEtapeChefEcole(false);
-                setChoixModeEcole('choix');
-              }}
-              style={{
-                position: 'absolute',
-                top: '20px',
-                left: '20px',
-                background: '#f1f5f9',
-                border: 'none',
-                color: '#475569',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                fontWeight: '700',
-                cursor: 'pointer',
-                transition: 'background 0.2s'
-              }}
-            >
-              ← Retour
+    <div style={styles.container}>
+      <header style={styles.darkNavbar}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+          
+          <div style={{ position: 'relative' }} ref={profilChefRef}>
+            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
+              <div style={styles.avatarNavbarContainer}>
+                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
+              </div>
+              <div style={styles.navbarTeacherInfo}>
+                <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
+              </div>
             </button>
 
-            <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', margin: '20px auto 16px auto', boxShadow: '0 10px 20px rgba(37,99,235,0.3)' }}>
-              🏫
+            {profilChefOuvert && (
+              <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
+                <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                {/* ICI : onMouseDown maintenu uniquement pour les dropdowns car c'est nécessaire pour éviter le conflit avec handleClickOutside */}
+                <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            
+            <div style={{ position: 'relative' }} ref={notifChefRef}>
+              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
+                <span>🔔</span>
+                {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
+              </button>
+              {notifChefOuvert && (
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
+                  <div style={styles.dropdownHeader}>Notifications</div>
+                  {notificationsChef.map(n => (
+                     <div key={n.id} style={styles.notifItem}>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <h2 style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a', margin: '0 0 8px 0' }}>Espace Chef d'Établissement</h2>
-            <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '24px', lineHeight: '1.5' }}>Renseignez le code officiel de votre établissement (Ministère) pour vous connecter ou créer votre espace.</p>
 
-            {choixModeEcole === 'choix' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <button type="button" className="bouton-principal" onClick={() => setChoixModeEcole('creer')}>
-                  ➕ Enregistrer un nouvel établissement
-                </button>
-                <button type="button" className="bouton-inscription" onClick={() => setChoixModeEcole('rejoindre')}>
-                  🔗 Se connecter avec le code officiel
-                </button>
-              </div>
-            )}
-
-            {choixModeEcole === 'creer' && (
-              <form onSubmit={preparerPaiementCodeEcole} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
-                <div>
-                  <label className="libelle">Type d'établissement</label>
-                  <select value={formNouvelleEcole.typeEtablissement} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, typeEtablissement: e.target.value})} className="champ-saisie">
-                    <option value="Public">Établissement Public (30 000 FCFA)</option>
-                    <option value="Privé">Établissement Privé (50 000 FCFA)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="libelle">Nom de l'école</label>
-                  <input type="text" placeholder="Ex: Lycée Moderne..." value={formNouvelleEcole.nomEcole} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, nomEcole: e.target.value})} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label className="libelle">Code d'établissement officiel (Ministère)</label>
-                  <input type="text" placeholder="Ex: Code officiel Ministère..." value={formNouvelleEcole.codeMinistere} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, codeMinistere: e.target.value})} className="champ-saisie" required />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label className="libelle">Ville</label>
-                    <input type="text" placeholder="Ex: Abidjan" value={formNouvelleEcole.ville} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, ville: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label className="libelle">Commune</label>
-                    <input type="text" placeholder="Ex: Cocody" value={formNouvelleEcole.commune} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, commune: e.target.value})} className="champ-saisie" required />
+            <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
+              <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
+              {menuBurgerChefOuvert && (
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
+                  <div style={styles.dropdownHeader}>Menu Direction</div>
+                  <button type="button" onMouseDown={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
+                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                    <button type="button" onMouseDown={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
                 </div>
-                <div>
-                  <label className="libelle">Quartier (Facultatif)</label>
-                  <input type="text" placeholder="Ex: Deux Plateaux" value={formNouvelleEcole.quartier} onChange={e => setFormNouvelleEcole({...formNouvelleEcole, quartier: e.target.value})} className="champ-saisie" />
-                </div>
-                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                  <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('choix')}>Retour</button>
-                  <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Procéder au paiement</button>
-                </div>
-              </form>
-            )}
-
-            {choixModeEcole === 'paiement' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left', backgroundColor: '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-                <h3 style={{ fontSize: '15px', color: '#0f172a', margin: 0, textAlign: 'center', fontWeight: '800' }}>💳 Choix du mode de paiement</h3>
-                <p style={{ fontSize: '13px', color: '#475569', margin: 0, textAlign: 'center' }}>
-                  Montant à régler : <strong style={{ color: '#2563eb' }}>{formNouvelleEcole.typeEtablissement === 'Privé' ? '50 000 FCFA' : '30 000 FCFA'}</strong>
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-                  <div className={`option-paiement ${moyenPaiement === 'wave' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('wave')}>
-                    <span style={{ fontSize: '20px' }}>🔵</span>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>Wave</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>Paiement instantané via application Wave</div>
-                    </div>
-                  </div>
-
-                  <div className={`option-paiement ${moyenPaiement === 'orange' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('orange')}>
-                    <span style={{ fontSize: '20px' }}>🟠</span>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>Orange Money</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>Application Orange Money</div>
-                    </div>
-                  </div>
-
-                  <div className={`option-paiement ${moyenPaiement === 'mtn' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('mtn')}>
-                    <span style={{ fontSize: '20px' }}>🟡</span>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>MTN MoMo</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>Application MoMo</div>
-                    </div>
-                  </div>
-
-                  <div className={`option-paiement ${moyenPaiement === 'carte' ? 'selectionne' : ''}`} onClick={() => setMoyenPaiement('carte')}>
-                    <span style={{ fontSize: '20px' }}>💳</span>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>Carte Bancaire</strong>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>Paiement sécurisé en ligne</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                  <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('creer')}>Retour</button>
-                  <button type="button" className="bouton-inscription" style={{ flex: 2 }} onClick={validerPaiementEtFinaliserEcole}>Payer et Activer</button>
-                </div>
-              </div>
-            )}
-
-            {choixModeEcole === 'rejoindre' && (
-              <form onSubmit={validerConnexionEcoleExistante} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
-                <div>
-                  <label className="libelle">Code officiel du Ministère ou Nom</label>
-                  <input type="text" placeholder="Entrez le code officiel..." value={codeOuNomRejoins} onChange={e => setCodeOuNomRejoins(e.target.value)} className="champ-saisie" required />
-                  
-                  {/* AJOUT : BOUTON MOT DE PASSE D'ÉTABLISSEMENT OUBLIÉ */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                    <button 
-                      type="button" 
-                      onClick={() => setChoixModeEcole('oublie_code')} 
-                      style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-                    >
-                      Mot de passe d'établissement oublié ?
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('choix')}>Retour</button>
-                  <button type="submit" className="bouton-inscription" style={{ flex: 2 }}>Se connecter</button>
-                </div>
-              </form>
-            )}
-
-            {/* AJOUT : FORMULAIRE DE RÉCUPÉRATION DU CODE D'ÉTABLISSEMENT */}
-            {choixModeEcole === 'oublie_code' && (
-              <form 
-                onSubmit={(e) => { 
-                  e.preventDefault(); 
-                  afficherNotification("📩 Instructions envoyées à votre e-mail !"); 
-                  setChoixModeEcole('rejoindre'); 
-                }} 
-                style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}
-              >
-                <div>
-                  <label className="libelle">Email institutionnel de récupération</label>
-                  <input type="email" placeholder="Entrez votre email..." className="champ-saisie" required />
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('rejoindre')}>Retour</button>
-                  <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Réinitialiser</button>
-                </div>
-              </form>
-            )}
+              )}
+            </div>
 
           </div>
         </div>
-      )}
+      </header>
 
-      {/* --- ÉCRAN DE CONNEXION / INSCRIPTION STANDARD --- */}
-      {!userRole && !etapeChefEcole && (
-        <div style={styles.ecranAuth} className="anim-apparition">
-          
-          <div style={{ textAlign: 'center', marginBottom: '24px', width: '100%' }}>
-            <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', margin: '0 auto 16px auto', boxShadow: '0 10px 20px rgba(37,99,235,0.3)' }}>
-              📖
+      <main style={styles.mainContentBody}>
+        {message && <div style={styles.toastSuccess}>{message}</div>}
+
+        {/* MODALES RESTAURÉES ET PLEINEMENT FONCTIONNELLES */}
+
+        {modalQuitterEcole && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Quitter l'établissement</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir rompre l'affiliation avec <strong>{ecoleConfig?.nomEcole}</strong> ?</p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalQuitterEcole(false)} className="bouton bouton-secondaire">Retour (Annuler)</button>
+                <button onClick={() => { setModalQuitterEcole(false); setEcoleConfig(null); showToast("🔗 Affiliation rompue."); }} className="bouton bouton-danger">Oui, quitter l'école</button>
+              </div>
             </div>
-            <h1 style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>E-cahier !</h1>
-            <p style={{ color: '#64748b', fontSize: '14px' }}>L'espace collaboratif de votre établissement</p>
           </div>
+        )}
 
-          <div className="carte-auth">
-            <div style={{ display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-              <button 
-                type="button" 
-                className={`onglet-btn ${modeAccueil === 'connexion' ? 'actif' : ''}`}
-                onClick={() => setModeAccueil('connexion')}
-              >
-                🔑 Se connecter
-              </button>
-              <button 
-                type="button" 
-                className={`onglet-btn ${modeAccueil === 'inscription' ? 'actif' : ''}`}
-                onClick={() => setModeAccueil('inscription')}
-              >
-                ✨ Créer un compte
-              </button>
+        {modalDeconnexion && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Déconnexion</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={() => { setModalDeconnexion(false); localStorage.removeItem('app_chef_statut'); window.location.reload(); }} className="bouton bouton-danger">Oui, me déconnecter</button>
+              </div>
             </div>
+          </div>
+        )}
 
-            {modeAccueil === 'connexion' && (
-              <form onSubmit={handleConnexion} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="anim-apparition">
+        {modalSecurite && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!ancienMdp || !nouveauMdp) { showToast("⚠️ Veuillez remplir tous les champs."); return; }
+                showToast("🔒 Mot de passe modifié avec succès !");
+                setModalSecurite(false);
+                setAncienMdp('');
+                setNouveauMdp('');
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
-                  <label className="libelle">Rôle attendu</label>
-                  <select value={formConnexion.roleAttendu} onChange={e => setFormConnexion({...formConnexion, roleAttendu: e.target.value})} className="champ-saisie">
-                    <option value="enseignant">Enseignant</option>
-                    <option value="censeur">Censeur</option>
-                    <option value="chef">Chef d'établissement</option>
-                  </select>
+                  <label style={styles.label}>Ancien mot de passe</label>
+                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
                 </div>
                 <div>
-                  <label className="libelle">Adresse e-mail</label>
-                  <input type="email" placeholder="votre.email@ecole.edu" value={formConnexion.email} onChange={e => setFormConnexion({...formConnexion, email: e.target.value})} className="champ-saisie" required />
+                  <label style={styles.label}>Nouveau mot de passe sécurisé</label>
+                  <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
                 </div>
-                <div>
-                  <label className="libelle">Mot de passe</label>
-                  <input type="password" placeholder="••••••••" value={formConnexion.motDePasse} onChange={e => setFormConnexion({...formConnexion, motDePasse: e.target.value})} className="champ-saisie" required />
-                  
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                    <button
-                      type="button"
-                      onClick={() => afficherNotification("Lien de réinitialisation envoyé à votre e-mail (simulation).")}
-                      style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: '700', cursor: 'pointer', padding: 0 }}
-                    >
-                      Mot de passe oublié ?
-                    </button>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Mettre à jour</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {modalProfilChefOuvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Paramètres du Profil & Photo</h3>
+              <form onSubmit={handleEnregistrerProfilChef} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
+                  <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '2px solid #cbd5e1', flexShrink: 0 }}>
+                    {formProfilChef.photoProfil ? (
+                      <img src={formProfilChef.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '28px' }}>👤</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>Photo de profil</label>
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilChef} style={{ fontSize: '12px', cursor: 'pointer' }} />
                   </div>
                 </div>
-                <button type="submit" className="bouton-principal" style={{ marginTop: '8px' }}>Connexion sécurisée</button>
-              </form>
-            )}
-
-            {modeAccueil === 'inscription' && (
-              <form onSubmit={handleInscription} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }} className="anim-apparition">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
                   <div>
-                    <label className="libelle">Civilité</label>
-                    <select value={formInscription.civilite} onChange={e => setFormInscription({...formInscription, civilite: e.target.value})} className="champ-saisie">
+                    <label style={styles.label}>Civilité</label>
+                    <select value={formProfilChef.civilite} onChange={(e) => setFormProfilChef({...formProfilChef, civilite: e.target.value})} style={styles.inputStyle}>
                       <option value="M.">M.</option>
                       <option value="Mme">Mme</option>
                       <option value="Dr">Dr</option>
-                      <option value="Pr">Pr</option>
                     </select>
                   </div>
                   <div>
-                    <label className="libelle">Rôle</label>
-                    <select value={formInscription.role} onChange={e => setFormInscription({...formInscription, role: e.target.value})} className="champ-saisie">
-                      <option value="enseignant">Enseignant</option>
-                      <option value="censeur">Censeur</option>
-                      <option value="chef">Chef d'établissement</option>
-                    </select>
+                    <label style={styles.label}>Nom</label>
+                    <input type="text" value={formProfilChef.nom} onChange={(e) => setFormProfilChef({...formProfilChef, nom: e.target.value})} style={styles.inputStyle} required />
                   </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label className="libelle">Nom</label>
-                    <input type="text" placeholder="Ex: Kouassi" value={formInscription.nom} onChange={e => setFormInscription({...formInscription, nom: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label className="libelle">Prénoms</label>
-                    <input type="text" placeholder="Ex: Jean" value={formInscription.prenoms} onChange={e => setFormInscription({...formInscription, prenoms: e.target.value})} className="champ-saisie" required />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label className="libelle">Date de naissance</label>
-                    <input type="date" value={formInscription.dateNaissance} onChange={e => setFormInscription({...formInscription, dateNaissance: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label className="libelle">Téléphone</label>
-                    <input type="text" placeholder="+225..." value={formInscription.telephone} onChange={e => setFormInscription({...formInscription, telephone: e.target.value})} className="champ-saisie" required />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label className="libelle">Matière</label>
-                    <input type="text" placeholder="Ex: Mathématiques..." value={formInscription.matiere} onChange={e => setFormInscription({...formInscription, matiere: e.target.value})} className="champ-saisie" required />
-                  </div>
-                  <div>
-                    <label className="libelle">Ancienneté</label>
-                    <select value={formInscription.anciennete} onChange={e => setFormInscription({...formInscription, anciennete: e.target.value})} className="champ-saisie">
-                      <option value="Moins d'un an">Moins d'un an</option>
-                      <option value="1 à 5 ans">1 à 5 ans</option>
-                      <option value="6 à 10 ans">6 à 10 ans</option>
-                      <option value="Plus de 10 ans">Plus de 10 ans</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div>
-                    <label className="libelle">Secteur</label>
-                    <select value={formInscription.secteurEnseignement} onChange={e => setFormInscription({...formInscription, secteurEnseignement: e.target.value})} className="champ-saisie">
-                      <option value="Public">Public</option>
-                      <option value="Privé">Privé</option>
-                    </select>
-                  </div>
-
-                  {formInscription.secteurEnseignement === 'Public' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <label className="libelle">Statut Public</label>
-                        <select value={formInscription.typeStatutPublic} onChange={e => setFormInscription({...formInscription, typeStatutPublic: e.target.value})} className="champ-saisie">
-                          <option value="Titulaire">Titulaire</option>
-                          <option value="Contractuel">Contractuel</option>
-                        </select>
-                      </div>
-                      {formInscription.typeStatutPublic === 'Titulaire' && (
-                        <div>
-                          <label className="libelle">Matricule</label>
-                          <input type="text" placeholder="MT-XXXXXX" value={formInscription.numeroMatricule} onChange={e => setFormInscription({...formInscription, numeroMatricule: e.target.value})} className="champ-saisie" required />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="libelle">E-mail professionnel</label>
-                  <input type="email" placeholder="nom@etablissement.edu" value={formInscription.email} onChange={e => setFormInscription({...formInscription, email: e.target.value})} className="champ-saisie" required />
                 </div>
                 <div>
-                  <label className="libelle">Mot de passe</label>
-                  <input type="password" placeholder="••••••••" value={formInscription.motDePasse} onChange={e => setFormInscription({...formInscription, motDePasse: e.target.value})} className="champ-saisie" required />
+                  <label style={styles.label}>Prénoms</label>
+                  <input type="text" value={formProfilChef.prenoms} onChange={(e) => setFormProfilChef({...formProfilChef, prenoms: e.target.value})} style={styles.inputStyle} required />
                 </div>
+                <div>
+                  <label style={styles.label}>Établissement</label>
+                  <input type="text" value={formProfilChef.etablissement} onChange={(e) => setFormProfilChef({...formProfilChef, etablissement: e.target.value})} style={styles.inputStyle} required />
+                </div>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setModalProfilChefOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
-                <button type="submit" className="bouton-inscription" style={{ marginTop: '8px' }}>
-                  Créer mon compte
+        {modalConfirmationActionAnnee.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: modalConfirmationActionAnnee.actionType === 'fermer' ? '#991b1b' : '#166534', fontSize: '18px', fontWeight: '800' }}>
+                {modalConfirmationActionAnnee.actionType === 'fermer' ? '⚠️ Clôturer l’année scolaire ?' : '🟢 Ouvrir une nouvelle année ?'}
+              </h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px', lineHeight: '1.5' }}>
+                {modalConfirmationActionAnnee.actionType === 'fermer' 
+                  ? 'Êtes-vous sûr de vouloir terminer l’année scolaire ? Les statistiques courantes et le personnel actif seront archivés à vie, et l’année sera réinitialisée.' 
+                  : 'Êtes-vous sûr de vouloir ouvrir et démarrer les activités pour cette nouvelle année scolaire ?'}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationActionAnnee({ ouvert: false, actionType: null })} className="bouton bouton-secondaire">Annuler</button>
+                <button 
+                  onClick={executerActionAnneeScolaire} 
+                  className={`bouton ${modalConfirmationActionAnnee.actionType === 'fermer' ? 'bouton-danger' : 'bouton-succes'}`}
+                >
+                  {modalConfirmationActionAnnee.actionType === 'fermer' ? 'Oui, fermer l’année' : 'Oui, ouvrir l’année'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+          <div style={styles.statCard}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🏫</div>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Nombre total de Classes (Géré automatiquement)</h4>
+            <p style={{ fontSize: '30px', fontWeight: '900', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
+          </div>
+          <div style={styles.statCard}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>👥</div>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées au Réseau</h4>
+            <p style={{ fontSize: '30px', fontWeight: '900', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
+          </div>
+        </div>
+
+        {/* ONGLET : PROFIL & CARTE D'IDENTITÉ */}
+        {activeTab === 'profil_ecole' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Bibliothèque d'Archives</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Informations modifiables et stockage des documents.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {!modeEditionEcole ? (
+                  <button onClick={() => setModeEditionEcole(true)} className="bouton bouton-principal">✏️ Modifier</button>
+                ) : (
+                  <button onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire">Annuler</button>
+                )}
+                {!ecoleConfig.anneeOuverte ? (
+                  <button onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'ouvrir' })} style={styles.boutonPuissantOuvrir}>🟢 Ouvrir l'Année</button>
+                ) : (
+                  <button onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'fermer' })} style={styles.boutonPuissantFermer}>🔒 Clôturer l'Année</button>
+                )}
+              </div>
+            </div>
+
+            {!modeEditionEcole ? (
+              <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nomEcole}</p></div>
+                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
+                <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
+                <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEleves}</p></div>
+                <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEnseignants}</p></div>
+                <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
+              </div>
+            ) : (
+              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
+                <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
+                <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                </div>
               </form>
             )}
-          </div>
-        </div>
-      )}
 
-      {/* --- DASHBOARDS --- */}
-      {userRole && (
-        <div className="anim-apparition">
-          <div style={styles.barreNavigation}>
-            <div style={styles.navLogoContainerCenter}>
-              <span style={{ fontSize: '20px' }}>📖</span>
-              <span style={{ fontWeight: '900', fontSize: '16px', letterSpacing: '0.5px' }}>E-cahier !</span>
-            </div>
-            
-            <div style={styles.texteNav}>
-              {userRole === 'enseignant' && `Espace Enseignant`}
-              {userRole === 'censeur' && `Poste de Commandement Censeur`}
-              {userRole === 'chef' && `Direction Générale`}
+            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>📤 Uploader un Fichier Administratif</h3>
+              <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Uploader</button>
+              </form>
             </div>
           </div>
+        )}
 
-          {userRole === 'enseignant' && (
-            <EnseignantDashboard 
-              authContext={authContext} 
-              demandesAffiliation={demandesAffiliationEnseignants} setDemandesAffiliation={setDemandesAffiliationEnseignants}
-              seances={seancesEnseignants} setSeances={setSeancesEnseignants}
-            />
-          )}
-          {userRole === 'censeur' && (
-            <CenseurDashboard 
-              authContext={authContext} 
-              demandesAffiliation={demandesAffiliationEnseignants} setDemandesAffiliation={setDemandesAffiliationEnseignants}
-              seances={seancesEnseignants} setSeances={setSeancesEnseignants}
-              bibliotheque={bibliothequeFiches} setBibliotheque={setBibliothequeFiches}
-              enseignantsSansFiche={enseignantsSansFiche}
-            />
-          )}
-          {userRole === 'chef' && (
-            <ChefEtablissementDashboard 
-              authContext={authContext} 
-              demandesAffiliation={demandesAffiliationEnseignants}
-              seances={seancesEnseignants}
-              bibliotheque={bibliothequeFiches}
-              enseignantsSansFiche={enseignantsSansFiche}
-            />
-          )}
-        </div>
-      )}
+        {/* ONGLET : CENSEURS */}
+        {activeTab === 'censeurs' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Validation des Censeurs</h2>
+            {censeursAffiliations.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {censeursAffiliations.map(censeur => (
+                  <div key={censeur.id} style={styles.itemRow}>
+                    <div>
+                      <strong style={{ color: '#0f172a', fontSize: '14px' }}>{censeur.nomComplet}</strong>
+                      <br /><small>Statut : <span style={{ color: censeur.statut === 'Validé' ? '#16a34a' : '#d97706' }}>{censeur.statut}</span></small>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {censeur.statut !== 'Validé' && <button onClick={() => validerCenseur(censeur.id)} className="bouton bouton-succes">Valider</button>}
+                      <button onClick={() => rejeterCenseur(censeur.id)} className="bouton bouton-danger">Rejeter</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ONGLET : PROFESSEURS */}
+        {activeTab === 'professeurs' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {professeursFiltres.map(prof => (
+                <div key={prof.id} style={styles.itemRow}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{prof.matiere}</span>
+                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong></p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ONGLET : FICHES PÉDAGOGIQUES */}
+        {activeTab === 'fichiers_pedagogiques' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {fichesPedagogiquesEcole.map(fiche => (
+                <div key={fiche.id} style={styles.itemRow}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere}</span>
+                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong></p>
+                  </div>
+                  <div>
+                    <button 
+                      onClick={() => telechargerDocumentPDF(`Fiche : ${fiche.titre}`, `<p><strong>Matière :</strong> ${fiche.matiere}</p><p><strong>Enseignant :</strong> ${fiche.enseignant}</p><p><strong>Classe :</strong> ${fiche.classe}</p><p><strong>Détails :</strong> Fiche validée et approuvée le ${fiche.dateValidation}.</p>`)} 
+                      className="bouton bouton-principal" 
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      📥 Télécharger / Voir (PDF)
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ONGLET : RAPPORTS */}
+        {activeTab === 'rapports' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📈 Rapports Détaillés</h2>
+            {rapportsCenseurs.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun rapport.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {rapportsCenseurs.map((rapport, index) => (
+                  <div key={index} style={styles.itemRow}>
+                    <strong style={{ color: '#0f172a' }}>Censeur : {rapport.censeur}</strong>
+                    <button onClick={() => telechargerDocumentPDF(`Rapport ${rapport.censeur}`, `<p>Rapport du ${rapport.date}</p>`)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px' }}>📥 Voir PDF</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+      </main>
     </div>
   );
 }
 
 const styles = {
-  conteneurGlobal: { minHeight: '100vh', backgroundColor: '#f8fafc', position: 'relative' },
-  bandeauHorsLigne: { backgroundColor: '#f59e0b', color: '#ffffff', padding: '8px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '600', position: 'sticky', top: 0, zIndex: 10000 },
-  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px' },
-  conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 },
-  texteNotification: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '12px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' },
-  barreNavigation: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '6px', background: '#0f172a', color: '#ffffff', padding: '16px 20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: '100%' },
-  navLogoContainerCenter: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-  texteNav: { fontWeight: '600', color: '#94a3b8', fontSize: '13px', textAlign: 'center' },
+  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
+  setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
+  setupCard: { backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #334155' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
+  mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
+  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
+  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
+  label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
+  inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
+  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
+  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
+  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  dropdownAbsolu: { position: 'absolute', top: '50px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, padding: '12px' },
+  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
+  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  fondModale: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
+  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
+  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
+  boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(22,163,74,0.3)' },
+  boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' }
 };

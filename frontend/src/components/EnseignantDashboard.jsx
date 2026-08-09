@@ -1193,7 +1193,7 @@ export default function EnseignantDashboard() {
 
         {/* MODALE DE CONFIRMATION DE SUPPRESSION D'UN CHAMP */}
         {champASupprimer && (
-          <div style={styles.fondModale}>
+          <div style={{ ...styles.fondModale, zIndex: 3000 }}>
             <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Supprimer ce champ ?</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
@@ -1567,9 +1567,9 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* --- MODALE DYNAMIQUE PLEIN ÉCRAN POUR L'ÉDITION D'UN CHAMP --- */}
+        {/* --- MODALE DYNAMIQUE PLEIN ÉCRAN POUR L'ÉDITION D'UN CHAMP (Z-INDEX 2000 GARANTI) --- */}
         {champEnEditionPleinEcran && (
-          <div style={styles.fondModale}>
+          <div style={{ ...styles.fondModale, zIndex: 2000 }}>
             <div style={{ ...styles.cardWide, width: '90vw', maxWidth: '650px', height: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRadius: '24px' }}>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>

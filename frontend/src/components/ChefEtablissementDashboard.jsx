@@ -375,7 +375,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
                 <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
                 
-                {/* BOUTON SUPPRIMER MON COMPTE UNIQUE, TRÈS DISCRET ET EN TOUT PETIT */}
+                {/* LIEN UNIQUE, TRÈS DISCRET ET EN TOUT PETIT POUR SUPPRIMER LE COMPTE */}
                 <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', textAlign: 'center' }}>
                   <button type="button" onClick={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '10px', fontWeight: '600', cursor: 'pointer', padding: '2px 4px' }}>
                     Supprimer mon compte

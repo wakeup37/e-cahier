@@ -162,7 +162,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [message, setMessage] = useState('');
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
-  // --- FERMETURE DES MENUS AU CLIC EXTÉRIEUR ---
+  // --- GESTION DES CLICS EXTÉRIEURS (100% SÉCURISÉ) ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
@@ -170,10 +170,14 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       if (menuBurgerChefRef.current && !menuBurgerChefRef.current.contains(event.target)) setMenuBurgerChefOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside); // Support tactile
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
   }, []);
 
-  // --- IMPRESSION PDF SÉCURISÉE ---
+  // --- IMPRESSION PDF ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
@@ -362,29 +366,36 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          <div style={{ position: 'relative' }} ref={profilChefRef}>
-            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
-              <div style={styles.avatarNavbarContainer}>
-                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
-              </div>
-              <div style={styles.navbarTeacherInfo}>
-                <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
-                <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
-              </div>
-            </button>
-
-            {profilChefOuvert && (
-              <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
-                <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
-              </div>
-            )}
+          {/* LOGO RESTAURÉ À GAUCHE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '24px' }}>📖</span>
+            <span style={{ fontWeight: '900', fontSize: '18px', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {/* PROFIL */}
+            <div style={{ position: 'relative' }} ref={profilChefRef}>
+              <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
+                <div style={styles.avatarNavbarContainer}>
+                  {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
+                </div>
+                <div style={styles.navbarTeacherInfo}>
+                  <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
+                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
+                </div>
+              </button>
+
+              {profilChefOuvert && (
+                <div style={{ ...styles.dropdownAbsolu, left: '-80px' }}>
+                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                  <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                  <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                  <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                </div>
+              )}
+            </div>
+
+            {/* NOTIFICATIONS */}
             <div style={{ position: 'relative' }} ref={notifChefRef}>
               <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
@@ -403,6 +414,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               )}
             </div>
 
+            {/* MENU BURGER */}
             <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
               <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerChefOuvert && (
@@ -441,17 +453,23 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* MODALE DE DÉCONNEXION ROBUSTE */}
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Déconnexion</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter du réseau ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={() => { 
                   setModalDeconnexion(false); 
                   localStorage.removeItem('app_chef_statut'); 
-                  if (onLogout) { onLogout(); } else { window.location.href = '/'; }
+                  localStorage.removeItem('app_enseignant_statut'); 
+                  if (typeof onLogout === 'function') { 
+                    onLogout(); 
+                  } else { 
+                    window.location.reload(); 
+                  }
                 }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
@@ -608,7 +626,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
               </div>
             ) : (
-              // RESTAURATION COMPLÈTE DU FORMULAIRE DE MODIFICATION AVEC LABELS CLAIRS
+              // FORMULAIRE DE MODIFICATION SÉCURISÉ AVEC LABELS CLAIRS
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div>

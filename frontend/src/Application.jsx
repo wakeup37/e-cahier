@@ -21,7 +21,8 @@ const safeGetObject = (key, defaultObj = {}) => {
   } catch { return defaultObj; }
 };
 
-export default function ChefEtablissementDashboard() {
+// AJOUT : Acceptation de la prop "onLogout" pour une compatibilité parfaite avec Application.jsx
+export default function ChefEtablissementDashboard({ onLogout }) {
   
   // --- ÉTATS GLOBAUX ---
   const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
@@ -50,7 +51,6 @@ export default function ChefEtablissementDashboard() {
   const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
   const [formProfilChef, setFormProfilChef] = useState({ ...infosChef });
   const [profilChefOuvert, setProfilChefOuvert] = useState(false);
-  const profilChefRef = useRef(null);
 
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
@@ -60,7 +60,7 @@ export default function ChefEtablissementDashboard() {
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
   const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
-  const menuBurgerChefRef = useRef(null);
+  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
 
   const [modalConfirmationActionAnnee, setModalConfirmationActionAnnee] = useState({ ouvert: false, actionType: null });
   const [modeEditionEcole, setModeEditionEcole] = useState(false);
@@ -76,9 +76,6 @@ export default function ChefEtablissementDashboard() {
     { id: 1, texte: 'Bienvenue sur votre tableau de bord du réseau de l’établissement.', date: 'Aujourd’hui', lu: false }
   ]));
   useEffect(() => { localStorage.setItem('app_chef_notifications', JSON.stringify(notificationsChef)); }, [notificationsChef]);
-
-  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
-  const notifChefRef = useRef(null);
 
   const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
   useEffect(() => { localStorage.setItem('app_chef_archives_historiques', JSON.stringify(archivesHistoriques)); }, [archivesHistoriques]);
@@ -129,8 +126,7 @@ export default function ChefEtablissementDashboard() {
     try {
       const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
       const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
-      let fusion = [...archiveCenseur, ...biblioEnseignant];
-      return fusion;
+      return [...archiveCenseur, ...biblioEnseignant];
     } catch { return []; }
   }, []);
 
@@ -163,24 +159,13 @@ export default function ChefEtablissementDashboard() {
   const [message, setMessage] = useState('');
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
-      if (notifChefRef.current && !notifChefRef.current.contains(event.target)) setNotifChefOuvert(false);
-      if (menuBurgerChefRef.current && !menuBurgerChefRef.current.contains(event.target)) setMenuBurgerChefOuvert(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // --- IMPRESSION PDF ---
+  // --- IMPRESSION PDF SÉCURISÉE ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
       showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
       return;
     }
-    
     fenetreImpression.document.write(`
       <html>
         <head>
@@ -195,7 +180,6 @@ export default function ChefEtablissementDashboard() {
             .btn-retour { background: #ef4444; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
             h1 { margin: 0; font-size: 20px; color: #0f172a; }
             p { margin: 8px 0; font-size: 14px; line-height: 1.6; }
-            
             @media print {
               body { background: #fff; padding: 0; }
               .pdf-container { box-shadow: none; padding: 0; }
@@ -212,9 +196,7 @@ export default function ChefEtablissementDashboard() {
                 <button class="btn-retour" onclick="window.close()">✕ Fermer & Retourner à l'app</button>
               </div>
             </div>
-            <div class="pdf-content">
-              ${contenuHTML}
-            </div>
+            <div class="pdf-content">${contenuHTML}</div>
           </div>
           <script>
             window.onload = function() { setTimeout(function() { window.print(); }, 800); }
@@ -254,11 +236,7 @@ export default function ChefEtablissementDashboard() {
     } else if (actionType === 'fermer') {
       try {
         const archiveSession = {
-          annee: ecoleConfig.anneeScolaire,
-          dateCloture: new Date().toLocaleDateString(),
-          stats: statistiquesReseau,
-          personnelAdministratif: personnelAdministratifManuel,
-          personnelEnseignant: listeProfesseursEtablissement
+          annee: ecoleConfig.anneeScolaire, dateCloture: new Date().toLocaleDateString(), stats: statistiquesReseau, personnelAdministratif: personnelAdministratifManuel, personnelEnseignant: listeProfesseursEtablissement
         };
         setArchivesHistoriques(prev => [...prev, archiveSession]);
       } catch {}
@@ -305,7 +283,7 @@ export default function ChefEtablissementDashboard() {
     reader.readAsDataURL(file);
   };
 
-  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
+  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ (AUTONOME) ---
   if (!ecoleConfig) {
     return (
       <div style={styles.setupContainer}>
@@ -370,7 +348,7 @@ export default function ChefEtablissementDashboard() {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          <div style={{ position: 'relative' }} ref={profilChefRef}>
+          <div style={{ position: 'relative' }}>
             <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
                 {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
@@ -381,51 +359,60 @@ export default function ChefEtablissementDashboard() {
               </div>
             </button>
 
+            {/* SOLUTION PARFAITE : Overlay invisible qui gère la fermeture au clic à l'extérieur */}
             {profilChefOuvert && (
-              <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
-                <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                {/* CORRECTION : Retour aux onClick natifs pour un fonctionnement parfait sur mobile et web */}
-                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
-              </div>
+              <>
+                <div style={styles.overlayFermeture} onClick={() => setProfilChefOuvert(false)} />
+                <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
+                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                  <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                  <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                  <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                </div>
+              </>
             )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             
-            <div style={{ position: 'relative' }} ref={notifChefRef}>
+            <div style={{ position: 'relative' }}>
               <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
                 {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
               </button>
               {notifChefOuvert && (
-                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
-                  <div style={styles.dropdownHeader}>Notifications</div>
-                  {notificationsChef.map(n => (
-                     <div key={n.id} style={styles.notifItem}>
-                      <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
-                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div style={styles.overlayFermeture} onClick={() => setNotifChefOuvert(false)} />
+                  <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
+                    <div style={styles.dropdownHeader}>Notifications</div>
+                    {notificationsChef.map(n => (
+                       <div key={n.id} style={styles.notifItem}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
+                        <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
-            <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
+            <div style={{ position: 'relative' }}>
               <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerChefOuvert && (
-                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
-                  <div style={styles.dropdownHeader}>Menu Direction</div>
-                  <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
-                  <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
-                  <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                  <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
-                  <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
-                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                    <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                <>
+                  <div style={styles.overlayFermeture} onClick={() => setMenuBurgerChefOuvert(false)} />
+                  <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
+                    <div style={styles.dropdownHeader}>Menu Direction</div>
+                    <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                    <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                    <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                    <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                    <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
+                    <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                      <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
@@ -436,8 +423,7 @@ export default function ChefEtablissementDashboard() {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALES RESTAURÉES ET PLEINEMENT FONCTIONNELLES */}
-
+        {/* MODALES */}
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -458,7 +444,16 @@ export default function ChefEtablissementDashboard() {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={() => { setModalDeconnexion(false); localStorage.removeItem('app_chef_statut'); window.location.reload(); }} className="bouton bouton-danger">Oui, me déconnecter</button>
+                <button onClick={() => { 
+                  setModalDeconnexion(false); 
+                  localStorage.removeItem('app_chef_statut'); 
+                  // CORRECTION : Prise en charge de Application.jsx si présent, sinon rechargement classique
+                  if (onLogout) {
+                    onLogout();
+                  } else {
+                    window.location.reload(); 
+                  }
+                }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
           </div>
@@ -569,25 +564,25 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
+        {/* CONTENU PRINCIPAL DES ONGLETS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           <div style={styles.statCard}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>🏫</div>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Nombre total de Classes (Géré automatiquement)</h4>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Classes (Automatique)</h4>
             <p style={{ fontSize: '30px', fontWeight: '900', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
           </div>
           <div style={styles.statCard}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>👥</div>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées au Réseau</h4>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées</h4>
             <p style={{ fontSize: '30px', fontWeight: '900', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
           </div>
         </div>
 
-        {/* ONGLET : PROFIL & CARTE D'IDENTITÉ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Bibliothèque d'Archives</h2>
+                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Archives</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Informations modifiables et stockage des documents.</p>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -634,7 +629,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : CENSEURS */}
         {activeTab === 'censeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Validation des Censeurs</h2>
@@ -659,7 +653,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : PROFESSEURS */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
@@ -679,7 +672,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : FICHES PÉDAGOGIQUES */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
@@ -699,7 +691,7 @@ export default function ChefEtablissementDashboard() {
                       className="bouton bouton-principal" 
                       style={{ padding: '6px 12px', fontSize: '12px' }}
                     >
-                      📥 Télécharger / Voir (PDF)
+                      📥 Télécharger / Voir
                     </button>
                   </div>
                 </div>
@@ -708,7 +700,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : RAPPORTS */}
         {activeTab === 'rapports' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📈 Rapports Détaillés</h2>
@@ -739,6 +730,7 @@ const styles = {
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
   mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
+  statCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
   itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
@@ -757,5 +749,6 @@ const styles = {
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
   burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
   boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(22,163,74,0.3)' },
-  boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' }
+  boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' },
+  overlayFermeture: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, cursor: 'default' }
 };

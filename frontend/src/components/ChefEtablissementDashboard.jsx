@@ -173,7 +173,7 @@ export default function ChefEtablissementDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- IMPRESSION PDF SANS PERTE DE FOCUS AVEC BOUTON DE RETOUR ---
+  // --- IMPRESSION PDF ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
@@ -217,9 +217,7 @@ export default function ChefEtablissementDashboard() {
             </div>
           </div>
           <script>
-            window.onload = function() { 
-              setTimeout(function() { window.print(); }, 800);
-            }
+            window.onload = function() { setTimeout(function() { window.print(); }, 800); }
           </script>
         </body>
       </html>
@@ -330,8 +328,17 @@ export default function ChefEtablissementDashboard() {
           {modeSetup === 'CONNECTER' && (
             <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CONNECTER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
-              <div><label style={styles.label}>Mot de passe de l'établissement</label><input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-6px' }}><button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline' }}>Mot de passe oublié ?</button></div>
+              
+              <div>
+                <label style={styles.label}>Mot de passe de l'établissement</label>
+                <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  <button type="button" onMouseDown={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                    Mot de passe oublié ?
+                  </button>
+                </div>
+              </div>
+
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
             </form>
@@ -377,9 +384,9 @@ export default function ChefEtablissementDashboard() {
             {profilChefOuvert && (
               <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
                 <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                <button onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                <button onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                <button onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
               </div>
             )}
           </div>
@@ -395,7 +402,7 @@ export default function ChefEtablissementDashboard() {
                 <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
                   <div style={styles.dropdownHeader}>Notifications</div>
                   {notificationsChef.map(n => (
-                    <div key={n.id} style={styles.notifItem}>
+                     <div key={n.id} style={styles.notifItem}>
                       <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
                       <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
                     </div>
@@ -409,13 +416,13 @@ export default function ChefEtablissementDashboard() {
               {menuBurgerChefOuvert && (
                 <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
                   <div style={styles.dropdownHeader}>Menu Direction</div>
-                  <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
-                  <button onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
-                  <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                  <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
-                  <button onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                    <button onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    <button type="button" onMouseDown={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
                 </div>
               )}

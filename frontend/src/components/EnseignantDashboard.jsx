@@ -2255,7 +2255,7 @@ export default function EnseignantDashboard() {
                                             
                                             {!modeSansAffiliation && !seance.soumisAuCenseur && (
                                               <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
-                                                🚀 Envoyer
+                                                🚀 Envoyé
                                               </button>
                                             )}
 

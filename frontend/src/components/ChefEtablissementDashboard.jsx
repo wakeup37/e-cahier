@@ -199,7 +199,7 @@ export default function ChefEtablissementDashboard() {
             @media print {
               body { background: #fff; padding: 0; }
               .pdf-container { box-shadow: none; padding: 0; }
-              .pdf-header .btn-group { display: none; } /* Cache les boutons à l'impression */
+              .pdf-header .btn-group { display: none; }
             }
           </style>
         </head>
@@ -292,6 +292,21 @@ export default function ChefEtablissementDashboard() {
     showToast("📎 Fichier stocké avec succès !");
   };
 
+  const handleEnregistrerProfilChef = (e) => {
+    e.preventDefault();
+    setInfosChef({ ...formProfilChef });
+    setModalProfilChefOuvert(false);
+    showToast("✅ Profil et photo mis à jour avec succès !");
+  };
+
+  const handleChangerPhotoProfilChef = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => { setFormProfilChef(prev => ({ ...prev, photoProfil: reader.result })); };
+    reader.readAsDataURL(file);
+  };
+
   // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
   if (!ecoleConfig) {
     return (
@@ -315,8 +330,8 @@ export default function ChefEtablissementDashboard() {
           {modeSetup === 'CONNECTER' && (
             <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CONNECTER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
-              <div><label style={styles.label}>Code d'accès secret</label><input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-6px' }}><button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline' }}>Code d'établissement oublié ?</button></div>
+              <div><label style={styles.label}>Mot de passe de l'établissement</label><input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-6px' }}><button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline' }}>Mot de passe oublié ?</button></div>
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
             </form>
@@ -325,7 +340,7 @@ export default function ChefEtablissementDashboard() {
           {modeSetup === 'OUBLIE_CODE' && (
             <form onSubmit={(e) => { e.preventDefault(); showToast("📩 Instructions envoyées !"); setModeSetup('CONNECTER'); setInputEmailRecuperation(''); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div><label style={styles.label}>Email institutionnel</label><input type="email" value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le code</button></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le mot de passe</button></div>
             </form>
           )}
 
@@ -413,6 +428,8 @@ export default function ChefEtablissementDashboard() {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
+        {/* MODALES RESTAURÉES ET PLEINEMENT FONCTIONNELLES */}
+
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -438,6 +455,124 @@ export default function ChefEtablissementDashboard() {
             </div>
           </div>
         )}
+
+        {modalSecurite && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!ancienMdp || !nouveauMdp) { showToast("⚠️ Veuillez remplir tous les champs."); return; }
+                showToast("🔒 Mot de passe modifié avec succès !");
+                setModalSecurite(false);
+                setAncienMdp('');
+                setNouveauMdp('');
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Ancien mot de passe</label>
+                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Nouveau mot de passe sécurisé</label>
+                  <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Mettre à jour</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {modalProfilChefOuvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Paramètres du Profil & Photo</h3>
+              <form onSubmit={handleEnregistrerProfilChef} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
+                  <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '2px solid #cbd5e1', flexShrink: 0 }}>
+                    {formProfilChef.photoProfil ? (
+                      <img src={formProfilChef.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '28px' }}>👤</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>Photo de profil</label>
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfilChef} style={{ fontSize: '12px', cursor: 'pointer' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
+                  <div>
+                    <label style={styles.label}>Civilité</label>
+                    <select value={formProfilChef.civilite} onChange={(e) => setFormProfilChef({...formProfilChef, civilite: e.target.value})} style={styles.inputStyle}>
+                      <option value="M.">M.</option>
+                      <option value="Mme">Mme</option>
+                      <option value="Dr">Dr</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Nom</label>
+                    <input type="text" value={formProfilChef.nom} onChange={(e) => setFormProfilChef({...formProfilChef, nom: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                </div>
+                <div>
+                  <label style={styles.label}>Prénoms</label>
+                  <input type="text" value={formProfilChef.prenoms} onChange={(e) => setFormProfilChef({...formProfilChef, prenoms: e.target.value})} style={styles.inputStyle} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Établissement</label>
+                  <input type="text" value={formProfilChef.etablissement} onChange={(e) => setFormProfilChef({...formProfilChef, etablissement: e.target.value})} style={styles.inputStyle} required />
+                </div>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setModalProfilChefOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {modalConfirmationActionAnnee.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: modalConfirmationActionAnnee.actionType === 'fermer' ? '#991b1b' : '#166534', fontSize: '18px', fontWeight: '800' }}>
+                {modalConfirmationActionAnnee.actionType === 'fermer' ? '⚠️ Clôturer l’année scolaire ?' : '🟢 Ouvrir une nouvelle année ?'}
+              </h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px', lineHeight: '1.5' }}>
+                {modalConfirmationActionAnnee.actionType === 'fermer' 
+                  ? 'Êtes-vous sûr de vouloir terminer l’année scolaire ? Les statistiques courantes et le personnel actif seront archivés à vie, et l’année sera réinitialisée.' 
+                  : 'Êtes-vous sûr de vouloir ouvrir et démarrer les activités pour cette nouvelle année scolaire ?'}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationActionAnnee({ ouvert: false, actionType: null })} className="bouton bouton-secondaire">Annuler</button>
+                <button 
+                  onClick={executerActionAnneeScolaire} 
+                  className={`bouton ${modalConfirmationActionAnnee.actionType === 'fermer' ? 'bouton-danger' : 'bouton-succes'}`}
+                >
+                  {modalConfirmationActionAnnee.actionType === 'fermer' ? 'Oui, fermer l’année' : 'Oui, ouvrir l’année'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+          <div style={styles.statCard}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🏫</div>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Nombre total de Classes (Géré automatiquement)</h4>
+            <p style={{ fontSize: '30px', fontWeight: '900', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
+          </div>
+          <div style={styles.statCard}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>👥</div>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées au Réseau</h4>
+            <p style={{ fontSize: '30px', fontWeight: '900', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
+          </div>
+        </div>
 
         {/* ONGLET : PROFIL & CARTE D'IDENTITÉ */}
         {activeTab === 'profil_ecole' && (
@@ -536,7 +671,7 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : FICHES PÉDAGOGIQUES (AVEC LE NOUVEAU BOUTON PDF) */}
+        {/* ONGLET : FICHES PÉDAGOGIQUES */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>

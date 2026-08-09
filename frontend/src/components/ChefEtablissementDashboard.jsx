@@ -93,10 +93,17 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
   useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
 
+  const [nouveauAdminNom, setNouveauAdminNom] = useState('');
+  const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
+  const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
+  const [nouveauAdminContact, setNouveauAdminContact] = useState('');
+  const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
+
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
+  const [anneeArchiveSelectionnee, setAnneeArchiveSelectionnee] = useState('TOUTES');
 
   const nombreClassesAutomatique = useMemo(() => {
     try {
@@ -134,6 +141,15 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       return matchMat && matchNiv && matchCl;
     });
   }, [listeProfesseursEtablissement, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
+
+  const fichesFiltrees = useMemo(() => {
+    return fichesPedagogiquesEcole.filter(fiche => {
+      const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
+      const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
+      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === filtreProfClasse;
+      return matchMat && matchNiv && matchCl;
+    });
+  }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
 
   const statistiquesReseau = useMemo(() => {
     const censeursValidesCount = Array.isArray(censeursAffiliations) ? censeursAffiliations.filter(c => c.statut === 'Validé').length + 1 : 1;
@@ -260,7 +276,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     reader.readAsDataURL(file);
   };
 
-  // --- 🔴 FONCTION SUPPRESSION DE COMPTE ---
+  // --- LOGIQUE AJOUTÉE : SUPPRESSION DU COMPTE ---
   const executerSuppressionCompte = () => {
     localStorage.removeItem('app_chef_profil');
     localStorage.removeItem('app_chef_ecole_config');
@@ -271,10 +287,9 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     localStorage.removeItem('app_chef_fichiers_admin');
     localStorage.removeItem('app_chef_personnel_admin_manuel');
     localStorage.removeItem('app_chef_statut');
-
+    localStorage.removeItem('app_enseignant_statut');
+    
     setModalSuppressionCompte(false);
-    showToast("🗑️ Compte supprimé avec succès.");
-
     if (typeof onLogout === 'function') {
       onLogout();
     } else {
@@ -282,7 +297,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     }
   };
 
-  // --- 🔴 FONCTION SUPPRESSION D'ÉTABLISSEMENT ---
+  // --- LOGIQUE AJOUTÉE : SUPPRESSION D'ÉTABLISSEMENT ---
   const soumettreSuppressionEtablissement = () => {
     setModalSuppressionEcole(false);
     const nouvelleNotif = {
@@ -295,7 +310,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     showToast("📨 Demande de suppression envoyée aux censeurs pour approbation !");
   };
 
-  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
   if (!ecoleConfig) {
     return (
       <div style={styles.setupContainer}>
@@ -348,48 +362,41 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          {/* BOUTON PROFIL COMPACT */}
           <div style={{ position: 'relative' }} ref={profilChefRef}>
-            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlockCompact}>
-              <div style={styles.avatarNavbarContainerCompact}>
-                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={{ fontSize: '14px' }}>👤</div>}
+            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
+              <div style={styles.avatarNavbarContainer}>
+                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
               </div>
-              <span style={{ fontSize: '12px', fontWeight: '800', color: '#ffffff' }}>{infosChef.nom}</span>
+              <div style={styles.navbarTeacherInfo}>
+                <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
+              </div>
             </button>
 
             {profilChefOuvert && (
               <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
                 <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
                 
-                {/* 🔴 BOUTON SUPPRIMER MON COMPTE UNIQUE, TRÈS DISCRET ET EN TOUT PETIT */}
-                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', textAlign: 'center' }}>
-                  <button type="button" onClick={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '10px', fontWeight: '600', cursor: 'pointer', padding: '2px 4px' }}>
-                    Supprimer mon compte
-                  </button>
-                </div>
+                {/* BOUTON AJOUTÉ ICI : UNIQUE ET TRÈS DISCRET */}
+                <button type="button" onMouseDown={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#cbd5e1', fontSize: '9px', cursor: 'pointer', width: '100%', textAlign: 'center', marginTop: '10px', padding: '4px' }}>
+                  supprimer mon compte
+                </button>
               </div>
             )}
           </div>
 
-          {/* LOGO RECENTRÉ */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <span style={{ fontSize: '16px' }}>📖</span>
-            <span style={{ fontWeight: '800', fontSize: '13px', color: '#ffffff', letterSpacing: '0.3px' }}>E-cahier !</span>
-          </div>
-
-          {/* DROITE : NOTIFICATIONS & BURGER */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             
             <div style={{ position: 'relative' }} ref={notifChefRef}>
-              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtnCompact}>
+              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
                 {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
               </button>
               {notifChefOuvert && (
-                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
                   <div style={styles.dropdownHeader}>Notifications</div>
                   {notificationsChef.map(n => (
                      <div key={n.id} style={styles.notifItem}>
@@ -402,18 +409,17 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             </div>
 
             <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
-              <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtnCompact}>☰</button>
+              <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerChefOuvert && (
                 <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
                   <div style={styles.dropdownHeader}>Menu Direction</div>
-                  <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
-                  <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
-                  <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                  <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
-                  <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
-                  
+                  <button type="button" onMouseDown={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                  <button type="button" onMouseDown={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                    <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    <button type="button" onMouseDown={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
                 </div>
               )}
@@ -426,24 +432,21 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* 🔴 MODALE DE SUPPRESSION DE COMPTE */}
+        {/* MODALE DE SUPPRESSION DE COMPTE AJOUTÉE */}
         {modalSuppressionCompte && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
-              <div style={{ width: '48px', height: '48px', background: '#fee2e2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', margin: '0 auto 14px auto' }}>⚠️</div>
-              <h3 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>Supprimer définitivement le compte ?</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '22px', lineHeight: '1.5' }}>
-                Cette action effacera toutes vos données et réinitialisera l'application sur cet appareil.
-              </p>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Supprimer le compte ?</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Cette action est irréversible et effacera toutes les données de session locales.</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-                <button onClick={() => setModalSuppressionCompte(false)} className="bouton bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
-                <button onClick={executerSuppressionCompte} className="bouton bouton-danger" style={{ flex: 1, backgroundColor: '#dc2626' }}>Oui, supprimer</button>
+                <button onClick={() => setModalSuppressionCompte(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={executerSuppressionCompte} className="bouton bouton-danger">Oui, supprimer</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* 🔴 MODALE DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
+        {/* MODALE DE SUPPRESSION D'ÉCOLE AJOUTÉE */}
         {modalSuppressionEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
@@ -644,7 +647,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
               </div>
             ) : (
-              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div>
                     <label style={styles.label}>Nom de l'établissement</label>
@@ -682,7 +685,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               </form>
             )}
 
-            {/* 🔴 BOUTON DE SUPPRESSION DE L'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
+            {/* BOUTON AJOUTÉ ICI : SUPPRESSION D'ÉTABLISSEMENT SOUMIS AUX CENSEURS */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
               <button 
                 type="button" 
@@ -797,7 +800,7 @@ const styles = {
   container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
   setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
   setupCard: { backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #334155' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
   mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
   statCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
@@ -805,19 +808,19 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
-  
-  navbarTeacherClickableBlockCompact: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainerCompact: { width: '26px', height: '26px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0, color: '#94a3b8' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
+  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  navDarkBtnCompact: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' },
-  burgerBtnCompact: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
-
-  dropdownAbsolu: { position: 'absolute', top: '45px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, padding: '12px' },
+  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  dropdownAbsolu: { position: 'absolute', top: '50px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, padding: '12px' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
   optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
   fondModale: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
+  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
   boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(22,163,74,0.3)' },
   boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' }
 };

@@ -359,7 +359,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          {/* BOUTON PROFIL COMPACTÉ ET RÉDUIT POUR S'EMBOÎTER SUR LA MÊME LIGNE */}
+          {/* BOUTON PROFIL COMPACT */}
           <div style={{ position: 'relative' }} ref={profilChefRef}>
             <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlockCompact}>
               <div style={styles.avatarNavbarContainerCompact}>
@@ -378,7 +378,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             )}
           </div>
 
-          {/* CENTRE : LOGO RECENTRÉ AVEC POLICE DISCRÈTE ET ÉLÉGANTE */}
+          {/* LOGO RECENTRÉ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ fontSize: '16px' }}>📖</span>
             <span style={{ fontWeight: '800', fontSize: '13px', color: '#ffffff', letterSpacing: '0.3px' }}>E-cahier !</span>
@@ -429,7 +429,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALES */}
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -443,17 +442,19 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* MODALE DE DÉCONNEXION CORRIGÉE (APPEL DE onLogout + NETTOYAGE LOCALSTORAGE) */}
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Déconnexion</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter du réseau ?</p>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={() => { 
                   setModalDeconnexion(false); 
                   localStorage.removeItem('app_chef_statut'); 
                   localStorage.removeItem('app_enseignant_statut'); 
+                  localStorage.removeItem('app_chef_ecole_config');
                   if (typeof onLogout === 'function') { 
                     onLogout(); 
                   } else { 
@@ -774,9 +775,10 @@ const styles = {
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
   
-  // STYLES COMPACTS POUR LA LIGNE UNIQUE DE LA NAVBAR
+  // STYLES COMPACTS ET HARMONIEUX POUR LA NAVBAR
   navbarTeacherClickableBlockCompact: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
   avatarNavbarContainerCompact: { width: '26px', height: '26px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0, color: '#94a3b8' },
+  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   navDarkBtnCompact: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' },
   burgerBtnCompact: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
 

@@ -146,7 +146,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     return fichesPedagogiquesEcole.filter(fiche => {
       const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
       const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
-      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === fiche.classe;
+      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === filtreProfClasse;
       return matchMat && matchNiv && matchCl;
     });
   }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
@@ -359,16 +359,13 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          {/* GAUCHE : PROFIL */}
+          {/* BOUTON PROFIL COMPACTÉ ET RÉDUIT POUR S'EMBOÎTER SUR LA MÊME LIGNE */}
           <div style={{ position: 'relative' }} ref={profilChefRef}>
-            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
-              <div style={styles.avatarNavbarContainer}>
-                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
+            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlockCompact}>
+              <div style={styles.avatarNavbarContainerCompact}>
+                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={{ fontSize: '14px' }}>👤</div>}
               </div>
-              <div style={styles.navbarTeacherInfo}>
-                <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
-                <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
-              </div>
+              <span style={{ fontSize: '12px', fontWeight: '800', color: '#ffffff' }}>{infosChef.nom}</span>
             </button>
 
             {profilChefOuvert && (
@@ -381,22 +378,22 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             )}
           </div>
 
-          {/* CENTRE : LOGO RECENTRÉ ET ESTHÉTIQUE AVEC POLICE RÉDUITE */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '18px' }}>📖</span>
-            <span style={{ fontWeight: '800', fontSize: '14px', color: '#ffffff', letterSpacing: '0.3px' }}>E-cahier !</span>
+          {/* CENTRE : LOGO RECENTRÉ AVEC POLICE DISCRÈTE ET ÉLÉGANTE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '16px' }}>📖</span>
+            <span style={{ fontWeight: '800', fontSize: '13px', color: '#ffffff', letterSpacing: '0.3px' }}>E-cahier !</span>
           </div>
 
           {/* DROITE : NOTIFICATIONS & BURGER */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             
             <div style={{ position: 'relative' }} ref={notifChefRef}>
-              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
+              <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtnCompact}>
                 <span>🔔</span>
                 {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
               </button>
               {notifChefOuvert && (
-                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
                   <div style={styles.dropdownHeader}>Notifications</div>
                   {notificationsChef.map(n => (
                      <div key={n.id} style={styles.notifItem}>
@@ -409,7 +406,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             </div>
 
             <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
-              <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
+              <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtnCompact}>☰</button>
               {menuBurgerChefOuvert && (
                 <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
                   <div style={styles.dropdownHeader}>Menu Direction</div>
@@ -768,7 +765,7 @@ const styles = {
   container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
   setupContainer: { backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' },
   setupCard: { backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #334155' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
   mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
   statCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
@@ -776,19 +773,19 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
-  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  dropdownAbsolu: { position: 'absolute', top: '50px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, padding: '12px' },
+  
+  // STYLES COMPACTS POUR LA LIGNE UNIQUE DE LA NAVBAR
+  navbarTeacherClickableBlockCompact: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
+  avatarNavbarContainerCompact: { width: '26px', height: '26px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0, color: '#94a3b8' },
+  navDarkBtnCompact: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' },
+  burgerBtnCompact: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
+
+  dropdownAbsolu: { position: 'absolute', top: '45px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', zIndex: 100, padding: '12px' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
   optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
   fondModale: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
-  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
   boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(22,163,74,0.3)' },
   boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' }
 };

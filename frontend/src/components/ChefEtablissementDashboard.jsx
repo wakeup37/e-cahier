@@ -26,7 +26,7 @@ export default function ChefEtablissementDashboard() {
   // --- ÉTAPE DE SÉLECTION INITIALE (CRÉER OU SE CONNECTER À UN ÉTABLISSEMENT) ---
   const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
 
-  const [modeSetup, setModeSetup] = useState('CHOIX'); // 'CHOIX', 'CREER', 'CONNECTER'
+  const [modeSetup, setModeSetup] = useState('CHOIX'); // 'CHOIX', 'CREER', 'CONNECTER', 'OUBLIE_CODE'
   
   const [inputNomEcole, setInputNomEcole] = useState('');
   const [inputTypeEtablissement, setInputTypeEtablissement] = useState('public');
@@ -36,6 +36,7 @@ export default function ChefEtablissementDashboard() {
   const [inputNombreEleves, setInputNombreEleves] = useState('450');
   const [inputNombreEnseignants, setInputNombreEnseignants] = useState('25');
   const [inputDateCreation, setInputDateCreation] = useState('2010-09-15');
+  const [inputEmailRecuperation, setInputEmailRecuperation] = useState('');
 
   // --- PROFIL DU CHEF D'ÉTABLISSEMENT & SESSION ---
   const [infosChef, setInfosChef] = useState(() => safeGetObject('app_chef_profil', {
@@ -339,6 +340,17 @@ export default function ChefEtablissementDashboard() {
     showToast(type === 'CREER' ? `🏫 Établissement créé avec succès ! Frais de mise en service : ${fraisCreation}` : "🔗 Connecté à l'établissement avec succès !");
   };
 
+  const handleRecuperationCode = (e) => {
+    e.preventDefault();
+    if (!inputEmailRecuperation.trim()) {
+      showToast("⚠️ Veuillez entrer un email de récupération valide.");
+      return;
+    }
+    showToast("📩 Instructions de réinitialisation envoyées à votre email institutionnel.");
+    setModeSetup('CONNECTER');
+    setInputEmailRecuperation('');
+  };
+
   const handleEnregistrerProfilChef = (e) => {
     e.preventDefault();
     setInfosChef({ ...formProfilChef });
@@ -520,9 +532,27 @@ export default function ChefEtablissementDashboard() {
                 <label style={styles.label}>Année Scolaire</label>
                 <input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required />
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: '700', cursor: 'pointer', padding: 0 }}>
+                  Code d'établissement oublié ?
+                </button>
+              </div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button>
                 <button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button>
+              </div>
+            </form>
+          )}
+
+          {modeSetup === 'OUBLIE_CODE' && (
+            <form onSubmit={handleRecuperationCode} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={styles.label}>Email institutionnel de récupération</label>
+                <input type="email" placeholder="Entrez votre email..." value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button>
+                <button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le code</button>
               </div>
             </form>
           )}
@@ -590,9 +620,9 @@ export default function ChefEtablissementDashboard() {
                       setEcoleConfig(null);
                       setProfilChefOuvert(false);
                     }} 
-                    style={styles.optionMenu}
+                    style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}
                   >
-                    🔄 Changer d'établissement
+                    🚪 Quitter l'école
                   </button>
                 </div>
               )}
@@ -609,7 +639,7 @@ export default function ChefEtablissementDashboard() {
                 {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
               </button>
               {notifChefOuvert && (
-                <div style={styles.notificationDropdown}>
+                <div style={styles.notificationDropdownRight}>
                   <div style={styles.dropdownHeader}>Notifications des Rapports</div>
                   {notificationsChef.map(n => (
                     <div key={n.id} style={styles.notifItem}>
@@ -1127,10 +1157,10 @@ export default function ChefEtablissementDashboard() {
 
               {personnelAdministratifManuel.length > 0 && (
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <strong style={{ fontSize: '11px', color: '#475569', textTransform: 'uppercase' }}>Personnel administratif enregistré[span_0](start_span)[span_0](end_span):</strong>
+                  <strong style={{ fontSize: '11px', color: '#475569', textTransform: 'uppercase' }}>Personnel administratif enregistré:</strong>
                   {personnelAdministratifManuel.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                      <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | Matricule : <strong>{p.matricule || 'N/A'}</strong> | Contact : {p.contact} | Email : {p.email}[span_1](start_span)[span_1](end_span)[span_2](start_span)[span_2](end_span)</span>
+                      <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | Matricule : <strong>{p.matricule || 'N/A'}</strong> | Contact : {p.contact} | Email : {p.email}[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)</span>
                       <button onClick={() => supprimerPersonnelAdministratif(p.id)} className="bouton bouton-danger" style={{ padding: '2px 8px', fontSize: '11px' }}>Supprimer</button>
                     </div>
                   ))}
@@ -1179,7 +1209,7 @@ export default function ChefEtablissementDashboard() {
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
                       </div>
                       <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>
-                        Matricule : <strong>{prof.matricule}</strong> | Contact : {prof.contact} | Email : {prof.email} | Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong>[span_3](start_span)[span_3](end_span)
+                        Matricule : <strong>{prof.matricule}</strong> | Contact : {prof.contact} | Email : {prof.email} | Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong>[span_2](start_span)[span_2](end_span)
                       </p>
                     </div>
                     <div>
@@ -1324,7 +1354,8 @@ const styles = {
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
   navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  notificationDropdown: { position: 'absolute', top: '50px', left: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '320px', zIndex: 100, padding: '12px' },
+  notificationDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, padding: '12px' },
+  notificationDropdownRight: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 100, padding: '12px' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
   optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9' },

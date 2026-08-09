@@ -333,7 +333,6 @@ export default function ChefEtablissementDashboard() {
                 <label style={styles.label}>Mot de passe de l'établissement</label>
                 <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                  {/* CORRECTION ICI : onClick utilisé pour garantir la réactivité sur mobile dans un formulaire */}
                   <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
                     Mot de passe oublié ?
                   </button>
@@ -385,10 +384,10 @@ export default function ChefEtablissementDashboard() {
             {profilChefOuvert && (
               <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
                 <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                {/* ICI : onMouseDown maintenu uniquement pour les dropdowns car c'est nécessaire pour éviter le conflit avec handleClickOutside */}
-                <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                {/* CORRECTION : Retour aux onClick natifs pour un fonctionnement parfait sur mobile et web */}
+                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
               </div>
             )}
           </div>
@@ -418,13 +417,13 @@ export default function ChefEtablissementDashboard() {
               {menuBurgerChefOuvert && (
                 <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
                   <div style={styles.dropdownHeader}>Menu Direction</div>
-                  <button type="button" onMouseDown={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
-                  <button type="button" onMouseDown={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
-                  <button type="button" onMouseDown={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                  <button type="button" onMouseDown={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
-                  <button type="button" onMouseDown={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
+                  <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                  <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                  <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                  <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                  <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                    <button type="button" onMouseDown={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
                 </div>
               )}

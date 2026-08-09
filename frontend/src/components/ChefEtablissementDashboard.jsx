@@ -93,21 +93,10 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
   useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
 
-  const [nouveauAdminNom, setNouveauAdminNom] = useState('');
-  const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
-  const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
-  const [nouveauAdminContact, setNouveauAdminContact] = useState('');
-  const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
-
-  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
-  const [anneeFichier, setAnneeFichier] = useState('2025-2026');
-  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
-
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
-  const [anneeArchiveSelectionnee, setAnneeArchiveSelectionnee] = useState('TOUTES');
 
   const nombreClassesAutomatique = useMemo(() => {
     try {
@@ -133,8 +122,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     try {
       const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
       const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
-      let fusion = [...archiveCenseur, ...biblioEnseignant];
-      return fusion;
+      return [...archiveCenseur, ...biblioEnseignant];
     } catch { return []; }
   }, []);
 
@@ -146,15 +134,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       return matchMat && matchNiv && matchCl;
     });
   }, [listeProfesseursEtablissement, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
-
-  const fichesFiltrees = useMemo(() => {
-    return fichesPedagogiquesEcole.filter(fiche => {
-      const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
-      const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
-      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === fiche.classe;
-      return matchMat && matchNiv && matchCl;
-    });
-  }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
 
   const statistiquesReseau = useMemo(() => {
     const censeursValidesCount = Array.isArray(censeursAffiliations) ? censeursAffiliations.filter(c => c.statut === 'Validé').length + 1 : 1;
@@ -281,7 +260,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     reader.readAsDataURL(file);
   };
 
-  // --- ACTION DE SUPPRESSION DE COMPTE ---
+  // --- SUPPRESSION DE COMPTE ---
   const executerSuppressionCompte = () => {
     localStorage.removeItem('app_chef_profil');
     localStorage.removeItem('app_chef_ecole_config');
@@ -303,7 +282,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     }
   };
 
-  // --- ACTION DE SUPPRESSION D'ÉTABLISSEMENT (SOUMISE AUX CENSEURS) ---
+  // --- SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) ---
   const soumettreSuppressionEtablissement = () => {
     setModalSuppressionEcole(false);
     const nouvelleNotif = {
@@ -396,10 +375,12 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
                 <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
                 
-                {/* BOUTON SUPPRIMER MON COMPTE */}
-                <button type="button" onClick={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#dc2626', fontWeight: '900', borderTop: '1px solid #e2e8f0', marginTop: '4px', paddingTop: '8px' }}>
-                  🗑️ Supprimer mon compte
-                </button>
+                {/* BOUTON SUPPRIMER MON COMPTE UNIQUE, TRÈS DISCRET ET EN TOUT PETIT */}
+                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', textAlign: 'center' }}>
+                  <button type="button" onClick={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '10px', fontWeight: '600', cursor: 'pointer', padding: '2px 4px' }}>
+                    Supprimer mon compte
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -442,9 +423,8 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                   <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
                   <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
                   
-                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
                     <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
-                    <button type="button" onClick={() => { setModalSuppressionCompte(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#dc2626', fontWeight: '900', textAlign: 'center' }}>🗑️ Supprimer mon compte</button>
                   </div>
                 </div>
               )}
@@ -474,7 +454,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
-        {/* MODALE DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION DES CENSEURS) */}
+        {/* MODALE DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
         {modalSuppressionEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>

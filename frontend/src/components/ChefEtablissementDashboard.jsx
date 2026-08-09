@@ -21,7 +21,7 @@ const safeGetObject = (key, defaultObj = {}) => {
   } catch { return defaultObj; }
 };
 
-export default function ChefEtablissementDashboard() {
+export default function ChefEtablissementDashboard({ onLogout }) {
   
   // --- ÉTATS GLOBAUX ---
   const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
@@ -58,6 +58,10 @@ export default function ChefEtablissementDashboard() {
 
   const [modalQuitterEcole, setModalQuitterEcole] = useState(false);
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
+
+  // --- ÉTAT MODALE SUPPRESSION DE COMPTE & SUPPRESSION ÉTABLISSEMENT ---
+  const [modalSuppressionCompte, setModalSuppressionCompte] = useState(false);
+  const [modalSuppressionEcole, setModalSuppressionEcole] = useState(false);
 
   const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
   const menuBurgerChefRef = useRef(null);
@@ -271,25 +275,6 @@ export default function ChefEtablissementDashboard() {
   const validerCenseur = (id) => { setCenseursAffiliations(prev => prev.map(c => c.id === id ? { ...c, statut: 'Validé' } : c)); showToast("✅ Censeur validé !"); };
   const rejeterCenseur = (id) => { setCenseursAffiliations(prev => prev.filter(c => c.id !== id)); showToast("❌ Demande rejetée."); };
 
-  const ajouterPersonnelAdministratif = (e) => {
-    e.preventDefault();
-    if (!nouveauAdminNom.trim()) return;
-    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'MAT-000', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
-    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
-    setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
-    showToast("✅ Personnel administratif ajouté !");
-  };
-  const supprimerPersonnelAdministratif = (id) => { setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id)); showToast("🗑️ Membre retiré."); };
-
-  const uploaderFichierAdministratifreel = (e) => {
-    e.preventDefault();
-    if (!nomNouveauFichier.trim()) return;
-    const nouveauFichier = { id: Date.now(), nom: nomNouveauFichier.trim(), annee: anneeFichier, nomFichierReel: fichierSelectionneObj ? fichierSelectionneObj.name : 'Document_officiel.pdf', dateAjout: new Date().toLocaleDateString() };
-    setFichiersAdministratifsUploads(prev => [nouveauFichier, ...prev]);
-    setNomNouveauFichier(''); setFichierSelectionneObj(null);
-    showToast("📎 Fichier stocké avec succès !");
-  };
-
   const handleEnregistrerProfilChef = (e) => {
     e.preventDefault();
     setInfosChef({ ...formProfilChef });
@@ -303,6 +288,42 @@ export default function ChefEtablissementDashboard() {
     const reader = new FileReader();
     reader.onloadend = () => { setFormProfilChef(prev => ({ ...prev, photoProfil: reader.result })); };
     reader.readAsDataURL(file);
+  };
+
+  // --- SUPPRESSION DE COMPTE PROFESSIONNELLE ---
+  const executerSuppressionCompte = () => {
+    localStorage.removeItem('app_chef_profil');
+    localStorage.removeItem('app_chef_ecole_config');
+    localStorage.removeItem('app_chef_censeurs_affiliations');
+    localStorage.removeItem('app_chef_rapports_censeurs');
+    localStorage.removeItem('app_chef_notifications');
+    localStorage.removeItem('app_chef_archives_historiques');
+    localStorage.removeItem('app_chef_fichiers_admin');
+    localStorage.removeItem('app_chef_personnel_admin_manuel');
+    localStorage.removeItem('app_chef_statut');
+
+    setModalSuppressionCompte(false);
+    showToast("🗑️ Compte et données supprimés avec succès.");
+
+    if (typeof onLogout === 'function') {
+      onLogout();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  // --- SOUMISSION DE LA SUPPRESSION D'ÉTABLISSEMENT POUR APPROBATION DES CENSEURS ---
+  const soumettreSuppressionEtablissement = () => {
+    setModalSuppressionEcole(false);
+    // Ajout d'une notification ou d'un statut en attente d'approbation par les censeurs
+    const nouvelleNotif = {
+      id: Date.now(),
+      texte: `Demande de suppression de l'établissement "${ecoleConfig?.nomEcole}" soumise à l'approbation des censeurs.`,
+      date: new Date().toLocaleDateString(),
+      lu: false
+    };
+    setNotificationsChef(prev => [nouvelleNotif, ...prev]);
+    showToast("📨 Demande de suppression transmise aux censeurs pour approbation !");
   };
 
   // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
@@ -387,6 +408,7 @@ export default function ChefEtablissementDashboard() {
                 <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
                 <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
                 <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+                <button type="button" onMouseDown={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#dc2626', fontWeight: '800', borderTop: '1px solid #e2e8f0', marginTop: '4px', paddingTop: '6px' }}>🗑️ Supprimer mon compte</button>
               </div>
             )}
           </div>
@@ -421,8 +443,9 @@ export default function ChefEtablissementDashboard() {
                   <button type="button" onMouseDown={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
                   <button type="button" onMouseDown={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
                   <button type="button" onMouseDown={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
-                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <button type="button" onMouseDown={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    <button type="button" onMouseDown={() => { setModalSuppressionCompte(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#dc2626', fontWeight: '900', textAlign: 'center' }}>🗑️ Supprimer mon compte</button>
                   </div>
                 </div>
               )}
@@ -435,7 +458,39 @@ export default function ChefEtablissementDashboard() {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALES RESTAURÉES ET PLEINEMENT FONCTIONNELLES */}
+        {/* MODALE DE SUPPRESSION DE COMPTE */}
+        {modalSuppressionCompte && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <div style={{ width: '48px', height: '48px', background: '#fee2e2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', margin: '0 auto 14px auto' }}>⚠️</div>
+              <h3 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>Supprimer définitivement le compte ?</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '22px', lineHeight: '1.5' }}>
+                Cette action est irréversible. Toutes vos configurations et données locales seront effacées de cet appareil.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalSuppressionCompte(false)} className="bouton bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
+                <button onClick={executerSuppressionCompte} className="bouton bouton-danger" style={{ flex: 1, backgroundColor: '#dc2626' }}>Oui, supprimer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE DE SOUMISSION DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION DES CENSEURS) */}
+        {modalSuppressionEcole && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <div style={{ width: '48px', height: '48px', background: '#fef3c7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', margin: '0 auto 14px auto' }}>🏛️</div>
+              <h3 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>Supprimer cet établissement ?</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '22px', lineHeight: '1.5' }}>
+                Conformément aux règles institutionnelles, la suppression de l'établissement <strong>{ecoleConfig?.nomEcole}</strong> doit être soumise à l'approbation des censeurs. Voulez-vous envoyer la demande ?
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalSuppressionEcole(false)} className="bouton bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
+                <button onClick={soumettreSuppressionEtablissement} className="bouton bouton-danger" style={{ flex: 1, backgroundColor: '#d97706' }}>Envoyer pour approbation</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
@@ -616,14 +671,25 @@ export default function ChefEtablissementDashboard() {
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
                 <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
                 <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer</button>
                 </div>
               </form>
             )}
 
-            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+            {/* BOUTON DE SUPPRESSION D'ÉTABLISSEMENT SOUMIS AUX CENSEURS */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button 
+                type="button" 
+                onClick={() => setModalSuppressionEcole(true)} 
+                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #f87171', padding: '10px 18px', borderRadius: '12px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+              >
+                🏛️ Supprimer cet établissement (Approbation censeurs)
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginTop: '20px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>📤 Uploader un Fichier Administratif</h3>
               <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />

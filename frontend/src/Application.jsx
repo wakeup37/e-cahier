@@ -21,7 +21,7 @@ const safeGetObject = (key, defaultObj = {}) => {
   } catch { return defaultObj; }
 };
 
-// AJOUT : Acceptation de la prop "onLogout" pour une compatibilité parfaite avec Application.jsx
+// Acceptation de "onLogout" en prop si jamais l'App parent la passe
 export default function ChefEtablissementDashboard({ onLogout }) {
   
   // --- ÉTATS GLOBAUX ---
@@ -359,7 +359,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               </div>
             </button>
 
-            {/* SOLUTION PARFAITE : Overlay invisible qui gère la fermeture au clic à l'extérieur */}
             {profilChefOuvert && (
               <>
                 <div style={styles.overlayFermeture} onClick={() => setProfilChefOuvert(false)} />
@@ -447,12 +446,8 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button onClick={() => { 
                   setModalDeconnexion(false); 
                   localStorage.removeItem('app_chef_statut'); 
-                  // CORRECTION : Prise en charge de Application.jsx si présent, sinon rechargement classique
-                  if (onLogout) {
-                    onLogout();
-                  } else {
-                    window.location.reload(); 
-                  }
+                  localStorage.removeItem('app_enseignant_statut'); 
+                  if (onLogout) { onLogout(); } else { window.location.reload(); }
                 }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
@@ -564,25 +559,25 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
-        {/* CONTENU PRINCIPAL DES ONGLETS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           <div style={styles.statCard}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>🏫</div>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Classes (Automatique)</h4>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Nombre total de Classes (Géré automatiquement)</h4>
             <p style={{ fontSize: '30px', fontWeight: '900', color: '#2563eb', margin: 0 }}>{statistiquesReseau.totalClasses}</p>
           </div>
           <div style={styles.statCard}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>👥</div>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées</h4>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées au Réseau</h4>
             <p style={{ fontSize: '30px', fontWeight: '900', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
           </div>
         </div>
 
+        {/* ONGLET : PROFIL & CARTE D'IDENTITÉ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Archives</h2>
+                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Bibliothèque d'Archives</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Informations modifiables et stockage des documents.</p>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -609,12 +604,41 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
               </div>
             ) : (
-              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
-                <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
-                <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              // RESTAURATION COMPLÈTE DU FORMULAIRE DE MODIFICATION
+              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Nom de l'établissement</label>
+                    <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Code d'accès / Ministère</label>
+                    <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Situation Géographique</label>
+                    <input type="text" value={formEcoleEdition.situationGeo || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, situationGeo: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Nombre de Classes (Auto)</label>
+                    <input type="text" value={`${nombreClassesAutomatique} classe(s)`} disabled style={{ ...styles.inputStyle, backgroundColor: '#f1f5f9', color: '#64748b' }} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Effectif des Élèves</label>
+                    <input type="number" value={formEcoleEdition.nombreEleves || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nombreEleves: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Corps Enseignant</label>
+                    <input type="number" value={formEcoleEdition.nombreEnseignants || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nombreEnseignants: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Date de Création</label>
+                    <input type="date" value={formEcoleEdition.dateCreation || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, dateCreation: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer les modifications</button>
                 </div>
               </form>
             )}
@@ -629,6 +653,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* ONGLET : CENSEURS */}
         {activeTab === 'censeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Validation des Censeurs</h2>
@@ -653,6 +678,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* ONGLET : PROFESSEURS */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
@@ -672,6 +698,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* ONGLET : FICHES PÉDAGOGIQUES */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
@@ -700,6 +727,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
+        {/* ONGLET : RAPPORTS */}
         {activeTab === 'rapports' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📈 Rapports Détaillés</h2>

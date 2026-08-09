@@ -146,7 +146,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     return fichesPedagogiquesEcole.filter(fiche => {
       const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
       const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
-      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === filtreProfClasse;
+      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === fiche.classe;
       return matchMat && matchNiv && matchCl;
     });
   }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
@@ -162,7 +162,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [message, setMessage] = useState('');
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
-  // --- GESTION DES CLICS EXTÉRIEURS (100% SÉCURISÉ) ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
@@ -170,18 +169,13 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       if (menuBurgerChefRef.current && !menuBurgerChefRef.current.contains(event.target)) setMenuBurgerChefOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside); // Support tactile
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- IMPRESSION PDF ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
-      showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
+      showToast("⚠️ Ouverture bloquée par votre navigateur.");
       return;
     }
     fenetreImpression.document.write(`
@@ -301,7 +295,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     reader.readAsDataURL(file);
   };
 
-  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ (AUTONOME) ---
   if (!ecoleConfig) {
     return (
       <div style={styles.setupContainer}>
@@ -366,36 +359,37 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          {/* LOGO RESTAURÉ À GAUCHE */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '24px' }}>📖</span>
-            <span style={{ fontWeight: '900', fontSize: '18px', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+          {/* GAUCHE : PROFIL */}
+          <div style={{ position: 'relative' }} ref={profilChefRef}>
+            <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
+              <div style={styles.avatarNavbarContainer}>
+                {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
+              </div>
+              <div style={styles.navbarTeacherInfo}>
+                <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
+                <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
+              </div>
+            </button>
+
+            {profilChefOuvert && (
+              <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
+                <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {/* PROFIL */}
-            <div style={{ position: 'relative' }} ref={profilChefRef}>
-              <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
-                <div style={styles.avatarNavbarContainer}>
-                  {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
-                </div>
-                <div style={styles.navbarTeacherInfo}>
-                  <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>{infosChef.civilite} {infosChef.nom}</span>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8' }}>CHEF D'ÉTABLISSEMENT</span>
-                </div>
-              </button>
+          {/* CENTRE : LOGO RECENTRÉ ET ESTHÉTIQUE AVEC POLICE RÉDUITE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '18px' }}>📖</span>
+            <span style={{ fontWeight: '800', fontSize: '14px', color: '#ffffff', letterSpacing: '0.3px' }}>E-cahier !</span>
+          </div>
 
-              {profilChefOuvert && (
-                <div style={{ ...styles.dropdownAbsolu, left: '-80px' }}>
-                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                  <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                  <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                  <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
-                </div>
-              )}
-            </div>
-
-            {/* NOTIFICATIONS */}
+          {/* DROITE : NOTIFICATIONS & BURGER */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            
             <div style={{ position: 'relative' }} ref={notifChefRef}>
               <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
@@ -414,7 +408,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               )}
             </div>
 
-            {/* MENU BURGER */}
             <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
               <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerChefOuvert && (
@@ -453,7 +446,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
-        {/* MODALE DE DÉCONNEXION ROBUSTE */}
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -626,7 +618,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
               </div>
             ) : (
-              // FORMULAIRE DE MODIFICATION SÉCURISÉ AVEC LABELS CLAIRS
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div>

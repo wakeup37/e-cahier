@@ -177,6 +177,9 @@ export default function EnseignantDashboard() {
   const [modalPromotion, setModalPromotion] = useState(false);
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: infosEnseignant.etablissementSaisi });
 
+  // --- ÉTAT POUR LE MODE PLEIN ÉCRAN DYNAMIQUE DES CHAMPS ---
+  const [champEnEditionPleinEcran, setChampEnEditionPleinEcran] = useState(null); // { id, label, valeurTemporaire }
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profilRef.current && !profilRef.current.contains(event.target)) setProfilOuvert(false);
@@ -1543,6 +1546,53 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {/* --- MODALE DYNAMIQUE PLEIN ÉCRAN POUR L'ÉDITION D'UN CHAMP --- */}
+        {champEnEditionPleinEcran && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '90vw', maxWidth: '650px', height: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+                  <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✍️ Édition avancée : {champEnEditionPleinEcran.label}</h3>
+                  <button onClick={() => setChampEnEditionPleinEcran(null)} className="bouton bouton-secondaire" style={{ padding: '6px 12px' }}>✕</button>
+                </div>
+                <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
+                  Saisissez ou modifiez le contenu en mode plein écran pour un confort maximal sur mobile.
+                </p>
+                <textarea 
+                  autoFocus
+                  value={champEnEditionPleinEcran.valeurTemporaire}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setChampEnEditionPleinEcran(prev => ({ ...prev, valeurTemporaire: val }));
+                  }}
+                  placeholder="Écrivez votre contenu ici..."
+                  style={{ ...styles.inputStyle, height: '45vh', resize: 'none', fontSize: '15px', lineHeight: '1.6', padding: '16px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                <button type="button" onClick={() => setChampEnEditionPleinEcran(null)} className="bouton bouton-secondaire">Annuler</button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    // Sauvegarde dans l'assistant ou la session active
+                    setModalAssistant(prev => ({
+                      ...prev,
+                      valeursChamps: { ...(prev.valeursChamps || {}), [champEnEditionPleinEcran.id]: champEnEditionPleinEcran.valeurTemporaire }
+                    }));
+                    setChampEnEditionPleinEcran(null);
+                    showToast("✨ Champ mis à jour et validé avec succès !");
+                  }} 
+                  className="bouton bouton-succes"
+                  style={{ backgroundColor: '#16a34a', borderColor: '#16a34a', padding: '10px 20px', fontWeight: '900' }}
+                >
+                  ✓ Valider & Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ASSISTANT DE CRÉATION */}
         {modalAssistant.ouvert && (
           <div style={styles.fondModale}>
@@ -1557,6 +1607,7 @@ export default function EnseignantDashboard() {
                 <button onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
+              {/* --- SECTION STANDING : MODÉLISATION DES CHAMPS HAUT DE GAMME --- */}
               <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                 <label style={{ ...styles.label, marginBottom: '12px', color: '#2563eb', fontSize: '13px' }}>⚙️ Modélisation des champs de la fiche :</label>
                 
@@ -1578,12 +1629,37 @@ export default function EnseignantDashboard() {
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Zone de remplissage & Actions</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           <textarea 
-                            disabled
-                            placeholder="Aperçu de la zone de remplissage..." 
-                            style={{ ...styles.inputStyle, height: '38px', resize: 'none', backgroundColor: '#f1f5f9', fontSize: '11px', flex: 1 }} 
+                            onClick={() => {
+                              // OUVRE LE MODE PLEIN ÉCRAN AU CLIC SUR LA ZONE DE REMPLISSAGE
+                              setChampEnEditionPleinEcran({
+                                id: champ.id,
+                                label: champ.label,
+                                valeurTemporaire: (modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''
+                              });
+                            }}
+                            readOnly
+                            placeholder="Cliquez pour écrire en plein écran..." 
+                            value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''}
+                            style={{ ...styles.inputStyle, height: '38px', resize: 'none', backgroundColor: '#f8fafc', fontSize: '11px', flex: 1, cursor: 'pointer' }} 
                           />
+                          {/* BOUTON VALIDER VERT AJOUTÉ JUSTE À CÔTÉ */}
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              setChampEnEditionPleinEcran({
+                                id: champ.id,
+                                label: champ.label,
+                                valeurTemporaire: (modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''
+                              });
+                            }}
+                            className="bouton"
+                            style={{ padding: '6px 8px', fontSize: '10px', backgroundColor: '#16a34a', color: '#fff', fontWeight: '800', flexShrink: 0, borderRadius: '8px' }}
+                            title="Valider / Saisir"
+                          >
+                            Valider
+                          </button>
                           <button 
                             type="button" 
                             onClick={() => {
@@ -1594,7 +1670,7 @@ export default function EnseignantDashboard() {
                               }
                             }}
                             className="bouton"
-                            style={{ padding: '8px 12px', fontSize: '11px', backgroundColor: '#2563eb', color: '#fff', fontWeight: '700', flexShrink: 0 }}
+                            style={{ padding: '6px 8px', fontSize: '10px', backgroundColor: '#2563eb', color: '#fff', fontWeight: '700', flexShrink: 0, borderRadius: '8px' }}
                           >
                             Modifier
                           </button>
@@ -1603,7 +1679,7 @@ export default function EnseignantDashboard() {
                               type="button" 
                               onClick={() => setChampsPersonnalises(prev => Array.isArray(prev) ? prev.filter(c => c.id !== champ.id) : [])}
                               className="bouton"
-                              style={{ padding: '8px 12px', fontSize: '11px', backgroundColor: '#ef4444', color: '#fff', fontWeight: '700', flexShrink: 0 }}
+                              style={{ padding: '6px 8px', fontSize: '10px', backgroundColor: '#ef4444', color: '#fff', fontWeight: '700', flexShrink: 0, borderRadius: '8px' }}
                             >
                               Retirer
                             </button>
@@ -1621,7 +1697,7 @@ export default function EnseignantDashboard() {
                       const newId = `champ_${Date.now()}`;
                       const nouveauChamp = { id: newId, label: 'Nouveau champ', type: 'textarea' };
                       setChampsPersonnalises(prev => [...(Array.isArray(prev) ? prev : []), nouveauChamp]);
-                      showToast("➕ Nouveau champ ajouté sous forme de 2 cases !");
+                      showToast("➕ Nouveau champ ajouté avec succès !");
                     }} 
                     className="bouton" 
                     style={{ padding: '10px 16px', fontSize: '12px', backgroundColor: '#16a34a', color: '#fff', fontWeight: '800' }}
@@ -1885,16 +1961,17 @@ export default function EnseignantDashboard() {
                         </div>
                         <div>
                           <textarea 
+                            onClick={() => {
+                              setChampEnEditionPleinEcran({
+                                id: champ.id,
+                                label: champ.label,
+                                valeurTemporaire: (modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''
+                              });
+                            }}
+                            readOnly
                             value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''} 
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setModalAssistant(prev => ({
-                                ...prev,
-                                valeursChamps: { ...(prev.valeursChamps || {}), [champ.id]: val }
-                              }));
-                            }} 
-                            placeholder={`Renseigner ${champ.label}...`}
-                            style={{ ...styles.inputStyle, height: '60px', resize: 'vertical' }} 
+                            placeholder={`Cliquer pour remplir ${champ.label}...`}
+                            style={{ ...styles.inputStyle, height: '60px', resize: 'vertical', cursor: 'pointer' }} 
                           />
                         </div>
                       </div>

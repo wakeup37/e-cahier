@@ -1,17 +1,18 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import Header from '../components/Header'; // Importation du Header centralisé et responsive
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 export default function EnseignantDashboard() {
   
-  // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS (AVEC BLINDAGE) ---
+  // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS ---
   const [affiliations, setAffiliations] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_affiliations'));
-      if (Array.isArray(stored)) return stored;
-    } catch {}
-    return [
-      { id: 1, ecole: 'Lycée Moderne d’Abidjan', statut: 'Validée', classes: ['6ème A', '6ème B', '5ème A', '5ème B', '4ème A', '3ème A'] }
-    ];
+      return JSON.parse(localStorage.getItem('app_enseignant_affiliations')) || [
+        { id: 1, ecole: 'Lycée Moderne d’Abidjan', statut: 'Validée', classes: ['6ème A', '6ème B', '5ème A', '5ème B', '4ème A', '3ème A'] }
+      ];
+    } catch {
+      return [
+        { id: 1, ecole: 'Lycée Moderne d’Abidjan', statut: 'Validée', classes: ['6ème A', '6ème B', '5ème A', '5ème B', '4ème A', '3ème A'] }
+      ];
+    }
   });
 
   useEffect(() => {
@@ -19,10 +20,9 @@ export default function EnseignantDashboard() {
   }, [affiliations]);
 
   const estAffiliationValidee = useMemo(() => {
-    return (affiliations || []).some(aff => aff && aff.statut === 'Validée');
+    return affiliations.some(aff => aff.statut === 'Validée');
   }, [affiliations]);
 
-  // Mode sans affiliation
   const [modeSansAffiliation, setModeSansAffiliation] = useState(() => {
     return localStorage.getItem('app_enseignant_mode_sans_aff') === 'true';
   });
@@ -33,10 +33,10 @@ export default function EnseignantDashboard() {
 
   const [classesSansAffiliation, setClassesSansAffiliation] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_classes_libres'));
-      if (Array.isArray(stored)) return stored;
-    } catch {}
-    return ['Classe Autonome 1', 'Classe Autonome 2'];
+      return JSON.parse(localStorage.getItem('app_enseignant_classes_libres')) || ['Classe Autonome 1', 'Classe Autonome 2'];
+    } catch {
+      return ['Classe Autonome 1', 'Classe Autonome 2'];
+    }
   });
 
   useEffect(() => {
@@ -45,30 +45,13 @@ export default function EnseignantDashboard() {
 
   const [nouvelleClasseLibre, setNouvelleClasseLibre] = useState('');
 
-  // Liste globale de toutes les écoles validées de l'enseignant
-  const ecolesActivesValidees = useMemo(() => {
-    if (modeSansAffiliation) return ['Mode Autonome (Sans Affiliation)'];
-    let ecoles = [];
-    (affiliations || []).forEach(aff => {
-      if (aff && aff.statut === 'Validée' && !ecoles.includes(aff.ecole)) {
-        ecoles.push(aff.ecole);
-      }
-    });
-    return ecoles.length > 0 ? ecoles : ['Lycée Moderne d’Abidjan'];
-  }, [modeSansAffiliation, affiliations]);
-
-  // Récupérer les classes d'une école spécifique
-  const getClassesParEcole = (ecoleNom) => {
-    if (modeSansAffiliation) return classesSansAffiliation || [];
-    const aff = (affiliations || []).find(a => a && a.ecole === ecoleNom && a.statut === 'Validée');
-    return (aff && Array.isArray(aff.classes)) ? aff.classes : ['6ème A', '6ème B'];
-  };
-
   const classesActivesValidees = useMemo(() => {
-    if (modeSansAffiliation) return classesSansAffiliation || [];
+    if (modeSansAffiliation) {
+      return classesSansAffiliation;
+    }
     let classes = [];
-    (affiliations || []).forEach(aff => {
-      if (aff && aff.statut === 'Validée' && Array.isArray(aff.classes)) {
+    affiliations.forEach(aff => {
+      if (aff.statut === 'Validée' && Array.isArray(aff.classes)) {
         aff.classes.forEach(cl => {
           if (!classes.includes(cl)) classes.push(cl);
         });
@@ -80,58 +63,59 @@ export default function EnseignantDashboard() {
   const [activeTab, setActiveTab] = useState('cycles');
   const [message, setMessage] = useState('');
 
-  // --- PROPOSITIONS D'AFFILIATION ENTRANTES ---
+  // --- MENU BURGER FLUIDE ---
+  const [menuBurgerOuvert, setMenuBurgerOuvert] = useState(false);
+  const menuBurgerRef = useRef(null);
+
+  // --- MODALE DE CONFIRMATION DE DÉCONNEXION ---
+  const [modalDeconnexion, setModalDeconnexion] = useState(false);
+
+  // --- SÉCURITÉ : MOT DE PASSE (MODIFIÉ DEPUIS LE PROFIL) ---
+  const [modalSecurite, setModalSecurite] = useState(false);
+  const [ancienMdp, setAncienMdp] = useState('');
+  const [nouveauMdp, setNouveauMdp] = useState('');
+
+  // --- RAPPORTS DE SÉANCE (UNE SEULE MANIÈRE UNIFIÉE) ---
+  const [rapportsSeances, setRapportsSeances] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('app_enseignant_rapports')) || [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_enseignant_rapports', JSON.stringify(rapportsSeances));
+  }, [rapportsSeances]);
+
+  const [modalRapport, setModalRapport] = useState({
+    ouvert: false,
+    seanceTitre: '',
+    ecolesCibles: [],
+    classesCibles: [],
+    motifReport: '',
+    nouvelleDatePrevue: '',
+    contenuRapport: '',
+    difficultes: ''
+  });
+
   const [propositionsCenseur, setPropositionsCenseur] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_propositions'));
-      if (Array.isArray(stored)) return stored;
-    } catch {}
-    return [{ id: 99, ecole: 'Collège Moderne les Élites', classes: ['4ème 2', '3ème B'], censeur: 'M. Touré' }];
+      return JSON.parse(localStorage.getItem('app_enseignant_propositions')) || [
+        { id: 99, ecole: 'Collège Moderne les Élites', classes: ['4ème 2', '3ème B'], censeur: 'M. Touré' }
+      ];
+    } catch {
+      return [{ id: 99, ecole: 'Collège Moderne les Élites', classes: ['4ème 2', '3ème B'], censeur: 'M. Touré' }];
+    }
   });
 
   useEffect(() => {
     localStorage.setItem('app_enseignant_propositions', JSON.stringify(propositionsCenseur));
   }, [propositionsCenseur]);
 
-  const [modalConfirmationQuitter, setModalConfirmationQuitter] = useState({
-    ouvert: false,
-    affiliationId: null,
-    ecoleNom: ''
-  });
+  const [modalPaiement, setModalPaiement] = useState(false);
+  const [methodePaiement, setMethodePaiement] = useState('wave');
 
-  // --- MODALES POUR LE REPORT DE SÉANCES ---
-  const [modalReportSeance, setModalReportSeance] = useState({
-    ouvert: false,
-    seanceId: null,
-    seanceTitre: '',
-    ecolesClassesCibles: [],
-    date: new Date().toISOString().split('T')[0],
-    motif: '',
-    fichiersJoints: []
-  });
-
-  const [modalReportMultiple, setModalReportMultiple] = useState({
-    ouvert: false,
-    ecolesClassesSelectionnees: [],
-    date: new Date().toISOString().split('T')[0],
-    motif: '',
-    fichiersJoints: []
-  });
-
-  // Suivi des séances reportées
-  const [seancesReportees, setSeancesReportees] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_seances_reportees'));
-      if (stored && typeof stored === 'object' && !Array.isArray(stored)) return stored;
-    } catch {}
-    return {};
-  });
-
-  useEffect(() => {
-    localStorage.setItem('app_enseignant_seances_reportees', JSON.stringify(seancesReportees));
-  }, [seancesReportees]);
-
-  // --- NOTIFICATIONS ---
   const [notifications, setNotifications] = useState([
     { id: 1, texte: 'Votre demande d’affiliation pour le Lycée Moderne a été validée.', date: 'Aujourd\'hui', lu: false },
     { id: 2, texte: 'Proposition d’affiliation reçue de la part du Collège Moderne les Élites.', date: 'Hier', lu: false }
@@ -139,15 +123,32 @@ export default function EnseignantDashboard() {
   const [notifOuvert, setNotifOuvert] = useState(false);
   const notifRef = useRef(null);
 
-  // --- INFOS PROFIL ENSEIGNANT ---
   const [infosEnseignant, setInfosEnseignant] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_profil'));
-      if (stored && typeof stored === 'object' && !Array.isArray(stored)) return stored;
-    } catch {}
-    return {
-      civilite: 'M.', nom: 'Kouassi', prenoms: 'Jean', ville: 'Abidjan', matiere: 'Éducation Physique et Sportive (EPS)', photoProfil: '', etablissementSaisi: 'Lycée Moderne d’Abidjan', classesSelectionneesEnCours: ['6ème A', '6ème B']
-    };
+      return JSON.parse(localStorage.getItem('app_enseignant_profil')) || {
+        civilite: 'M.',
+        nom: 'Kouassi',
+        prenoms: 'Jean',
+        ville: 'Abidjan',
+        matiere: 'Éducation Physique et Sportive (EPS)',
+        photoProfil: '',
+        etablissementSaisi: 'Lycée Moderne d’Abidjan',
+        classesSelectionneesEnCours: ['6ème A', '6ème B'],
+        emailSecurite: 'jean.kouassi@prof.ci'
+      };
+    } catch {
+      return {
+        civilite: 'M.',
+        nom: 'Kouassi',
+        prenoms: 'Jean',
+        ville: 'Abidjan',
+        matiere: 'Éducation Physique et Sportive (EPS)',
+        photoProfil: '',
+        etablissementSaisi: 'Lycée Moderne d’Abidjan',
+        classesSelectionneesEnCours: ['6ème A', '6ème B'],
+        emailSecurite: 'jean.kouassi@prof.ci'
+      };
+    }
   });
 
   useEffect(() => {
@@ -155,27 +156,45 @@ export default function EnseignantDashboard() {
   }, [infosEnseignant]);
 
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
-  const [formProfil, setFormProfil] = useState({ ...(infosEnseignant || {}) });
+  const [formProfil, setFormProfil] = useState({ ...infosEnseignant });
+
+  const [profilOuvert, setProfilOuvert] = useState(false);
+  const profilRef = useRef(null);
+
+  // --- ÉTATS POUR LA DEMANDE DE PROMOTION (DEVENIR CENSEUR) ---
+  const [demandePromotionCenseur, setDemandePromotionCenseur] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('app_enseignant_demande_promotion')) || null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_enseignant_demande_promotion', JSON.stringify(demandePromotionCenseur));
+  }, [demandePromotionCenseur]);
+
+  const [modalPromotion, setModalPromotion] = useState(false);
+  const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: infosEnseignant.etablissementSaisi });
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      if (profilRef.current && !profilRef.current.contains(event.target)) setProfilOuvert(false);
       if (notifRef.current && !notifRef.current.contains(event.target)) setNotifOuvert(false);
+      if (menuBurgerRef.current && !menuBurgerRef.current.contains(event.target)) setMenuBurgerOuvert(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Navigation multi-écoles et classes
-  const [ecoleSelectionneeVue, setEcoleSelectionneeVue] = useState(null);
   const [classeSelectionneeVue, setClasseSelectionneeVue] = useState(null);
 
-  // --- BIBLIOTHÈQUE PERMANENTE ---
   const [bibliotheque, setBibliotheque] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente'));
-      if (Array.isArray(stored)) return stored;
-    } catch {}
-    return [];
+      return JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
@@ -194,58 +213,104 @@ export default function EnseignantDashboard() {
     datesParClasse: {}
   });
 
-  // --- PROGRAMME ANNUEL STRUCTURÉ PAR ÉCOLE & CLASSE ---
   const [programmesClasses, setProgrammesClasses] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes'));
-      if (stored && typeof stored === 'object' && !Array.isArray(stored)) return stored;
-    } catch {}
-    return {
-      'Lycée Moderne d’Abidjan - 6ème A': {
-        anneeScolaire: '2025-2026',
-        cycles: [
-          {
-            id: 1, titre: 'Cycle 1 : Gymnastique au sol et coordination', competence: 'Traiter une situation de coordination motrice.', dateDebut: '2026-01-10', dateFin: '2026-02-28', statut: 'En cours', soumisAuCenseur: false, champsPersonnalises: [],
-            lecons: [
-              {
-                id: 101, titre: 'Leçon 1 : Maîtriser les équilibres et roulements', nombreSeancesPrevues: 2, statut: 'En cours', soumisAuCenseur: false, champsPersonnalises: [],
-                seances: [
-                  { id: 1001, numero: 1, titre: 'Séance d’initiation - Roulement avant', date: '2026-03-10', lieu: 'Gymnase A', habilites: 'Savoir enrouler sa tête.', contenus: 'Atelier sol matelas.', exercices: 'Roulé-boulé.', evaluations: 'Formative.', statut: 'En cours', soumisAuCenseur: false, fichiersMultimedias: [], champsPersonnalises: [] }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    };
+      return JSON.parse(localStorage.getItem('app_enseignant_programmes_classes')) || {
+        '6ème A': {
+          anneeScolaire: '2025-2026',
+          titre: 'Programme Annuel 2025-2026',
+          cycles: [
+            {
+              id: 1,
+              titre: 'Cycle 1 : Gymnastique au sol et coordination',
+              competence: 'Traiter une situation de coordination motrice.',
+              dateDebut: '2026-01-10',
+              dateFin: '2026-02-28',
+              dureeEstimee: '7 semaines',
+              statut: 'En cours',
+              soumisAuCenseur: false,
+              lecons: [
+                {
+                  id: 101,
+                  titre: 'Leçon 1 : Maîtriser les équilibres et roulements',
+                  nombreSeancesPrevues: 2,
+                  statut: 'En cours',
+                  soumisAuCenseur: false,
+                  seances: [
+                    {
+                      id: 1001,
+                      numero: 1,
+                      titre: 'Séance d’initiation - Roulement avant',
+                      date: '2026-03-10',
+                      lieu: 'Gymnase A',
+                      valeursChamps: {
+                        habilites: 'Savoir enrouler sa tête.',
+                        contenus: 'Atelier sol matelas.',
+                        exercices: 'Roulé-boulé.',
+                        evaluations: 'Formative.'
+                      },
+                      statut: 'En cours',
+                      soumisAuCenseur: false,
+                      fichiersMultimedias: []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      };
+    } catch {
+      return {};
+    }
   });
 
   useEffect(() => {
     localStorage.setItem('app_enseignant_programmes_classes', JSON.stringify(programmesClasses));
   }, [programmesClasses]);
 
-  // --- MÉMORISATION DU MODÈLE DE FICHE PAR L'ENSEIGNANT ---
-  const [modeleFiche, setModeleFiche] = useState(() => {
+  // --- CHAMPS PERSONNALISABLES DE SÉANCE ENREGISTRÉS SUR MESURE ---
+  const [champsPersonnalises, setChampsPersonnalises] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('app_enseignant_modele_fiche'));
-      if (stored && typeof stored === 'object') return stored;
-    } catch {}
-    return {
-      champsDefaut: { habilites: true, contenus: true, exercices: true, evaluations: true },
-      champsPersoLabels: []
-    };
+      return JSON.parse(localStorage.getItem('app_enseignant_champs_perso')) || [
+        { id: 'habilites', label: '🎯 Habilités', type: 'textarea' },
+        { id: 'contenus', label: '📚 Contenus Pédagogiques', type: 'textarea' },
+        { id: 'exercices', label: '⚡ Exercices d\'Application', type: 'textarea' },
+        { id: 'evaluations', label: '📝 Modalités d\'Évaluation', type: 'textarea' }
+      ];
+    } catch {
+      return [
+        { id: 'habilites', label: '🎯 Habilités', type: 'textarea' },
+        { id: 'contenus', label: '📚 Contenus Pédagogiques', type: 'textarea' },
+        { id: 'exercices', label: '⚡ Exercices d\'Application', type: 'textarea' },
+        { id: 'evaluations', label: '📝 Modalités d\'Évaluation', type: 'textarea' }
+      ];
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('app_enseignant_modele_fiche', JSON.stringify(modeleFiche));
-  }, [modeleFiche]);
+    localStorage.setItem('app_enseignant_champs_perso', JSON.stringify(champsPersonnalises));
+  }, [champsPersonnalises]);
 
-  // --- ASSISTANT UNIFIÉ (FORMULAIRES & IA / SCAN) ---
+  // --- ETAT POUR LA GESTION DES MENUS DÉROULANTS HIÉRARCHIQUES ---
+  const [cyclesOuverts, setCyclesOuverts] = useState({});
+  const [leconsOuvertes, setLeconsOuvertes] = useState({});
+
+  const toggleCycle = (cycleId) => {
+    setCyclesOuverts(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
+  };
+
+  const toggleLecon = (leconId) => {
+    setLeconsOuvertes(prev => ({ ...prev, [leconId]: !prev[leconId] }));
+  };
+
   const [modalAssistant, setModalAssistant] = useState({
     ouvert: false,
     niveauCible: 'cycle',
     cycleIdCible: null,
     leconIdCible: null,
+    titreProgramme: '',
+    cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }],
     titreCycle: '',
     competenceCycle: '',
     dateDebutCycle: new Date().toISOString().split('T')[0],
@@ -255,42 +320,44 @@ export default function EnseignantDashboard() {
     titreSeance: '',
     dateSeance: new Date().toISOString().split('T')[0],
     lieuSeance: '',
-    habilites: '',
-    contenus: '',
-    exercices: '',
-    evaluations: '',
+    valeursChamps: {},
     fichiersMultimedias: [],
-    champsPersonnalises: [], 
-    enCoursScan: false,
-    fichierNom: '',
-    ecolesClassesCibles: [],
-    datesParClassePerso: {}
+    ecolesCiblesCycle: [],
+    classesCiblesCycle: [],
+    datesParClasseCycle: {}
   });
 
   const [modalEdition, setModalEdition] = useState({
-    ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {}
+    ouvert: false,
+    type: null,
+    cycleId: null,
+    leconId: null,
+    seanceId: null,
+    donnees: {}
   });
 
   const [modalAffiliation, setModalAffiliation] = useState(false);
   const [nouvelleEcoleSaisie, setNouvelleEcoleSaisie] = useState('');
-  const [codeOuProviseur, setCodeOuProviseur] = useState('');
   const [nouvellesClassesSaisies, setNouvellesClassesSaisies] = useState('6ème A, 5ème A');
+
+  const [modalDuplicationIntelligente, setModalDuplicationIntelligente] = useState({
+    ouvert: false,
+    itemSource: null,
+    typeSource: '',
+    classesCibles: [],
+    datesParClasse: {}
+  });
 
   const showToast = (msg) => {
     setMessage(msg);
     setTimeout(() => setMessage(''), 4000);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('app_enseignant_profil');
-    showToast("🚪 Déconnexion réussie.");
-  };
-
   const handleEnregistrerProfil = (e) => {
     e.preventDefault();
     setInfosEnseignant({ ...formProfil });
     setModalProfilOuvert(false);
-    showToast("✅ Profil et photo mis à jour avec succès !");
+    showToast("✅ Profil mis à jour avec succès !");
   };
 
   const handleChangerPhotoProfil = (e) => {
@@ -303,255 +370,469 @@ export default function EnseignantDashboard() {
     reader.readAsDataURL(file);
   };
 
-  const initialiserProgrammeClasse = (cleUnique) => {
-    if (programmesClasses && programmesClasses[cleUnique]) return;
-    setProgrammesClasses(prev => ({
-      ...prev,
-      [cleUnique]: {
-        anneeScolaire: '2025-2026',
-        cycles: [
-          {
-            id: Date.now(), titre: 'Cycle 1 : (Cliquez sur modifier pour renommer)', competence: 'Compétence générale', dateDebut: '2026-01-10', dateFin: '2026-02-15', statut: 'En cours', soumisAuCenseur: false, champsPersonnalises: [], lecons: []
+  const envoyerDemandePromotionCenseur = (e) => {
+    e.preventDefault();
+    setDemandePromotionCenseur({
+      date: new Date().toLocaleDateString(),
+      type: formPromotion.type,
+      ecoleCible: formPromotion.type === 'interne' ? infosEnseignant.etablissementSaisi : formPromotion.ecoleCible,
+      statut: 'En attente de validation'
+    });
+    setModalPromotion(false);
+    showToast("🚀 Demande d'évolution vers le poste de Censeur envoyée au chef d'établissement !");
+  };
+
+  const executerDuplicationIntelligente = (e) => {
+    e.preventDefault();
+    const { itemSource, typeSource, classesCibles, datesParClasse } = modalDuplicationIntelligente;
+    if (!Array.isArray(classesCibles) || classesCibles.length === 0) {
+      showToast("⚠️ Veuillez sélectionner au moins une classe cible.");
+      return;
+    }
+
+    classesCibles.forEach(classeCible => {
+      const dateCible = (datesParClasse && datesParClasse[classeCible]) || new Date().toISOString().split('T')[0];
+      if (!programmesClasses[classeCible]) {
+        initialiserProgrammeClasse(classeCible);
+      }
+      const progCible = programmesClasses[classeCible] || { anneeScolaire: '2025-2026', cycles: [] };
+
+      if (typeSource === 'cycle') {
+        const nouveauCycle = {
+          ...itemSource,
+          id: Date.now() + Math.random(),
+          titre: `${itemSource.titre} (Dupliqué - ${classeCible})`,
+          lecons: Array.isArray(itemSource.lecons) ? itemSource.lecons.map(lc => ({
+            ...lc,
+            id: Date.now() + Math.random(),
+            seances: Array.isArray(lc.seances) ? lc.seances.map(sc => ({ ...sc, id: Date.now() + Math.random(), date: dateCible })) : []
+          })) : []
+        };
+        setProgrammesClasses(prev => ({
+          ...prev,
+          [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), nouveauCycle] }
+        }));
+      } else if (typeSource === 'lecon') {
+        const nouvelleLecon = {
+          ...itemSource,
+          id: Date.now() + Math.random(),
+          titre: `${itemSource.titre} (Dupliqué - ${classeCible})`,
+          seances: Array.isArray(itemSource.seances) ? itemSource.seances.map(sc => ({ ...sc, id: Date.now() + Math.random(), date: dateCible })) : []
+        };
+        setProgrammesClasses(prev => {
+          let cyclesMaj = Array.isArray(progCible.cycles) ? [...progCible.cycles] : [];
+          if (cyclesMaj.length === 0) {
+            cyclesMaj.push({
+              id: Date.now(),
+              titre: 'Cycle Général',
+              competence: 'Compétence',
+              dateDebut: '2026-01-01',
+              dateFin: '2026-06-30',
+              statut: 'En cours',
+              lecons: [nouvelleLecon]
+            });
+          } else {
+            cyclesMaj[0] = {
+              ...cyclesMaj[0],
+              lecons: [...(cyclesMaj[0].lecons || []), nouvelleLecon]
+            };
           }
-        ]
+          return { ...prev, [classeCible]: { ...progCible, cycles: cyclesMaj } };
+        });
+      } else if (typeSource === 'seance') {
+        const nouvelleSeance = {
+          ...itemSource,
+          id: Date.now() + Math.random(),
+          titre: `${itemSource.titre} (Dupliqué - ${classeCible})`,
+          date: dateCible
+        };
+        setProgrammesClasses(prev => {
+          let cyclesMaj = Array.isArray(progCible.cycles) ? [...progCible.cycles] : [];
+          if (cyclesMaj.length === 0) {
+            cyclesMaj.push({
+              id: Date.now(),
+              titre: 'Cycle Général',
+              competence: 'Compétence',
+              dateDebut: '2026-01-01',
+              dateFin: '2026-06-30',
+              statut: 'En cours',
+              lecons: [{
+                id: Date.now() + 1,
+                titre: 'Leçon Générale',
+                nombreSeancesPrevues: 3,
+                statut: 'En cours',
+                seances: [nouvelleSeance]
+              }]
+            });
+          } else {
+            let premierCycle = { ...cyclesMaj[0] };
+            let leconsMaj = Array.isArray(premierCycle.lecons) ? [...premierCycle.lecons] : [];
+            if (leconsMaj.length === 0) {
+              leconsMaj.push({
+                id: Date.now() + 1,
+                titre: 'Leçon Générale',
+                nombreSeancesPrevues: 3,
+                statut: 'En cours',
+                seances: [nouvelleSeance]
+              });
+            } else {
+              let premiereLecon = { ...leconsMaj[0] };
+              premiereLecon.seances = [...(premiereLecon.seances || []), nouvelleSeance];
+              leconsMaj[0] = premiereLecon;
+            }
+            premierCycle.lecons = leconsMaj;
+            cyclesMaj[0] = premierCycle;
+          }
+          return { ...prev, [classeCible]: { ...progCible, cycles: cyclesMaj } };
+        });
+      }
+    });
+
+    showToast("✨ Duplication intelligente effectuée avec succès !");
+    setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} });
+  };
+
+  // --- SOUMISSION DE RAPPORT (UNE SEULE MANIÈRE UNIFIÉE) ---
+  const soumettreRapportSeance = (e) => {
+    e.preventDefault();
+    if (!modalRapport.seanceTitre || !Array.isArray(modalRapport.classesCibles) || modalRapport.classesCibles.length === 0) {
+      showToast("⚠️ Veuillez renseigner le titre et sélectionner au moins une classe.");
+      return;
+    }
+
+    const nouveauRapport = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString(),
+      ...modalRapport,
+      enseignant: `${infosEnseignant.civilite} ${infosEnseignant.nom} ${infosEnseignant.prenoms}`
+    };
+
+    setRapportsSeances(prev => [nouveauRapport, ...(Array.isArray(prev) ? prev : [])]);
+    setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' });
+    showToast("📤 Rapport de séance et compte rendu transmis au censeur avec succès !");
+  };
+
+  const initialiserProgrammeClasse = (classe) => {
+    if (programmesClasses[classe]) return;
+    setProgrammesClasses(prev => ({
+      ...(prev || {}),
+      [classe]: {
+        anneeScolaire: '2025-2026',
+        cycles: []
       }
     }));
-    showToast(`Programme annuel initialisé pour ${cleUnique} !`);
+    showToast(`Programme initialisé pour la classe ${classe} !`);
   };
 
   const gererValidationAssistant = (e) => {
     e.preventDefault();
-    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, titreLecon, nombreSeancesLecon, titreSeance, lieuSeance, habilites, contenus, exercices, evaluations, fichiersMultimedias, ecolesClassesCibles, datesParClassePerso, champsPersonnalises } = modalAssistant;
+    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, titreLecon, nombreSeancesLecon, titreSeance, dateSeance, lieuSeance, valeursChamps, fichiersMultimedias, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
-    const classesCochees = Object.keys(datesParClassePerso || {});
-    const ciblesFinales = classesCochees.length > 0 ? classesCochees : ((ecolesClassesCibles || []).length > 0 ? ecolesClassesCibles : (classeSelectionneeVue ? [classeSelectionneeVue] : []));
-
-    if (ciblesFinales.length === 0) {
-      showToast("⚠️ Veuillez sélectionner au moins une classe/école cible.");
-      return;
-    }
-
-    let nouveauxProgrammes = { ...programmesClasses };
-
-    ciblesFinales.forEach(cleClasse => {
-      if (!nouveauxProgrammes[cleClasse]) {
-        nouveauxProgrammes[cleClasse] = { anneeScolaire: '2025-2026', cycles: [] };
+    // --- CRÉATION DU PROGRAMME ANNUEL COMPLET ---
+    if (niveauCible === 'programme_annuel') {
+      if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
+        showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce programme.");
+        return;
       }
 
-      let progClasse = nouveauxProgrammes[cleClasse];
-      let nouveauxCycles = [...(progClasse.cycles || [])];
-      const dateSpecifique = (datesParClassePerso && datesParClassePerso[cleClasse]) || dateDebutCycle || new Date().toISOString().split('T')[0];
+      classesCiblesCycle.forEach(classeCible => {
+        let nouveauxCyclesGeneres = cyclesProgramme.map(cp => {
+          let leconsGenerees = [];
+          for (let i = 1; i <= cp.nbLecons; i++) {
+            leconsGenerees.push({
+              id: Date.now() + Math.random(),
+              titre: `Leçon ${i} du ${cp.titre}`,
+              nombreSeancesPrevues: 3, 
+              statut: 'En attente',
+              soumisAuCenseur: false,
+              seances: []
+            });
+          }
 
-      if (niveauCible === 'cycle') {
-        nouveauxCycles.push({
-          id: Date.now() + Math.random(), titre: titreCycle || 'Nouveau Cycle', competence: competenceCycle || '', dateDebut: dateSpecifique, dateFin: dateFinCycle || '2026-02-01', statut: 'En cours', soumisAuCenseur: false, champsPersonnalises: champsPersonnalises || [], lecons: []
+          return {
+            id: Date.now() + Math.random(),
+            titre: cp.titre,
+            competence: `Compétence pour ${cp.titre}`,
+            dateDebut: new Date().toISOString().split('T')[0],
+            dateFin: new Date().toISOString().split('T')[0],
+            dureeEstimee: cp.duree,
+            statut: 'En attente',
+            soumisAuCenseur: false,
+            lecons: leconsGenerees
+          };
         });
-      } 
-      else if (niveauCible === 'lecon') {
+
+        setProgrammesClasses(prev => ({
+          ...(prev || {}),
+          [classeCible]: { anneeScolaire: '2025-2026', titre: titreProgramme, cycles: nouveauxCyclesGeneres }
+        }));
+      });
+
+      showToast("✨ Programme annuel complet généré avec succès !");
+    }
+    // --- CRÉATION DE CYCLE MULTI-ÉCOLES / MULTI-CLASSES ---
+    else if (niveauCible === 'cycle') {
+      if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
+        showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce cycle.");
+        return;
+      }
+
+      classesCiblesCycle.forEach(classeCible => {
+        const dateDebClasse = (datesParClasseCycle && datesParClasseCycle[classeCible]?.debut) || dateDebutCycle || '2026-01-01';
+        const dateFinClasse = (datesParClasseCycle && datesParClasseCycle[classeCible]?.fin) || dateFinCycle || '2026-02-01';
+
+        if (!programmesClasses[classeCible]) {
+          initialiserProgrammeClasse(classeCible);
+        }
+        const progCible = programmesClasses[classeCible] || { anneeScolaire: '2025-2026', cycles: [] };
+
+        const nouveauCycleMulti = {
+          id: Date.now() + Math.random(),
+          titre: titreCycle || 'Nouveau Cycle',
+          competence: competenceCycle || '',
+          dateDebut: dateDebClasse,
+          dateFin: dateFinClasse,
+          statut: 'En cours',
+          soumisAuCenseur: false,
+          lecons: []
+        };
+
+        setProgrammesClasses(prev => ({
+          ...(prev || {}),
+          [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), nouveauCycleMulti] }
+        }));
+      });
+
+      showToast("✨ Cycle créé et dupliqué avec succès !");
+    } 
+    else {
+      // Pour les leçons ou séances créées sur la classe en cours de visionnage
+      if (!classeSelectionneeVue) return;
+      const progClasse = programmesClasses[classeSelectionneeVue];
+      if (!progClasse) return;
+
+      let nouveauxCycles = Array.isArray(progClasse.cycles) ? [...progClasse.cycles] : [];
+
+      if (niveauCible === 'lecon') {
         nouveauxCycles = nouveauxCycles.map(c => {
           if (c.id === Number(cycleIdCible)) {
             return {
               ...c,
-              lecons: [...(c.lecons || []), { id: Date.now() + Math.random(), titre: titreLecon || 'Nouvelle Leçon', nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3, statut: 'En cours', soumisAuCenseur: false, champsPersonnalises: champsPersonnalises || [], seances: [] }]
+              lecons: [
+                ...(Array.isArray(c.lecons) ? c.lecons : []),
+                {
+                  id: Date.now(),
+                  titre: titreLecon || 'Nouvelle Leçon',
+                  nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3,
+                  statut: 'En cours',
+                  soumisAuCenseur: false,
+                  seances: []
+                }
+              ]
             };
           }
           return c;
         });
+        showToast("Leçon créée !");
       } 
       else if (niveauCible === 'seance') {
         nouveauxCycles = nouveauxCycles.map(c => {
           if (c.id === Number(cycleIdCible)) {
             return {
               ...c,
-              lecons: (c.lecons || []).map(l => {
+              lecons: Array.isArray(c.lecons) ? c.lecons.map(l => {
                 if (l.id === Number(leconIdCible)) {
                   const nouvelleSeance = {
-                    id: Date.now() + Math.random(), numero: (l.seances || []).length + 1, titre: titreSeance || 'Séance pédagogique', date: dateSpecifique, lieu: lieuSeance || 'Gymnase', habilites, contenus, exercices, evaluations, fichiersMultimedias: fichiersMultimedias || [], champsPersonnalises: champsPersonnalises || [], statut: 'En cours', soumisAuCenseur: false
+                    id: Date.now(),
+                    numero: Array.isArray(l.seances) ? l.seances.length + 1 : 1,
+                    titre: titreSeance || 'Séance pédagogique',
+                    date: dateSeance || new Date().toISOString().split('T')[0],
+                    lieu: lieuSeance || 'Gymnase',
+                    valeursChamps: valeursChamps || {},
+                    fichiersMultimedias: fichiersMultimedias || [],
+                    statut: 'En cours',
+                    soumisAuCenseur: false
                   };
-                  setBibliotheque(prev => [...(prev || []), { id: Date.now() + Math.random(), type: 'seance', nom: nouvelleSeance.titre, niveau: '6ème', classe: cleClasse, anneeScolaire: '2025-2026', date: dateSpecifique, cycleAssocie: c.titre, leconAssociee: l.titre, habilites, contenus, exercices, evaluations, champsPersonnalises: champsPersonnalises || [], fichiersMultimedias: fichiersMultimedias || [] }]);
-                  return { ...l, seances: [...(l.seances || []), nouvelleSeance] };
+
+                  setBibliotheque(prev => [...(Array.isArray(prev) ? prev : []), {
+                    id: Date.now(),
+                    type: 'seance',
+                    nom: nouvelleSeance.titre,
+                    niveau: '6ème',
+                    classe: classeSelectionneeVue,
+                    anneeScolaire: '2025-2026',
+                    date: nouvelleSeance.date,
+                    cycleAssocie: c.titre,
+                    leconAssociee: l.titre,
+                    valeursChamps: valeursChamps || {},
+                    fichiersMultimedias: fichiersMultimedias || []
+                  }]);
+
+                  return { ...l, seances: [...(Array.isArray(l.seances) ? l.seances : []), nouvelleSeance] };
                 }
                 return l;
-              })
+              }) : []
             };
           }
           return c;
         });
+        showToast("Séance personnalisée créée !");
       }
-      nouveauxProgrammes[cleClasse] = { ...progClasse, cycles: nouveauxCycles };
+
+      setProgrammesClasses({
+        ...(programmesClasses || {}),
+        [classeSelectionneeVue]: { ...progClasse, cycles: nouveauxCycles }
+      });
+    }
+
+    setModalAssistant({
+      ouvert: false, niveauCible: 'programme', cycleIdCible: null, leconIdCible: null,
+      titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '',
+      titreLecon: '', nombreSeancesLecon: '3', titreSeance: '',
+      dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
+      valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {},
+      titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }]
     });
-
-    setProgrammesClasses(nouveauxProgrammes);
-    showToast(`🚀 Élément créé et dupliqué avec succès pour ${ciblesFinales.length} cible(s) !`);
-
-    setModalAssistant(prev => ({
-      ...prev, ouvert: false, niveauCible: 'programme', cycleIdCible: null, leconIdCible: null, titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '', titreLecon: '', nombreSeancesLecon: '3', titreSeance: '', dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '', habilites: '', contenus: '', exercices: '', evaluations: '', fichiersMultimedias: [], champsPersonnalises: [], enCoursScan: false, fichierNom: '', ecolesClassesCibles: [], datesParClassePerso: {}
-    }));
   };
 
   const executerConsultationEtReutilisation = (e) => {
     e.preventDefault();
     const { item, donneesModifiees, classesSelectionnees, datesParClasse } = modalConsulterReutiliser;
-    if ((classesSelectionnees || []).length === 0) {
-      showToast("Veuillez sélectionner au moins une classe cible.");
+    if (!Array.isArray(classesSelectionnees) || classesSelectionnees.length === 0) {
+      showToast("⚠️ Veuillez sélectionner au moins une classe cible.");
       return;
     }
 
-    (classesSelectionnees || []).forEach(classeCible => {
+    classesSelectionnees.forEach(classeCible => {
       const dateAttribuee = (datesParClasse && datesParClasse[classeCible]) || new Date().toISOString().split('T')[0];
-      if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
+      
+      if (!programmesClasses[classeCible]) {
+        initialiserProgrammeClasse(classeCible);
+      }
 
       const progCible = programmesClasses[classeCible] || { anneeScolaire: '2025-2026', cycles: [] };
+
       const nouvelleSeanceReutilisee = {
-        id: Date.now() + Math.random(), numero: 1, titre: donneesModifiees?.nom || item?.nom || '', date: dateAttribuee, lieu: 'Gymnase', habilites: donneesModifiees?.habilites || item?.habilites || '', contenus: donneesModifiees?.contenus || item?.contenus || '', exercices: donneesModifiees?.exercices || item?.exercices || '', evaluations: donneesModifiees?.evaluations || item?.evaluations || '', fichiersMultimedias: item?.fichiersMultimedias || [], champsPersonnalises: item?.champsPersonnalises || [], statut: 'En cours', soumisAuCenseur: false
+        id: Date.now() + Math.random(),
+        numero: 1,
+        titre: (donneesModifiees && donneesModifiees.nom) || (item && item.nom) || 'Séance réutilisée',
+        date: dateAttribuee,
+        lieu: 'Gymnase',
+        valeursChamps: (donneesModifiees && donneesModifiees.valeursChamps) || (item && item.valeursChamps) || {},
+        fichiersMultimedias: (item && item.fichiersMultimedias) || [],
+        statut: 'En cours',
+        soumisAuCenseur: false
       };
 
       setProgrammesClasses(prev => {
-        let cyclesCible = [...(progCible.cycles || [])];
+        let cyclesCible = Array.isArray(progCible.cycles) ? [...progCible.cycles] : [];
         if (cyclesCible.length === 0) {
-          cyclesCible.push({ id: Date.now(), titre: donneesModifiees?.cycleAssocie || item?.cycleAssocie || 'Cycle Général', competence: 'Compétence', dateDebut: '2026-01-01', dateFin: '2026-06-30', statut: 'En cours', lecons: [{ id: Date.now() + 1, titre: donneesModifiees?.leconAssociee || item?.leconAssociee || 'Leçon Générale', nombreSeancesPrevues: 3, statut: 'En cours', seances: [nouvelleSeanceReutilisee] }] });
+          cyclesCible.push({
+            id: Date.now(),
+            titre: (donneesModifiees && donneesModifiees.cycleAssocie) || (item && item.cycleAssocie) || 'Cycle Général',
+            competence: 'Compétence',
+            dateDebut: '2026-01-01',
+            dateFin: '2026-06-30',
+            statut: 'En cours',
+            lecons: [{
+              id: Date.now() + 1,
+              titre: (donneesModifiees && donneesModifiees.leconAssociee) || (item && item.leconAssociee) || 'Leçon Générale',
+              nombreSeancesPrevues: 3,
+              statut: 'En cours',
+              seances: [nouvelleSeanceReutilisee]
+            }]
+          });
         } else {
-          if (!cyclesCible[0].lecons) cyclesCible[0].lecons = [];
-          if (cyclesCible[0].lecons.length === 0) {
-            cyclesCible[0].lecons.push({ id: Date.now() + 1, titre: 'Leçon Générale', nombreSeancesPrevues: 3, statut: 'En cours', seances: [nouvelleSeanceReutilisee] });
+          let premierCycle = { ...cyclesCible[0] };
+          let leconsCibles = Array.isArray(premierCycle.lecons) ? [...premierCycle.lecons] : [];
+          if (leconsCibles.length === 0) {
+            leconsCibles.push({
+              id: Date.now() + 1,
+              titre: 'Leçon Générale',
+              nombreSeancesPrevues: 3,
+              statut: 'En cours',
+              seances: [nouvelleSeanceReutilisee]
+            });
           } else {
-            if (!cyclesCible[0].lecons[0].seances) cyclesCible[0].lecons[0].seances = [];
-            cyclesCible[0].lecons[0].seances.push(nouvelleSeanceReutilisee);
+            let premiereLecon = { ...leconsCibles[0] };
+            premiereLecon.seances = [...(premiereLecon.seances || []), nouvelleSeanceReutilisee];
+            leconsCibles[0] = premiereLecon;
           }
+          premierCycle.lecons = leconsCibles;
+          cyclesCible[0] = premierCycle;
         }
-        return { ...prev, [classeCible]: { ...progCible, cycles: cyclesCible } };
+        return { ...(prev || {}), [classeCible]: { ...progCible, cycles: cyclesCible } };
       });
     });
 
-    showToast("♻️ Fiche consultée, modifiée et réutilisée avec succès dans les classes ciblées !");
+    showToast("♻️ Fiche réutilisée avec succès !");
     setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} });
-  };
-
-  const soumettreReportSeance = (e) => {
-    e.preventDefault();
-    const { seanceId, seanceTitre, ecolesClassesCibles, date, motif, fichiersJoints } = modalReportSeance;
-    if ((ecolesClassesCibles || []).length === 0 || !motif || !date) {
-      showToast("⚠️ Veuillez sélectionner les classes cibles, la date et le motif.");
-      return;
-    }
-
-    try {
-      const rapportsReportsExistants = JSON.parse(localStorage.getItem('app_censeur_rapports_reports')) || [];
-      const nouveauxRapports = (ecolesClassesCibles || []).map(cleUnique => {
-        const [ecole, classe] = cleUnique.split(' - ');
-        return {
-          id: Date.now() + Math.random(),
-          enseignant: `${infosEnseignant?.civilite || ''} ${infosEnseignant?.nom || ''} ${infosEnseignant?.prenoms || ''}`,
-          matiere: infosEnseignant?.matiere || 'EPS',
-          ecole: ecole,
-          classe: classe || cleUnique,
-          seance: seanceTitre || 'Séance non spécifiée',
-          date: date,
-          motif: motif,
-          fichiersJoints: fichiersJoints || [],
-          dateSoumission: new Date().toLocaleDateString()
-        };
-      });
-
-      localStorage.setItem('app_censeur_rapports_reports', JSON.stringify([...nouveauxRapports, ...rapportsReportsExistants]));
-      
-      setSeancesReportees(prev => ({
-        ...prev,
-        [seanceId]: { date, motif }
-      }));
-    } catch (err) {}
-
-    setModalReportSeance(prev => ({ ...prev, ouvert: false, seanceId: null, seanceTitre: '', ecolesClassesCibles: [], date: new Date().toISOString().split('T')[0], motif: '', fichiersJoints: [] }));
-    showToast("📤 Séance reportée transmise avec succès au censeur !");
-  };
-
-  const soumettreReportMultiple = (e) => {
-    e.preventDefault();
-    const { ecolesClassesSelectionnees, date, motif, fichiersJoints } = modalReportMultiple;
-    if ((ecolesClassesSelectionnees || []).length === 0 || !motif || !date) {
-      showToast("⚠️ Veuillez sélectionner au moins une classe, une date et un motif.");
-      return;
-    }
-
-    try {
-      const rapportsReportsExistants = JSON.parse(localStorage.getItem('app_censeur_rapports_reports')) || [];
-      const nouveauxRapports = (ecolesClassesSelectionnees || []).map(cleUnique => {
-        const [ecole, classe] = cleUnique.split(' - ');
-        return {
-          id: Date.now() + Math.random(),
-          enseignant: `${infosEnseignant?.civilite || ''} ${infosEnseignant?.nom || ''} ${infosEnseignant?.prenoms || ''}`,
-          matiere: infosEnseignant?.matiere || 'EPS',
-          ecole: ecole,
-          classe: classe || cleUnique,
-          seance: 'Journée de cours complète (Séances multiples manquées)',
-          date: date,
-          motif: motif,
-          fichiersJoints: fichiersJoints || [],
-          dateSoumission: new Date().toLocaleDateString()
-        };
-      });
-      localStorage.setItem('app_censeur_rapports_reports', JSON.stringify([...nouveauxRapports, ...rapportsReportsExistants]));
-    } catch (err) {}
-
-    setModalReportMultiple(prev => ({ ...prev, ouvert: false, ecolesClassesSelectionnees: [], date: new Date().toISOString().split('T')[0], motif: '', fichiersJoints: [] }));
-    showToast("📤 Rapports de séances multiples transmis avec succès au censeur !");
   };
 
   const soumettreAuCenseur = (type, cycleId, leconId = null, seanceId = null) => {
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !prog.cycles) return;
-    const cyclesMaj = (prog.cycles || []).map(c => {
+    if (!prog || !Array.isArray(prog.cycles)) return;
+
+    const cyclesMaj = prog.cycles.map(c => {
       if (c.id === cycleId) {
         if (type === 'programme' || type === 'cycle') return { ...c, soumisAuCenseur: true };
         return {
           ...c,
-          lecons: (c.lecons || []).map(l => {
+          lecons: Array.isArray(c.lecons) ? c.lecons.map(l => {
             if (l.id === leconId) {
               if (type === 'lecon') return { ...l, soumisAuCenseur: true };
-              return { ...l, seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true } : s) };
+              return {
+                ...l,
+                seances: Array.isArray(l.seances) ? l.seances.map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true } : s) : []
+              };
             }
             return l;
-          })
+          }) : []
         };
       }
       return c;
     });
-    setProgrammesClasses({ ...programmesClasses, [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
-    showToast("🚀 Élément envoyé avec succès au censeur pour validation !");
+
+    setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    showToast("🚀 Élément envoyé au censeur !");
   };
 
   const marquerLeconTerminee = (cycleId, leconId) => {
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !prog.cycles) return;
-    const cyclesMaj = (prog.cycles || []).map(c => c.id === cycleId ? { ...c, lecons: (c.lecons || []).map(l => l.id === leconId ? { ...l, statut: 'Terminée' } : l) } : c);
-    setProgrammesClasses({ ...programmesClasses, [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
-    showToast("🏁 Leçon marquée comme terminée ! Vous pouvez en créer une nouvelle.");
+    if (!prog || !Array.isArray(prog.cycles)) return;
+    const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? {
+      ...c,
+      lecons: Array.isArray(c.lecons) ? c.lecons.map(l => l.id === leconId ? { ...l, statut: 'Terminée' } : l) : []
+    } : c);
+    setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    showToast("🏁 Leçon terminée !");
   };
 
   const marquerCycleTermine = (cycleId) => {
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !prog.cycles) return;
-    const cyclesMaj = (prog.cycles || []).map(c => c.id === cycleId ? { ...c, statut: 'Terminé' } : c);
-    setProgrammesClasses({ ...programmesClasses, [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
-    showToast("🏆 Cycle clôturé et terminé avec succès !");
+    if (!prog || !Array.isArray(prog.cycles)) return;
+    const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? { ...c, statut: 'Terminé' } : c);
+    setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    showToast("🏆 Cycle terminé !");
   };
 
   const ouvrirModalEdition = (type, cycleId, leconId = null, seanceId = null) => {
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !prog.cycles) return;
-    const cycle = (prog.cycles || []).find(c => c.id === cycleId);
+    if (!prog || !Array.isArray(prog.cycles)) return;
+    const cycle = prog.cycles.find(c => c.id === cycleId);
     if (!cycle) return;
 
     let donnees = {};
-    if (type === 'cycle') donnees = { titre: cycle.titre || '', competence: cycle.competence || '', dateDebut: cycle.dateDebut || '', dateFin: cycle.dateFin || '' };
+    if (type === 'cycle') donnees = { titre: cycle.titre, competence: cycle.competence, dateDebut: cycle.dateDebut, dateFin: cycle.dateFin };
     else if (type === 'lecon') {
-      const lecon = (cycle.lecons || []).find(l => l.id === leconId);
-      if (lecon) donnees = { titre: lecon.titre || '', nombreSeancesPrevues: lecon.nombreSeancesPrevues || 3 };
+      const lecon = Array.isArray(cycle.lecons) ? cycle.lecons.find(l => l.id === leconId) : null;
+      if (lecon) donnees = { titre: lecon.titre, nombreSeancesPrevues: lecon.nombreSeancesPrevues };
     } else if (type === 'seance') {
-      const lecon = (cycle.lecons || []).find(l => l.id === leconId);
-      const seance = (lecon?.seances || []).find(s => s.id === seanceId);
-      if (seance) donnees = { titre: seance.titre || '', date: seance.date || '', lieu: seance.lieu || '', habilites: seance.habilites || '', contenus: seance.contenus || '', exercices: seance.exercices || '', evaluations: seance.evaluations || '' };
+      const lecon = Array.isArray(cycle.lecons) ? cycle.lecons.find(l => l.id === leconId) : null;
+      const seance = lecon && Array.isArray(lecon.seances) ? lecon.seances.find(s => s.id === seanceId) : null;
+      if (seance) donnees = { titre: seance.titre, date: seance.date, lieu: seance.lieu, ...(seance.valeursChamps || {}) };
     }
+
     setModalEdition({ ouvert: true, type, cycleId, leconId, seanceId, donnees });
   };
 
@@ -559,91 +840,97 @@ export default function EnseignantDashboard() {
     e.preventDefault();
     const { type, cycleId, leconId, seanceId, donnees } = modalEdition;
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !prog.cycles) return;
+    if (!prog || !Array.isArray(prog.cycles)) return;
 
-    const cyclesMaj = (prog.cycles || []).map(c => {
+    const cyclesMaj = prog.cycles.map(c => {
       if (c.id === cycleId) {
-        if (type === 'cycle') return { ...c, ...donnees };
+        if (type === 'cycle') return { ...c, ...(donnees || {}) };
         return {
           ...c,
-          lecons: (c.lecons || []).map(l => {
+          lecons: Array.isArray(c.lecons) ? c.lecons.map(l => {
             if (l.id === leconId) {
-              if (type === 'lecon') return { ...l, ...donnees };
-              return { ...l, seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, ...donnees } : s) };
+              if (type === 'lecon') return { ...l, ...(donnees || {}) };
+              return {
+                ...l,
+                seances: Array.isArray(l.seances) ? l.seances.map(s => {
+                  if (s.id === seanceId) {
+                    let valeursChampsMaj = { ...(s.valeursChamps || {}) };
+                    if (Array.isArray(champsPersonnalises)) {
+                      champsPersonnalises.forEach(champ => {
+                        if (donnees && donnees[champ.id] !== undefined) {
+                          valeursChampsMaj[champ.id] = donnees[champ.id];
+                        }
+                      });
+                    }
+                    return { 
+                      ...s, 
+                      titre: (donnees && donnees.titre) || s.titre, 
+                      date: (donnees && donnees.date) || s.date, 
+                      lieu: (donnees && donnees.lieu) || s.lieu, 
+                      valeursChamps: valeursChampsMaj 
+                    };
+                  }
+                  return s;
+                }) : []
+              };
             }
             return l;
-          })
+          }) : []
         };
       }
       return c;
     });
 
-    setProgrammesClasses({ ...programmesClasses, [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     setModalEdition({ ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {} });
-    showToast("✅ Modification enregistrée avec succès !");
+    showToast("✅ Modification enregistrée !");
   };
 
-  const confirmerQuitterEcole = () => {
-    const idAff = modalConfirmationQuitter.affiliationId;
-    const updated = (affiliations || []).filter(a => a && a.id !== idAff);
+  const quitterEcole = (idAff) => {
+    const updated = Array.isArray(affiliations) ? affiliations.filter(a => a.id !== idAff) : [];
     setAffiliations(updated);
-    setModalConfirmationQuitter({ ouvert: false, affiliationId: null, ecoleNom: '' });
     if (updated.length === 0) {
       setModeSansAffiliation(true);
-      showToast("⚠️ Vous n'avez plus d'écoles affiliées. Passage automatique en mode sans affiliation (payant).");
+      showToast("⚠️ Passage en mode sans affiliation.");
     } else {
-      showToast("⚠️ Vous avez rompu votre affiliation avec cet établissement.");
+      showToast("⚠️ Affiliation rompue avec cet établissement.");
     }
   };
 
   const accepterProposition = (prop) => {
-    const nouvelleAff = { id: Date.now(), ecole: prop.ecole, statut: 'Validée', classes: prop.classes || [] };
-    setAffiliations(prev => [...(prev || []), nouvelleAff]);
-    setPropositionsCenseur(prev => (prev || []).filter(p => p && p.id !== prop.id));
+    if (!prop) return;
+    const nouvelleAff = {
+      id: Date.now(),
+      ecole: prop.ecole,
+      statut: 'Validée',
+      classes: prop.classes || []
+    };
+    setAffiliations(prev => [...(Array.isArray(prev) ? prev : []), nouvelleAff]);
+    setPropositionsCenseur(prev => Array.isArray(prev) ? prev.filter(p => p.id !== prop.id) : []);
     setModeSansAffiliation(false);
-    showToast(`✅ Proposition d'affiliation acceptée pour ${prop.ecole} !`);
+    showToast(`✅ Affiliation acceptée pour ${prop.ecole} !`);
   };
 
   const soumettreDemandeAffiliation = (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim()) return;
-    const nouvelleAff = { 
-      id: Date.now(), 
-      ecole: nouvelleEcoleSaisie.trim(), 
-      codeOuProviseur: codeOuProviseur.trim(), 
-      statut: 'En attente', 
-      classes: (nouvellesClassesSaisies || '').split(',').map(c => c.trim()).filter(Boolean) 
+
+    const nouvelleAff = {
+      id: Date.now(),
+      ecole: nouvelleEcoleSaisie,
+      statut: 'En attente',
+      classes: typeof nouvellesClassesSaisies === 'string' ? nouvellesClassesSaisies.split(',').map(c => c.trim()) : []
     };
-    setAffiliations(prev => [...(prev || []), nouvelleAff]);
+
+    setAffiliations(prev => [...(Array.isArray(prev) ? prev : []), nouvelleAff]);
     setModalAffiliation(false);
     setNouvelleEcoleSaisie('');
-    setCodeOuProviseur('');
-    showToast("🚀 Demande d'affiliation transmise au censeur de l'école !");
-  };
-
-  const ajouterClasseLibre = (e) => {
-    e.preventDefault();
-    if (!nouvelleClasseLibre.trim()) return;
-    if (!(classesSansAffiliation || []).includes(nouvelleClasseLibre.trim())) {
-      setClassesSansAffiliation(prev => [...(prev || []), nouvelleClasseLibre.trim()]);
-      setNouvelleClasseLibre('');
-      showToast("✅ Nouvelle classe autonome ajoutée !");
-    } else {
-      showToast("⚠️ Cette classe existe déjà.");
-    }
-  };
-
-  const supprimerClasseLibre = (classe) => {
-    setClassesSansAffiliation(prev => (prev || []).filter(c => c !== classe));
-    showToast(`❌ Classe ${classe} supprimée.`);
+    showToast("🚀 Demande d'affiliation transmise au censeur !");
   };
 
   const telechargerPDFEntite = (titreEntite, sousTitre, contenuTableau) => {
     const fenetreImpression = window.open('', '_blank');
-    if (!fenetreImpression) {
-      showToast("⚠️ Votre navigateur bloque les pop-up. Veuillez les autoriser pour télécharger.");
-      return;
-    }
+    if (!fenetreImpression) return;
     fenetreImpression.document.write(`
       <html>
         <head>
@@ -661,10 +948,10 @@ export default function EnseignantDashboard() {
         <body>
           <div class="header-doc">
             <h2>RÉPUBLIQUE DE CÔTE D'IVOIRE - MINISTÈRE DE L'ÉDUCATION NATIONALE</h2>
-            <p>Document Pédagogique Officiel - ${ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || ''}</p>
+            <p>Document Pédagogique Officiel - ${infosEnseignant.etablissementSaisi}</p>
           </div>
           <div class="meta">
-            <p><strong>Enseignant(e) :</strong> ${infosEnseignant?.civilite || ''} ${infosEnseignant?.nom || ''} ${infosEnseignant?.prenoms || ''} (${infosEnseignant?.matiere || ''})</p>
+            <p><strong>Enseignant(e) :</strong> ${infosEnseignant.civilite} ${infosEnseignant.nom} ${infosEnseignant.prenoms} (${infosEnseignant.matiere})</p>
             <p><strong>Classe :</strong> ${classeSelectionneeVue || 'Toutes'} | <strong>Type :</strong> ${titreEntite}</p>
             <p><strong>Détails :</strong> ${sousTitre}</p>
           </div>
@@ -678,297 +965,473 @@ export default function EnseignantDashboard() {
   };
 
   const telechargerFicheSeancePDF = (seance, lecon, cycle) => {
-    let customFieldsHtml = '';
-    (seance?.champsPersonnalises || []).forEach(cp => {
-      customFieldsHtml += `<tr><th>🏷️ ${cp.label || 'Champ personnalisé'}</th><td>${cp.valeur || 'N/A'}</td></tr>`;
-    });
+    let champsHtml = '';
+    if (Array.isArray(champsPersonnalises)) {
+      champsPersonnalises.forEach(champ => {
+        const valeur = (seance && seance.valeursChamps && seance.valeursChamps[champ.id]) || 'N/A';
+        champsHtml += `<tr><th>${champ.label}</th><td>${valeur}</td></tr>`;
+      });
+    }
 
-    const html = `<table>
-      ${seance?.habilites !== undefined && seance?.habilites !== '' ? `<tr><th>🎯 Habilités Visées</th><td>${seance?.habilites}</td></tr>` : ''}
-      ${seance?.contenus !== undefined && seance?.contenus !== '' ? `<tr><th>📚 Contenus Pédagogiques</th><td>${seance?.contenus}</td></tr>` : ''}
-      ${seance?.exercices !== undefined && seance?.exercices !== '' ? `<tr><th>⚡ Exercices d'Application</th><td>${seance?.exercices}</td></tr>` : ''}
-      ${seance?.evaluations !== undefined && seance?.evaluations !== '' ? `<tr><th>📝 Modalités d'Évaluation</th><td>${seance?.evaluations}</td></tr>` : ''}
-      ${customFieldsHtml}
-    </table>`;
-    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || 'N/A'} | Leçon: ${lecon?.titre || 'N/A'}`, html);
+    const html = `
+      <table>
+        ${champsHtml}
+        ${seance && Array.isArray(seance.fichiersMultimedias) && seance.fichiersMultimedias.length ? `<tr><th>📎 Fichiers Multimedias</th><td>${seance.fichiersMultimedias.join(', ')}</td></tr>` : ''}
+      </table>
+    `;
+    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Leçon: ${lecon?.titre || ''}`, html);
   };
 
   const telechargerProgrammeAnnuelPDF = (progClasse, classeNom) => {
     let htmlContent = '<h3>Programme Annuel Complet</h3>';
-    (progClasse?.cycles || []).forEach(cy => {
-      htmlContent += `<h4 style="background:#e0f2fe; padding:8px; margin-top:15px;">📁 ${cy?.titre || ''} (Du ${cy?.dateDebut || ''} au ${cy?.dateFin || ''})</h4><p><strong>Compétence :</strong> ${cy?.competence || ''}</p>`;
-      (cy.lecons || []).forEach(lc => {
-        htmlContent += `<p style="margin-left: 15px;"><strong>📖 Leçon :</strong> ${lc?.titre || ''}</p>`;
-        (lc.seances || []).forEach(sc => {
-          htmlContent += `<p style="margin-left: 30px; font-size: 12px;">• Séance #${sc?.numero || ''}: ${sc?.titre || ''} (${sc?.date || ''})</p>`;
-        });
+    if (progClasse && Array.isArray(progClasse.cycles)) {
+      progClasse.cycles.forEach(cy => {
+        htmlContent += `<h4 style="background:#e0f2fe; padding:8px; margin-top:15px;">📁 ${cy.titre} (Du ${cy.dateDebut} au ${cy.dateFin})</h4>`;
+        htmlContent += `<p><strong>Compétence :</strong> ${cy.competence}</p>`;
+        if (Array.isArray(cy.lecons)) {
+          cy.lecons.forEach(lc => {
+            htmlContent += `<p style="margin-left: 15px;"><strong>📖 Leçon :</strong> ${lc.titre}</p>`;
+            if (Array.isArray(lc.seances)) {
+              lc.seances.forEach(sc => {
+                htmlContent += `<p style="margin-left: 30px; font-size: 12px;">• Séance #${sc.numero}: ${sc.titre} (${sc.date})</p>`;
+              });
+            }
+          });
+        }
       });
-    });
-    telechargerPDFEntite(`Programme Annuel - ${classeNom}`, `Année scolaire ${progClasse?.anneeScolaire || '2025-2026'}`, htmlContent);
+    }
+    telechargerPDFEntite(`Programme Annuel - ${classeNom}`, `Année scolaire ${progClasse?.anneeScolaire || ''}`, htmlContent);
   };
 
   const bibliothequeFiltree = useMemo(() => {
-    return (bibliotheque || []).filter(b => {
-      if (!b) return false;
+    if (!Array.isArray(bibliotheque)) return [];
+    return bibliotheque.filter(b => {
       const matchAnnee = !filtreBiblioAnnee || b.anneeScolaire === filtreBiblioAnnee;
       const matchClasse = filtreBiblioClasse === 'TOUTES' || b.classe === filtreBiblioClasse;
-      const matchTexte = !filtreBiblioTexte || (b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) || (b.cycleAssocie && b.cycleAssocie.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) || (b.leconAssociee && b.leconAssociee.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
+      const matchTexte = !filtreBiblioTexte || 
+                         (b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) ||
+                         (b.cycleAssocie && b.cycleAssocie.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) ||
+                         (b.leconAssociee && b.leconAssociee.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
       return matchAnnee && matchClasse && matchTexte;
     });
   }, [bibliotheque, filtreBiblioAnnee, filtreBiblioClasse, filtreBiblioTexte]);
 
   return (
     <div style={styles.container}>
-      <style>{`
-        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        @keyframes apparition { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes glissement { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-        .anim-apparition { animation: apparition 0.3s ease-out forwards; }
-        .anim-modale { animation: glissement 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        .bouton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; }
-        .bouton-principal { background-color: #2563eb; color: white; }
-        .bouton-principal:hover { background-color: #1d4ed8; }
-        .bouton-succes { background-color: #16a34a; color: white; }
-        .bouton-succes:hover { background-color: #15803d; }
-        .bouton-danger { background-color: #ef4444; color: white; }
-        .bouton-danger:hover { background-color: #dc2626; }
-        .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-        .bouton-secondaire:hover { background-color: #e2e8f0; color: #0f172a; }
-        .champ-saisie { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background-color: #fff; color: #1e293b; outline: none; }
-        .champ-saisie:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
-        .option-menu { width: 100%; text-align: left; padding: 10px 16px; background: transparent; border: none; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-        .option-menu:hover { background-color: #f1f5f9; color: #0f172a; padding-left: 20px; }
-        .option-menu.actif { background-color: #e0f2fe; color: #0369a1; }
-        .fond-modale { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 12px; }
-      `}</style>
+      <header style={styles.darkNavbar}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
+          
+          {/* SECTION PROFIL ÉPURÉE (SANS DOUBLE LOGO) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ position: 'relative' }} ref={profilRef}>
+              <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
+                <div style={styles.avatarNavbarContainer}>
+                  {infosEnseignant.photoProfil ? (
+                    <img src={infosEnseignant.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
+                  ) : (
+                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
+                  )}
+                </div>
+                <div style={styles.navbarTeacherInfo}>
+                  <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>
+                    {infosEnseignant.civilite} {infosEnseignant.nom}
+                  </span>
+                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                    Espace Enseignant
+                  </span>
+                </div>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>{profilOuvert ? '▲' : '▼'}</span>
+              </button>
 
-      {/* COMPOSANT HEADER HAUT DE GAMME AVEC MENU BURGER INTÉGRÉ */}
-      <Header 
-        title="E-cahier !" 
-        roleName={`Enseignant - ${ecoleSelectionneeVue || infosEnseignant?.etablissementSaisi || 'Espace'}`} 
-        onLogout={handleLogout} 
-        onglets={[
-          { id: 'cycles', label: '📊 Programme Annuel & Leçons' },
-          { id: 'bibliotheque', label: '📁 Bibliothèque & Réutilisation' },
-          { id: 'affiliation', label: '🏫 Gestion des Écoles' }
-        ]}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-      />
+              {profilOuvert && (
+                <div style={styles.notificationDropdown}>
+                  <div style={styles.dropdownHeader}>Mon Compte Enseignant</div>
+                  <div style={{ padding: '10px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px', background: '#f8fafc', borderRadius: '8px' }}>
+                    <strong>{infosEnseignant.civilite} {infosEnseignant.nom} {infosEnseignant.prenoms}</strong><br />
+                    <span style={{ color: '#64748b', fontSize: '11px' }}>
+                      {infosEnseignant.etablissementSaisi}<br />
+                      <em>{infosEnseignant.matiere}</em>
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setFormProfil({ ...infosEnseignant });
+                      setModalProfilOuvert(true);
+                      setProfilOuvert(false);
+                    }} 
+                    style={styles.optionMenu}
+                  >
+                    ⚙️ Modifier mon profil
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setModalSecurite(true);
+                      setProfilOuvert(false);
+                    }} 
+                    style={styles.optionMenu}
+                  >
+                    🔒 Changer mon mot de passe
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setModalPromotion(true);
+                      setProfilOuvert(false);
+                    }} 
+                    style={{ ...styles.optionMenu, color: '#8b5cf6', fontWeight: '800' }}
+                  >
+                    🎓 Devenir Censeur (Évolution)
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (!modeSansAffiliation) {
+                        setModalPaiement(true);
+                      } else {
+                        setModeSansAffiliation(false);
+                        showToast("Mode sans affiliation désactivé.");
+                      }
+                      setProfilOuvert(false);
+                    }} 
+                    style={{ ...styles.optionMenu, color: '#d97706', fontWeight: '800' }}
+                  >
+                    {modeSansAffiliation ? '🔄 Quitter le mode sans affiliation' : '💳 Activer Mode Sans Affiliation'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* MENU BURGER & NOTIFICATIONS */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }} ref={menuBurgerRef}>
+            
+            {/* CLOCHE DE NOTIFICATION */}
+            <div style={{ position: 'relative' }} ref={notifRef}>
+              <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
+                <span>🔔</span>
+                {Array.isArray(notifications) && notifications.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notifications.filter(n => !n.lu).length}</span>}
+              </button>
+              {notifOuvert && (
+                <div style={styles.notificationDropdown}>
+                  <div style={styles.dropdownHeader}>Notifications & Validations</div>
+                  {Array.isArray(notifications) && notifications.map(n => (
+                    <div key={n.id} style={styles.notifItem}>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#334155', lineHeight: '1.4' }}>{n.texte}</p>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                    </div>
+                  ))}
+                  {Array.isArray(propositionsCenseur) && propositionsCenseur.length > 0 && (
+                    <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#2563eb' }}>Propositions d'affiliation :</span>
+                      {propositionsCenseur.map(p => (
+                        <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '8px', borderRadius: '8px', marginTop: '6px', fontSize: '12px', border: '1px solid #bfdbfe' }}>
+                          <strong>{p.ecole}</strong> ({p.censeur})<br/>
+                          <button onClick={() => accepterProposition(p)} className="bouton bouton-succes" style={{ padding: '4px 10px', fontSize: '11px', marginTop: '6px' }}>Accepter l'affiliation</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* BOUTON BURGER */}
+            <button 
+              onClick={() => setMenuBurgerOuvert(!menuBurgerOuvert)} 
+              style={styles.burgerBtn}
+              title="Menu des fonctionnalités"
+            >
+              ☰
+            </button>
+
+            {menuBurgerOuvert && (
+              <div style={styles.burgerDropdown} className="anim-apparition">
+                <div style={styles.dropdownHeader}>Menu de Navigation</div>
+                <button onClick={() => { setActiveTab('cycles'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📊 Programme Annuel</button>
+                <button onClick={() => { setActiveTab('bibliotheque'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📁 Bibliothèque Permanente</button>
+                <button onClick={() => { setActiveTab('affiliation'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>🏫 Gestion des Écoles (Quitter / Affiliation)</button>
+                <button onClick={() => { setActiveTab('rapports'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📝 Rapports de Séance</button>
+                <button onClick={() => { setModalAffiliation(true); setMenuBurgerOuvert(false); }} style={{ ...styles.optionMenu, color: '#16a34a', fontWeight: '800' }}>+ Demander une Affiliation</button>
+                
+                {/* DÉCONNEXION DANS LE MENU DÉROULANT */}
+                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                  <button onClick={() => { setModalDeconnexion(true); setMenuBurgerOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>
+                    🚪 Se déconnecter
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </header>
 
       <main style={styles.mainContentBody}>
-        {message && <div style={styles.toastSuccess} className="anim-apparition">{message}</div>}
+        {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODAL DE CONFIRMATION POUR QUITTER L'ÉCOLE */}
-        {modalConfirmationQuitter.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '420px', maxWidth: '100%', textAlign: 'center' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⚠️ Qu quitter l'établissement</h3>
-              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px' }}>
-                Êtes-vous sûr de vouloir <strong>quitter l'établissement {modalConfirmationQuitter.ecoleNom}</strong> ? Cette action rompura votre affiliation.
+        {/* MODALE DE CONFIRMATION DE DÉCONNEXION */}
+        {modalDeconnexion && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Confirmation de Déconnexion</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+                Êtes-vous sûr de vouloir vous déconnecter de votre session E-cahier ?
               </p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-                <button onClick={() => setModalConfirmationQuitter({ ouvert: false, affiliationId: null, ecoleNom: '' })} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={confirmerQuitterEcole} className="bouton bouton-danger">Oui, quitter l'école</button>
+                <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={() => {
+                  setModalDeconnexion(false);
+                  localStorage.removeItem('app_enseignant_statut');
+                  window.location.reload();
+                }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* MODAL DE REPORT DE SÉANCE UNIQUE */}
-        {modalReportSeance.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '500px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⏰ Déclarer un Report de Séance</h3>
+        {/* MODALE DE SÉCURITÉ */}
+        {modalSecurite && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                if (!ancienMdp || !nouveauMdp) {
+                  showToast("⚠️ Veuillez remplir tous les champs de mot de passe.");
+                  return;
+                }
+                showToast("🔒 Mot de passe modifié et sécurisé avec succès !");
+                setModalSecurite(false);
+                setAncienMdp('');
+                setNouveauMdp('');
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Ancien mot de passe</label>
+                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Nouveau mot de passe sécurisé</label>
+                  <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Mettre à jour</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE DE DEMANDE DE PROMOTION (DEVENIR CENSEUR) */}
+        {modalPromotion && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🎓 Évolution de Carrière : Devenir Censeur</h3>
+                <button onClick={() => setModalPromotion(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+
+              <form onSubmit={envoyerDemandePromotionCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={styles.label}>Type d'évolution souhaitée</label>
+                  <select value={formPromotion.type} onChange={(e) => setFormPromotion({...formPromotion, type: e.target.value})} style={styles.inputStyle}>
+                    <option value="interne">Évolution Interne (Prendre la relève dans l'établissement actuel)</option>
+                    <option value="externe">Évolution Externe / Mutation (Devenir Censeur dans un autre établissement)</option>
+                  </select>
+                </div>
+
+                {formPromotion.type === 'interne' ? (
+                  <div style={{ backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                    <p style={{ fontSize: '12px', color: '#1e40af', margin: 0 }}>Votre demande sera envoyée au Chef d'Établissement actuel ({infosEnseignant.etablissementSaisi}) pour validation de succession.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <label style={styles.label}>Nom de l'établissement cible (Mutation)</label>
+                    <input type="text" placeholder="Ex: Lycée Classique d'Abidjan..." value={formPromotion.ecoleCible} onChange={(e) => setFormPromotion({...formPromotion, ecoleCible: e.target.value})} style={styles.inputStyle} required />
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalPromotion(false)} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Soumettre la demande officielle</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE DE RAPPORT DE SÉANCE UNIFIÉE */}
+        {modalRapport.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>📋 Soumettre un Rapport de Séance & Compte Rendu</h3>
+                <button onClick={() => setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+
+              <form onSubmit={soumettreRapportSeance} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Séance concernée</label>
+                  <input type="text" placeholder="Ex: Séance d'initiation..." value={modalRapport.seanceTitre} onChange={e => setModalRapport({...modalRapport, seanceTitre: e.target.value})} style={styles.inputStyle} required />
+                </div>
+
+                {/* SÉLECTION MULTI-ÉCOLES */}
+                <div>
+                  <label style={{ ...styles.label, marginBottom: '6px' }}>Établissements concernés :</label>
+                  {Array.isArray(affiliations) && affiliations.map(aff => {
+                    const estCoche = modalRapport.ecolesCibles.includes(aff.ecole);
+                    return (
+                      <label key={aff.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', marginBottom: '4px', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={estCoche}
+                          onChange={() => {
+                            const updated = estCoche 
+                              ? modalRapport.ecolesCibles.filter(e => e !== aff.ecole)
+                              : [...modalRapport.ecolesCibles, aff.ecole];
+                            setModalRapport(prev => ({ ...prev, ecolesCibles: updated }));
+                          }}
+                        />
+                        {aff.ecole}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {/* SÉLECTION MULTI-CLASSES */}
+                <div>
+                  <label style={{ ...styles.label, marginBottom: '6px' }}>Classes concernées (Multi-classes) :</label>
+                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                    const estCoche = modalRapport.classesCibles.includes(cl);
+                    return (
+                      <label key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', marginBottom: '4px', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={estCoche}
+                          onChange={() => {
+                            const updated = estCoche 
+                              ? modalRapport.classesCibles.filter(c => c !== cl)
+                              : [...modalRapport.classesCibles, cl];
+                            setModalRapport(prev => ({ ...prev, classesCibles: updated }));
+                          }}
+                        />
+                        Classe {cl}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div>
+                  <label style={styles.label}>Motif du report (optionnel)</label>
+                  <input type="text" placeholder="Ex: Intempéries, absence professeur, grève..." value={modalRapport.motifReport} onChange={e => setModalRapport({...modalRapport, motifReport: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>📅 Nouvelle date de report prévue (optionnel)</label>
+                  <input type="date" value={modalRapport.nouvelleDatePrevue} onChange={e => setModalRapport({...modalRapport, nouvelleDatePrevue: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Compte rendu / Observations / Difficultés</label>
+                  <textarea placeholder="Détails complémentaires de la séance..." value={modalRapport.contenuRapport} onChange={e => setModalRapport({...modalRapport, contenuRapport: e.target.value})} style={{ ...styles.inputStyle, height: '80px', resize: 'vertical' }} required />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton" style={{ fontWeight: '800', backgroundColor: '#d97706', color: '#fff' }}>📤 Transmettre le rapport</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE DE DUPLICATION INTELLIGENTE */}
+        {modalDuplicationIntelligente.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚡ Duplication Intelligente</h3>
+                <button onClick={() => setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
-                Indiquez les détails de la séance qui n'a pas pu avoir lieu. Cela sera transmis directement au censeur.
+                Dupliquez instantanément cet élément vers d'autres classes avec attribution de dates personnalisées.
               </p>
-              
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '14px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '8px' }}>
-                  Sélectionner les classes et écoles concernées par ce report :
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '140px', overflowY: 'auto' }}>
-                  {(ecolesActivesValidees || []).map(ecole => {
-                    const classesEcole = getClassesParEcole(ecole) || [];
+
+              <form onSubmit={executerDuplicationIntelligente} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={{ ...styles.label, marginBottom: '8px' }}>Sélectionner les classes cibles :</label>
+                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                    const estCoche = modalDuplicationIntelligente.classesCibles.includes(cl);
                     return (
-                      <div key={ecole} style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                        <strong style={{ fontSize: '12px', color: '#2563eb' }}>🏫 {ecole}</strong>
-                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '4px', paddingLeft: '10px' }}>
-                          {classesEcole.map(cl => {
-                            const cleUnique = `${ecole} - ${cl}`;
-                            const estCoche = (modalReportSeance.ecolesClassesCibles || []).includes(cleUnique);
-                            return (
-                              <label key={cleUnique} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: '600' }}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={estCoche}
-                                  onChange={(e) => {
-                                    const updated = e.target.checked 
-                                      ? [...(modalReportSeance.ecolesClassesCibles || []), cleUnique]
-                                      : (modalReportSeance.ecolesClassesCibles || []).filter(item => item !== cleUnique);
-                                    setModalReportSeance(prev => ({ ...prev, ecolesClassesCibles: updated }));
-                                  }}
-                                />
-                                {cl}
-                              </label>
-                            );
-                          })}
-                        </div>
+                      <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '10px', borderRadius: '10px', backgroundColor: '#f8fafc', marginBottom: '6px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={estCoche}
+                            onChange={() => {
+                              const updated = estCoche 
+                                ? modalDuplicationIntelligente.classesCibles.filter(c => c !== cl)
+                                : [...modalDuplicationIntelligente.classesCibles, cl];
+                              setModalDuplicationIntelligente(prev => ({ ...prev, classesCibles: updated }));
+                            }} 
+                          />
+                          Classe {cl}
+                        </label>
+                        {estCoche && (
+                          <div style={{ marginTop: '6px', marginLeft: '22px' }}>
+                            <label style={{ fontSize: '11px', color: '#475569', display: 'block', marginBottom: '2px', fontWeight: '700' }}>Date pour {cl} :</label>
+                            <input 
+                              type="date" 
+                              value={(modalDuplicationIntelligente.datesParClasse && modalDuplicationIntelligente.datesParClasse[cl]) || ''} 
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setModalDuplicationIntelligente(prev => ({
+                                  ...prev,
+                                  datesParClasse: { ...(prev.datesParClasse || {}), [cl]: val }
+                                }));
+                              }} 
+                              style={{ ...styles.inputStyle, padding: '6px 10px' }}
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              </div>
 
-              <form onSubmit={soumettreReportSeance} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={styles.label}>Séance / Titre</label>
-                  <input type="text" value={modalReportSeance.seanceTitre} onChange={(e) => setModalReportSeance(prev => ({...prev, seanceTitre: e.target.value}))} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Date de la séance manquée</label>
-                  <input type="date" value={modalReportSeance.date} onChange={(e) => setModalReportSeance(prev => ({...prev, date: e.target.value}))} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Motif du report</label>
-                  <textarea placeholder="Ex: Intempéries, absence justifiée, grève..." value={modalReportSeance.motif} onChange={(e) => setModalReportSeance(prev => ({...prev, motif: e.target.value}))} className="champ-saisie" style={{ height: '70px' }} required />
-                </div>
-
-                <div style={{ backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px dashed #94a3b8' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Pièces jointes (Photos, PDF, Certificats médicaux...)</label>
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="image/*,.pdf" 
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files).map(f => f.name);
-                      setModalReportSeance(prev => ({ ...prev, fichiersJoints: files }));
-                    }} 
-                    style={{ fontSize: '11px', width: '100%' }} 
-                  />
-                  {(modalReportSeance.fichiersJoints || []).length > 0 && (
-                    <p style={{ fontSize: '11px', color: '#166534', marginTop: '4px', margin: 0 }}>
-                      Fichiers joints : {(modalReportSeance.fichiersJoints || []).join(', ')}
-                    </p>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalReportSeance(prev => ({ ...prev, ouvert: false, seanceId: null, seanceTitre: '', ecolesClassesCibles: [], motif: '', fichiersJoints: [] }))} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-danger">Transmettre la séance reportée</button>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Lancer la duplication</button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {/* MODAL DE REPORT DE SÉANCES MULTIPLES */}
-        {modalReportMultiple.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '500px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b' }}>⏰ Déclarer des Reports de Séances Multiples</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Si vous avez manqué une journée complète, sélectionnez les classes et écoles impactées.</p>
-              
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '14px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '8px' }}>
-                  Classes concernées :
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '140px', overflowY: 'auto' }}>
-                  {(ecolesActivesValidees || []).map(ecole => {
-                    const classesEcole = getClassesParEcole(ecole) || [];
-                    return (
-                      <div key={ecole} style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                        <strong style={{ fontSize: '12px', color: '#2563eb' }}>🏫 {ecole}</strong>
-                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '4px', paddingLeft: '10px' }}>
-                          {classesEcole.map(cl => {
-                            const cleUnique = `${ecole} - ${cl}`;
-                            const estCoche = (modalReportMultiple.ecolesClassesSelectionnees || []).includes(cleUnique);
-                            return (
-                              <label key={cleUnique} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: '600' }}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={estCoche}
-                                  onChange={(e) => {
-                                    const updated = e.target.checked 
-                                      ? [...(modalReportMultiple.ecolesClassesSelectionnees || []), cleUnique]
-                                      : (modalReportMultiple.ecolesClassesSelectionnees || []).filter(item => item !== cleUnique);
-                                    setModalReportMultiple(prev => ({ ...prev, ecolesClassesSelectionnees: updated }));
-                                  }}
-                                />
-                                {cl}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <form onSubmit={soumettreReportMultiple} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={styles.label}>Date de la journée manquée</label>
-                  <input type="date" value={modalReportMultiple.date} onChange={(e) => setModalReportMultiple(prev => ({...prev, date: e.target.value}))} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Motif du report global</label>
-                  <textarea placeholder="Ex: Absence pour raison médicale, intempéries..." value={modalReportMultiple.motif} onChange={(e) => setModalReportMultiple(prev => ({...prev, motif: e.target.value}))} className="champ-saisie" style={{ height: '70px' }} required />
-                </div>
-
-                <div style={{ backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px dashed #94a3b8' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Pièces jointes (Photos, PDF, Certificats médicaux...)</label>
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="image/*,.pdf" 
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files).map(f => f.name);
-                      setModalReportMultiple(prev => ({ ...prev, fichiersJoints: files }));
-                    }} 
-                    style={{ fontSize: '11px', width: '100%' }} 
-                  />
-                  {(modalReportMultiple.fichiersJoints || []).length > 0 && (
-                    <p style={{ fontSize: '11px', color: '#166534', marginTop: '4px', margin: 0 }}>
-                      Fichiers joints : {(modalReportMultiple.fichiersJoints || []).join(', ')}
-                    </p>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalReportMultiple(prev => ({ ...prev, ouvert: false, ecolesClassesSelectionnees: [], motif: '', fichiersJoints: [] }))} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-danger">Transmettre les rapports multiples</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL MODIFICATION PROFIL & PHOTO */}
         {modalProfilOuvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '480px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>👤 Paramètres du Profil & Photo</h3>
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Modifier mon profil</h3>
+              
               <form onSubmit={handleEnregistrerProfil} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
-                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #cbd5e1', flexShrink: 0 }}>
-                    {formProfil?.photoProfil ? (
+                  <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '2px solid #cbd5e1', flexShrink: 0 }}>
+                    {formProfil.photoProfil ? (
                       <img src={formProfil.photoProfil} alt="Aperçu" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <span style={{ fontSize: '28px' }}>👤</span>
                     )}
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>Photo de profil (Fichier)</label>
-                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfil} style={{ fontSize: '11px', cursor: 'pointer', width: '100%' }} />
+                    <label style={styles.label}>Photo de profil</label>
+                    <input type="file" accept="image/*" onChange={handleChangerPhotoProfil} style={{ fontSize: '12px', cursor: 'pointer' }} />
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
                   <div>
                     <label style={styles.label}>Civilité</label>
-                    <select value={formProfil?.civilite || ''} onChange={(e) => setFormProfil({...formProfil, civilite: e.target.value})} className="champ-saisie">
+                    <select value={formProfil.civilite} onChange={(e) => setFormProfil({...formProfil, civilite: e.target.value})} style={styles.inputStyle}>
                       <option value="M.">M.</option>
                       <option value="Mme">Mme</option>
                       <option value="Dr">Dr</option>
@@ -977,17 +1440,28 @@ export default function EnseignantDashboard() {
                   </div>
                   <div>
                     <label style={styles.label}>Nom</label>
-                    <input type="text" value={formProfil?.nom || ''} onChange={(e) => setFormProfil({...formProfil, nom: e.target.value})} className="champ-saisie" required />
+                    <input type="text" value={formProfil.nom} onChange={(e) => setFormProfil({...formProfil, nom: e.target.value})} style={styles.inputStyle} required />
                   </div>
                 </div>
 
                 <div>
                   <label style={styles.label}>Prénoms</label>
-                  <input type="text" value={formProfil?.prenoms || ''} onChange={(e) => setFormProfil({...formProfil, prenoms: e.target.value})} className="champ-saisie" required />
+                  <input type="text" value={formProfil.prenoms} onChange={(e) => setFormProfil({...formProfil, prenoms: e.target.value})} style={styles.inputStyle} required />
                 </div>
+
                 <div>
                   <label style={styles.label}>Matière enseignée</label>
-                  <input type="text" value={formProfil?.matiere || ''} onChange={(e) => setFormProfil({...formProfil, matiere: e.target.value})} className="champ-saisie" required />
+                  <input type="text" value={formProfil.matiere} onChange={(e) => setFormProfil({...formProfil, matiere: e.target.value})} style={styles.inputStyle} required />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Nom de l'établissement</label>
+                  <input type="text" value={formProfil.etablissementSaisi} onChange={(e) => setFormProfil({...formProfil, etablissementSaisi: e.target.value})} style={styles.inputStyle} required />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Ville</label>
+                  <input type="text" value={formProfil.ville} onChange={(e) => setFormProfil({...formProfil, ville: e.target.value})} style={styles.inputStyle} required />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
@@ -999,24 +1473,66 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL NOUVELLE DEMANDE D'AFFILIATION */}
+        {/* MODALE DE PAIEMENT POUR LE MODE SANS AFFILIATION */}
+        {modalPaiement && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>💳 Abonnement Mode Sans Affiliation</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+                Définissez vos propres classes en toute autonomie. Montant de l'abonnement : <strong style={{ color: '#d97706' }}>1 900 FCFA / mois</strong>.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                <label style={styles.label}>Choisissez votre moyen de paiement :</label>
+                
+                <div onClick={() => setMethodePaiement('wave')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'wave' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
+                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0083ff', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '15px' }}>W</div>
+                  <div style={{ flex: 1 }}><strong>Wave Mobile Money</strong><br/><small style={{ color: '#64748b' }}>Paiement instantané par QR code</small></div>
+                </div>
+
+                <div onClick={() => setMethodePaiement('orange')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'orange' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
+                  <div style={{ width: '42px', height: '42px', backgroundColor: '#ff6600', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '12px' }}>OM</div>
+                  <div style={{ flex: 1 }}><strong>Orange Money</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé via code marchand</small></div>
+                </div>
+
+                <div onClick={() => setMethodePaiement('mtn')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'mtn' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
+                  <div style={{ width: '42px', height: '42px', backgroundColor: '#ffcc00', borderRadius: '10px', color: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '11px' }}>MTN</div>
+                  <div style={{ flex: 1 }}><strong>MTN MoMo</strong><br/><small style={{ color: '#64748b' }}>Validation par code PIN</small></div>
+                </div>
+
+                <div onClick={() => setMethodePaiement('carte')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'carte' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
+                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0f172a', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '16px' }}>💳</div>
+                  <div style={{ flex: 1 }}><strong>Visa / Mastercard</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé par carte bancaire</small></div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setModalPaiement(false)} className="bouton bouton-secondaire">Annuler</button>
+                <button type="button" onClick={() => {
+                  setModeSansAffiliation(true);
+                  setModalPaiement(false);
+                  showToast("💳 Paiement validé avec succès ! Mode Sans Affiliation activé.");
+                }} className="bouton bouton-principal">Procéder au paiement (1 900 FCFA)</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalAffiliation && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '460px', maxWidth: '100%' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>🏫 Demande d'Affiliation à une École</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Vous avez un nouveau poste ou un rattachement en cours d'année ? Faites votre demande ci-dessous.</p>
-              <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Demande d'Affiliation à une École</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.5' }}>
+                Faites votre demande de rattachement ou envoyez une demande d'affiliation au censeur.
+              </p>
+              <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={styles.label}>Nom de l'établissement</label>
-                  <input type="text" placeholder="Ex: Lycée Moderne..." value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} className="champ-saisie" required />
-                </div>
-                <div>
-                  <label style={styles.label}>Code de l'établissement ou Nom du Proviseur (Facultatif)</label>
-                  <input type="text" placeholder="Ex: MENA-12345 ou M. Koffi Bernard" value={codeOuProviseur} onChange={(e) => setCodeOuProviseur(e.target.value)} className="champ-saisie" />
+                  <input type="text" placeholder="Ex: Lycée Moderne..." value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} style={styles.inputStyle} required />
                 </div>
                 <div>
                   <label style={styles.label}>Classes concernées (séparées par des virgules)</label>
-                  <input type="text" placeholder="Ex: 6ème A, 5ème B" value={nouvellesClassesSaisies} onChange={(e) => setNouvellesClassesSaisies(e.target.value)} className="champ-saisie" required />
+                  <input type="text" placeholder="Ex: 6ème A, 5ème B" value={nouvellesClassesSaisies} onChange={(e) => setNouvellesClassesSaisies(e.target.value)} style={styles.inputStyle} required />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModalAffiliation(false)} className="bouton bouton-secondaire">Annuler</button>
@@ -1027,93 +1543,307 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* ASSISTANT DE CRÉATION ET DUPLICATION MULTI-ÉCOLES */}
+        {/* ASSISTANT DE CRÉATION */}
         {modalAssistant.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '680px', maxWidth: '100%', maxHeight: '95vh', overflowY: 'auto' }} className="anim-modale">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '16px' }}>
-                  {modalAssistant.niveauCible === 'cycle' && '✨ Créer un Cycle (Multi-Écoles)'}
-                  {modalAssistant.niveauCible === 'lecon' && '📖 Créer une Leçon (Multi-Écoles)'}
-                  {modalAssistant.niveauCible === 'seance' && '📝 Créer une Séance (Multi-Écoles)'}
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '640px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>
+                  {modalAssistant.niveauCible === 'programme_annuel' && '📊 Créer un Programme Annuel Complet'}
+                  {modalAssistant.niveauCible === 'cycle' && '✨ Créer un Cycle Multi-Écoles & Multi-Classes sur mesure'}
+                  {modalAssistant.niveauCible === 'lecon' && '📖 Créer une nouvelle Leçon'}
+                  {modalAssistant.niveauCible === 'seance' && '📝 Créer une Séance avec vos Champs Modélisés'}
                 </h3>
-                <button onClick={() => setModalAssistant(prev => ({ ...prev, ouvert: false }))} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+                <button onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '14px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '8px' }}>
-                  Sélectionnez les classes de vos établissements et définissez leur date respective :
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '160px', overflowY: 'auto' }}>
-                  {(ecolesActivesValidees || []).map(ecole => {
-                    const classesEcole = getClassesParEcole(ecole) || [];
-                    return (
-                      <div key={ecole} style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                        <strong style={{ fontSize: '12px', color: '#2563eb' }}>🏫 Établissement : {ecole}</strong>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', paddingLeft: '10px' }}>
-                          {classesEcole.map(cl => {
-                            const cleUnique = `${ecole} - ${cl}`;
-                            const estCoche = (modalAssistant.ecolesClassesCibles || []).includes(cleUnique);
-                            return (
-                              <div key={cleUnique} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', backgroundColor: '#fff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', flex: 1 }}>
-                                  <input 
-                                    type="checkbox" 
-                                    checked={estCoche}
-                                    onChange={(e) => {
-                                      const updatedCibles = e.target.checked 
-                                        ? [...(modalAssistant.ecolesClassesCibles || []), cleUnique]
-                                        : (modalAssistant.ecolesClassesCibles || []).filter(item => item !== cleUnique);
-                                      
-                                      let updatedDates = { ...(modalAssistant.datesParClassePerso || {}) };
-                                      if (e.target.checked) updatedDates[cleUnique] = new Date().toISOString().split('T')[0];
-                                      else delete updatedDates[cleUnique];
+              <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                <label style={{ ...styles.label, marginBottom: '12px', color: '#2563eb', fontSize: '13px' }}>⚙️ Modélisation des champs de la fiche :</label>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
+                  {Array.isArray(champsPersonnalises) && champsPersonnalises.map(champ => (
+                    <div key={champ.id} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', alignItems: 'center', backgroundColor: '#fff', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Énoncé du champ</label>
+                        <input 
+                          type="text" 
+                          value={champ.label} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setChampsPersonnalises(prev => prev.map(c => c.id === champ.id ? { ...c, label: val } : c));
+                          }}
+                          style={{ ...styles.inputStyle, padding: '8px 10px', fontSize: '12px', fontWeight: '700' }}
+                        />
+                      </div>
 
-                                      setModalAssistant(prev => ({ ...prev, ecolesClassesCibles: updatedCibles, datesParClassePerso: updatedDates }));
-                                    }}
-                                  />
-                                  {cl}
-                                </label>
-                                {estCoche && (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '10px', color: '#64748b' }}>Date :</span>
-                                    <input 
-                                      type="date" 
-                                      value={(modalAssistant.datesParClassePerso && modalAssistant.datesParClassePerso[cleUnique]) || new Date().toISOString().split('T')[0]}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setModalAssistant(prev => ({ ...prev, datesParClassePerso: { ...(prev.datesParClassePerso || {}), [cleUnique]: val } }));
-                                      }}
-                                      style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Zone de remplissage & Actions</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <textarea 
+                            disabled
+                            placeholder="Aperçu de la zone de remplissage..." 
+                            style={{ ...styles.inputStyle, height: '38px', resize: 'none', backgroundColor: '#f1f5f9', fontSize: '11px', flex: 1 }} 
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const nouveauNom = prompt("Modifier l'énoncé du champ :", champ.label);
+                              if (nouveauNom && nouveauNom.trim()) {
+                                setChampsPersonnalises(prev => prev.map(c => c.id === champ.id ? { ...c, label: nouveauNom.trim() } : c));
+                                showToast("✏️ Champ modifié avec succès !");
+                              }
+                            }}
+                            className="bouton"
+                            style={{ padding: '8px 12px', fontSize: '11px', backgroundColor: '#2563eb', color: '#fff', fontWeight: '700', flexShrink: 0 }}
+                          >
+                            Modifier
+                          </button>
+                          {champsPersonnalises.length > 1 && (
+                            <button 
+                              type="button" 
+                              onClick={() => setChampsPersonnalises(prev => Array.isArray(prev) ? prev.filter(c => c.id !== champ.id) : [])}
+                              className="bouton"
+                              style={{ padding: '8px 12px', fontSize: '11px', backgroundColor: '#ef4444', color: '#fff', fontWeight: '700', flexShrink: 0 }}
+                            >
+                              Retirer
+                            </button>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      const newId = `champ_${Date.now()}`;
+                      const nouveauChamp = { id: newId, label: 'Nouveau champ', type: 'textarea' };
+                      setChampsPersonnalises(prev => [...(Array.isArray(prev) ? prev : []), nouveauChamp]);
+                      showToast("➕ Nouveau champ ajouté sous forme de 2 cases !");
+                    }} 
+                    className="bouton" 
+                    style={{ padding: '10px 16px', fontSize: '12px', backgroundColor: '#16a34a', color: '#fff', fontWeight: '800' }}
+                  >
+                    + Ajouter un champ
+                  </button>
+                </div>
+
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    localStorage.setItem('app_enseignant_champs_perso', JSON.stringify(champsPersonnalises));
+                    showToast("💾 Modélisation des champs enregistrée avec succès pour toutes vos fiches !");
+                  }}
+                  className="bouton bouton-principal" 
+                  style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', padding: '12px', fontWeight: '800' }}
+                >
+                  💾 Enregistrer la modélisation
+                </button>
               </div>
 
-              <form onSubmit={gererValidationAssistant} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px dashed #cbd5e1', marginBottom: '16px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Uploader des fichiers multimédias (Images, PDF, Schémas...)</label>
+                <input 
+                  type="file" 
+                  multiple 
+                  accept="image/*,.pdf" 
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files).map(f => f.name) : [];
+                    setModalAssistant(prev => ({ ...prev, fichiersMultimedias: files }));
+                  }} 
+                  style={{ fontSize: '12px' }} 
+                />
+                {Array.isArray(modalAssistant.fichiersMultimedias) && modalAssistant.fichiersMultimedias.length > 0 && (
+                  <p style={{ fontSize: '11px', color: '#166534', marginTop: '4px', margin: 0 }}>
+                    Fichiers joints : {modalAssistant.fichiersMultimedias.join(', ')}
+                  </p>
+                )}
+              </div>
+
+              <form onSubmit={gererValidationAssistant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {modalAssistant.niveauCible === 'programme_annuel' && (
+                  <>
+                    <div>
+                      <label style={styles.label}>Titre du programme annuel</label>
+                      <input type="text" placeholder="Ex: Programme Annuel 2025-2026..." value={modalAssistant.titreProgramme} onChange={(e) => setModalAssistant({...modalAssistant, titreProgramme: e.target.value})} style={styles.inputStyle} required />
+                    </div>
+
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Sélectionner les classes cibles (Multi-écoles / Multi-classes) :</label>
+                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
+                        return (
+                          <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={estCoche}
+                                onChange={() => {
+                                  const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
+                                  const updated = estCoche 
+                                    ? ciblesActuelles.filter(c => c !== cl)
+                                    : [...ciblesActuelles, cl];
+                                  setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                                }} 
+                              />
+                              Classe {cl}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '10px' }}>
+                      <label style={{ ...styles.label, color: '#0f172a' }}>📁 Ajouter les cycles au programme annuel :</label>
+                      {modalAssistant.cyclesProgramme.map((cycle, index) => (
+                        <div key={cycle.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '10px', alignItems: 'end', marginBottom: '10px', backgroundColor: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                          <div>
+                            <label style={{ fontSize: '10px', color: '#64748b' }}>Titre du cycle</label>
+                            <input 
+                              type="text" 
+                              value={cycle.titre} 
+                              onChange={(e) => {
+                                const newCycles = [...modalAssistant.cyclesProgramme];
+                                newCycles[index].titre = e.target.value;
+                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
+                              }} 
+                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
+                              required 
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '10px', color: '#64748b' }}>Durée estimée</label>
+                            <input 
+                              type="text" 
+                              placeholder="ex: 4 sem."
+                              value={cycle.duree} 
+                              onChange={(e) => {
+                                const newCycles = [...modalAssistant.cyclesProgramme];
+                                newCycles[index].duree = e.target.value;
+                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
+                              }} 
+                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '10px', color: '#64748b' }}>Nb Leçons</label>
+                            <input 
+                              type="number" 
+                              min="1"
+                              value={cycle.nbLecons} 
+                              onChange={(e) => {
+                                const newCycles = [...modalAssistant.cyclesProgramme];
+                                newCycles[index].nbLecons = parseInt(e.target.value) || 1;
+                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
+                              }} 
+                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
+                            />
+                          </div>
+                          {modalAssistant.cyclesProgramme.length > 1 && (
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                const newCycles = modalAssistant.cyclesProgramme.filter((_, i) => i !== index);
+                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
+                              }}
+                              style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: '800', cursor: 'pointer', paddingBottom: '8px' }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          const newCycle = { id: Date.now(), titre: `Cycle ${modalAssistant.cyclesProgramme.length + 1}`, duree: '3 semaines', nbLecons: 2 };
+                          setModalAssistant(prev => ({ ...prev, cyclesProgramme: [...prev.cyclesProgramme, newCycle] }));
+                        }}
+                        className="bouton bouton-secondaire"
+                        style={{ fontSize: '11px', padding: '6px 12px' }}
+                      >
+                        + Ajouter un autre cycle
+                      </button>
+                    </div>
+                  </>
+                )}
+
                 {modalAssistant.niveauCible === 'cycle' && (
                   <>
                     <div>
                       <label style={styles.label}>Titre du cycle</label>
-                      <input type="text" placeholder="Ex: Cycle 1 : Gymnastique..." value={modalAssistant.titreCycle || ''} onChange={(e) => setModalAssistant(prev => ({...prev, titreCycle: e.target.value}))} className="champ-saisie" required />
+                      <input type="text" placeholder="Ex: Cycle 1 : Activité physique..." value={modalAssistant.titreCycle} onChange={(e) => setModalAssistant({...modalAssistant, titreCycle: e.target.value})} style={styles.inputStyle} required />
                     </div>
                     <div>
                       <label style={styles.label}>Compétence visée</label>
-                      <input type="text" placeholder="Ex: Traiter une situation..." value={modalAssistant.competenceCycle || ''} onChange={(e) => setModalAssistant(prev => ({...prev, competenceCycle: e.target.value}))} className="champ-saisie" />
+                      <input type="text" placeholder="Ex: Traiter une situation..." value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
-                      <div>
-                        <label style={styles.label}>📅 Date de fin globale du cycle</label>
-                        <input type="date" value={modalAssistant.dateFinCycle || ''} onChange={(e) => setModalAssistant(prev => ({...prev, dateFinCycle: e.target.value}))} className="champ-saisie" required />
-                      </div>
+
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Sélectionner les classes cibles (Multi-écoles / Multi-classes) et attribuer leurs dates :</label>
+                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
+                        return (
+                          <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={estCoche}
+                                onChange={() => {
+                                  const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
+                                  const updated = estCoche 
+                                    ? ciblesActuelles.filter(c => c !== cl)
+                                    : [...ciblesActuelles, cl];
+                                  setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                                }} 
+                              />
+                              Classe {cl}
+                            </label>
+                            {estCoche && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px', marginLeft: '22px' }}>
+                                <div>
+                                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Date début</label>
+                                  <input 
+                                    type="date" 
+                                    value={(modalAssistant.datesParClasseCycle && modalAssistant.datesParClasseCycle[cl]?.debut) || ''} 
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setModalAssistant(prev => ({
+                                        ...prev,
+                                        datesParClasseCycle: {
+                                          ...(prev.datesParClasseCycle || {}),
+                                          [cl]: { ...(prev.datesParClasseCycle?.[cl] || {}), debut: val }
+                                        }
+                                      }));
+                                    }}
+                                    style={{ ...styles.inputStyle, padding: '6px' }} 
+                                  />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Date fin</label>
+                                  <input 
+                                    type="date" 
+                                    value={(modalAssistant.datesParClasseCycle && modalAssistant.datesParClasseCycle[cl]?.fin) || ''} 
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setModalAssistant(prev => ({
+                                        ...prev,
+                                        datesParClasseCycle: {
+                                          ...(prev.datesParClasseCycle || {}),
+                                          [cl]: { ...(prev.datesParClasseCycle?.[cl] || {}), fin: val }
+                                        }
+                                      }));
+                                    }}
+                                    style={{ ...styles.inputStyle, padding: '6px' }} 
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -1122,11 +1852,11 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre de la leçon</label>
-                      <input type="text" placeholder="Ex: Leçon 1 : Maîtriser les équilibres..." value={modalAssistant.titreLecon || ''} onChange={(e) => setModalAssistant(prev => ({...prev, titreLecon: e.target.value}))} className="champ-saisie" required />
+                      <input type="text" placeholder="Ex: Leçon 1..." value={modalAssistant.titreLecon} onChange={(e) => setModalAssistant({...modalAssistant, titreLecon: e.target.value})} style={styles.inputStyle} required />
                     </div>
                     <div>
                       <label style={styles.label}>Nombre de séances prévues</label>
-                      <input type="number" min="1" value={modalAssistant.nombreSeancesLecon || '3'} onChange={(e) => setModalAssistant(prev => ({...prev, nombreSeancesLecon: e.target.value}))} className="champ-saisie" required />
+                      <input type="number" min="1" value={modalAssistant.nombreSeancesLecon} onChange={(e) => setModalAssistant({...modalAssistant, nombreSeancesLecon: e.target.value})} style={styles.inputStyle} required />
                     </div>
                   </>
                 )}
@@ -1135,124 +1865,76 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre de la séance</label>
-                      <input type="text" placeholder="Ex: Séance 1 : Roulé-boulé..." value={modalAssistant.titreSeance || ''} onChange={(e) => setModalAssistant(prev => ({...prev, titreSeance: e.target.value}))} className="champ-saisie" required />
+                      <input type="text" placeholder="Ex: Séance 1..." value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={styles.label}>Date</label>
+                        <input type="date" value={modalAssistant.dateSeance} onChange={(e) => setModalAssistant({...modalAssistant, dateSeance: e.target.value})} style={styles.inputStyle} required />
+                      </div>
                       <div>
                         <label style={styles.label}>Lieu</label>
-                        <input type="text" placeholder="Ex: Gymnase A" value={modalAssistant.lieuSeance || ''} onChange={(e) => setModalAssistant(prev => ({...prev, lieuSeance: e.target.value}))} className="champ-saisie" />
+                        <input type="text" placeholder="Ex: Gymnase A" value={modalAssistant.lieuSeance} onChange={(e) => setModalAssistant({...modalAssistant, lieuSeance: e.target.value})} style={styles.inputStyle} />
                       </div>
                     </div>
 
-                    {modeleFiche.champsDefaut.habilites && (
-                      <div>
-                        <label style={styles.label}>🎯 Habilités</label>
-                        <textarea value={modalAssistant.habilites || ''} onChange={(e) => setModalAssistant(prev => ({...prev, habilites: e.target.value}))} className="champ-saisie" style={{ height: '45px' }} />
+                    {Array.isArray(champsPersonnalises) && champsPersonnalises.map(champ => (
+                      <div key={champ.id} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', alignItems: 'center', backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                        <div>
+                          <strong style={{ fontSize: '12px', color: '#0f172a' }}>{champ.label}</strong>
+                        </div>
+                        <div>
+                          <textarea 
+                            value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setModalAssistant(prev => ({
+                                ...prev,
+                                valeursChamps: { ...(prev.valeursChamps || {}), [champ.id]: val }
+                              }));
+                            }} 
+                            placeholder={`Renseigner ${champ.label}...`}
+                            style={{ ...styles.inputStyle, height: '60px', resize: 'vertical' }} 
+                          />
+                        </div>
                       </div>
-                    )}
-                    {modeleFiche.champsDefaut.contenus && (
-                      <div>
-                        <label style={styles.label}>📚 Contenus</label>
-                        <textarea value={modalAssistant.contenus || ''} onChange={(e) => setModalAssistant(prev => ({...prev, contenus: e.target.value}))} className="champ-saisie" style={{ height: '45px' }} />
-                      </div>
-                    )}
-                    {modeleFiche.champsDefaut.exercices && (
-                      <div>
-                        <label style={styles.label}>⚡ Exercices</label>
-                        <textarea value={modalAssistant.exercices || ''} onChange={(e) => setModalAssistant(prev => ({...prev, exercices: e.target.value}))} className="champ-saisie" style={{ height: '45px' }} />
-                      </div>
-                    )}
-                    {modeleFiche.champsDefaut.evaluations && (
-                      <div>
-                        <label style={styles.label}>📝 Évaluations</label>
-                        <textarea value={modalAssistant.evaluations || ''} onChange={(e) => setModalAssistant(prev => ({...prev, evaluations: e.target.value}))} className="champ-saisie" style={{ height: '45px' }} />
-                      </div>
-                    )}
+                    ))}
                   </>
                 )}
 
-                <div style={{ marginTop: '14px', padding: '14px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>⚙️ Modéliser votre fiche (Champs sur-mesure)</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setModalAssistant(prev => ({
-                        ...prev, 
-                        champsPersonnalises: [...(prev.champsPersonnalises || []), { id: Date.now(), label: '', valeur: '' }]
-                      }))} 
-                      className="bouton bouton-secondaire" 
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
-                    >
-                      + Ajouter un champ
-                    </button>
-                  </div>
-
-                  {(modalAssistant.champsPersonnalises || []).map((champ, index) => (
-                    <div key={champ.id} style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                      <input 
-                        type="text" 
-                        placeholder="Nom du champ..." 
-                        value={champ.label} 
-                        onChange={(e) => {
-                          const nouveauxChamps = [...(modalAssistant.champsPersonnalises || [])];
-                          nouveauxChamps[index].label = e.target.value;
-                          setModalAssistant(prev => ({ ...prev, champsPersonnalises: nouveauxChamps }));
-                        }} 
-                        className="champ-saisie" 
-                        style={{ flex: '1 1 120px', backgroundColor: '#f8fafc' }} 
-                      />
-                      <input 
-                        type="text" 
-                        placeholder="Valeur..." 
-                        value={champ.valeur} 
-                        onChange={(e) => {
-                          const nouveauxChamps = [...(modalAssistant.champsPersonnalises || [])];
-                          nouveauxChamps[index].valeur = e.target.value;
-                          setModalAssistant(prev => ({ ...prev, champsPersonnalises: nouveauxChamps }));
-                        }} 
-                        className="champ-saisie" 
-                        style={{ flex: '1 1 140px' }} 
-                      />
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          const nouveauxChamps = (modalAssistant.champsPersonnalises || []).filter((_, i) => i !== index);
-                          setModalAssistant(prev => ({ ...prev, champsPersonnalises: nouveauxChamps }));
-                        }} 
-                        className="bouton bouton-danger" 
-                        style={{ padding: '4px 8px' }}
-                      >✕</button>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalAssistant(prev => ({ ...prev, ouvert: false }))} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer & Dupliquer</button>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire">Annuler</button>
+                  <button 
+                    type="submit" 
+                    className="bouton" 
+                    style={{ fontWeight: '800', backgroundColor: '#2563eb', color: '#fff' }}
+                  >
+                    🚀 Valider & Enregistrer
+                  </button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {/* MODAL MODIFICATION (ÉDITION) */}
+        {/* MODALE D'ÉDITION */}
         {modalEdition.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '500px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-              <h3 style={{ margin: '0 0 14px 0', color: '#0f172a' }}>✏️ Modifier {modalEdition.type}</h3>
-              <form onSubmit={sauvegarderEdition} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {Object.entries(modalEdition.donnees || {}).map(([key, val]) => (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✏️ Modifier {modalEdition.type}</h3>
+              <form onSubmit={sauvegarderEdition} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {modalEdition.donnees && Object.entries(modalEdition.donnees).map(([key, val]) => (
                   <div key={key}>
                     <label style={styles.label}>{key.toUpperCase()}</label>
                     <input 
                       type="text" 
                       value={val || ''} 
                       onChange={(e) => setModalEdition(prev => ({ ...prev, donnees: { ...(prev.donnees || {}), [key]: e.target.value } }))} 
-                      className="champ-saisie" 
+                      style={styles.inputStyle} 
                     />
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalEdition({ ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {} })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer</button>
                 </div>
@@ -1261,28 +1943,89 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODAL CONSULTER ET RÉUTILISER */}
         {modalConsulterReutiliser.ouvert && (
-          <div className="fond-modale anim-apparition">
-            <div style={{ ...styles.modalCard, width: '560px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }} className="anim-modale">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '15px' }}>👁️ Consulter, Modifier & Réutiliser la Fiche</h3>
-                <button onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '4px 8px' }}>✕</button>
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👁️ Consulter, Modifier & Réutiliser</h3>
+                <button onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
-              <form onSubmit={executerConsultationEtReutilisation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+              <form onSubmit={executerConsultationEtReutilisation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={styles.label}>Titre de la fiche / séance</label>
-                  <input type="text" value={modalConsulterReutiliser.donneesModifiees?.nom || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), nom: e.target.value } }))} className="champ-saisie" required />
+                  <input 
+                    type="text" 
+                    value={(modalConsulterReutiliser.donneesModifiees && modalConsulterReutiliser.donneesModifiees.nom) || ''} 
+                    onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), nom: e.target.value } }))} 
+                    style={styles.inputStyle} 
+                    required 
+                  />
                 </div>
-                <div>
-                  <label style={styles.label}>🎯 Habilités</label>
-                  <textarea value={modalConsulterReutiliser.donneesModifiees?.habilites || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), habilites: e.target.value } }))} className="champ-saisie" style={{ height: '60px' }} />
+
+                {Array.isArray(champsPersonnalises) && champsPersonnalises.map(champ => (
+                  <div key={champ.id}>
+                    <label style={styles.label}>{champ.label}</label>
+                    <textarea 
+                      value={(modalConsulterReutiliser.donneesModifiees && modalConsulterReutiliser.donneesModifiees.valeursChamps && modalConsulterReutiliser.donneesModifiees.valeursChamps[champ.id]) || ''} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setModalConsulterReutiliser(prev => ({
+                          ...prev,
+                          donneesModifiees: {
+                            ...(prev.donneesModifiees || {}),
+                            valeursChamps: { ...(prev.donneesModifiees?.valeursChamps || {}), [champ.id]: val }
+                          }
+                        }));
+                      }} 
+                      style={{ ...styles.inputStyle, height: '60px' }} 
+                    />
+                  </div>
+                ))}
+
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ ...styles.label, marginBottom: '8px' }}>Sélectionner les classes cibles et leurs dates :</label>
+                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                    const estSelectionne = Array.isArray(modalConsulterReutiliser.classesSelectionnees) && modalConsulterReutiliser.classesSelectionnees.includes(cl);
+                    return (
+                      <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '10px', backgroundColor: '#f8fafc', marginBottom: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={estSelectionne} 
+                            onChange={() => {
+                              const selActuelles = Array.isArray(modalConsulterReutiliser.classesSelectionnees) ? modalConsulterReutiliser.classesSelectionnees : [];
+                              const updatedClasses = estSelectionne 
+                                ? selActuelles.filter(c => c !== cl)
+                                : [...selActuelles, cl];
+                              setModalConsulterReutiliser(prev => ({ ...prev, classesSelectionnees: updatedClasses }));
+                            }} 
+                          />
+                          {cl}
+                        </label>
+                        {estSelectionne && (
+                          <div style={{ marginTop: '8px', marginLeft: '22px' }}>
+                            <label style={{ fontSize: '11px', color: '#475569', display: 'block', marginBottom: '4px', fontWeight: '700' }}>Date pour la classe {cl} :</label>
+                            <input 
+                              type="date" 
+                              value={(modalConsulterReutiliser.datesParClasse && modalConsulterReutiliser.datesParClasse[cl]) || ''} 
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setModalConsulterReutiliser(prev => ({
+                                  ...prev,
+                                  datesParClasse: { ...(prev.datesParClasse || {}), [cl]: val }
+                                }));
+                              }} 
+                              style={{ ...styles.inputStyle, padding: '8px 12px' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                <div>
-                  <label style={styles.label}>📚 Contenus</label>
-                  <textarea value={modalConsulterReutiliser.donneesModifiees?.contenus || ''} onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), contenus: e.target.value } }))} className="champ-saisie" style={{ height: '60px' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '14px' }}>
+
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer & Réutiliser</button>
                 </div>
@@ -1291,51 +2034,45 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* ONGLET PRINCIPAL : PROGRAMME ANNUEL PAR ÉCOLE & CLASSE */}
+        {/* ONGLET : PROGRAMME ANNUEL */}
         {activeTab === 'cycles' && (
           <div>
-            {!ecoleSelectionneeVue ? (
+            {!classeSelectionneeVue ? (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
-                    <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>Sélectionnez un Établissement</h2>
-                    <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Choisissez une école pour consulter et gérer les programmes et fiches pédagogiques qui lui sont rattachés.</p>
+                    <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Programme Annuel & Gestion par Classe</h2>
+                    <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Cliquez sur une classe pour consulter son programme annuel.</p>
                   </div>
-                </div>
-
-                <div style={styles.grilleClasses}>
-                  {(ecolesActivesValidees || []).map(ecole => (
-                    <div key={ecole} onClick={() => setEcoleSelectionneeVue(ecole)} style={styles.carteClasseItem}>
-                      <span style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>🏫 {ecole}</span>
-                      <p style={{ fontSize: '12px', color: '#64748b', margin: '8px 0 14px 0' }}>
-                        Classes affiliées : {(getClassesParEcole(ecole) || []).join(', ')}
-                      </p>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>Voir les fiches de cette école →</span>
+                  {modeSansAffiliation && (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Nom de votre nouvelle classe..." 
+                        value={nouvelleClasseLibre} 
+                        onChange={(e) => setNouvelleClasseLibre(e.target.value)}
+                        style={{ ...styles.inputStyle, width: '220px' }}
+                      />
+                      <button onClick={() => {
+                        if (!nouvelleClasseLibre.trim()) return;
+                        setClassesSansAffiliation(prev => [...(Array.isArray(prev) ? prev : []), nouvelleClasseLibre.trim()]);
+                        setNouvelleClasseLibre('');
+                        showToast("Classe libre ajoutée avec succès !");
+                      }} className="bouton bouton-principal">+ Ajouter</button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : !classeSelectionneeVue ? (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <button onClick={() => setEcoleSelectionneeVue(null)} className="bouton bouton-secondaire" style={{ marginBottom: '8px' }}>← Retour aux écoles</button>
-                    <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Établissement : <span style={{ color: '#2563eb' }}>{ecoleSelectionneeVue}</span></h2>
-                    <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Sélectionnez une classe pour accéder à son programme annuel.</p>
-                  </div>
+                  )}
                 </div>
 
                 <div style={styles.grilleClasses}>
-                  {(getClassesParEcole(ecoleSelectionneeVue) || []).map(cl => {
-                    const cleUnique = `${ecoleSelectionneeVue} - ${cl}`;
-                    const progExiste = !!(programmesClasses && programmesClasses[cleUnique]);
+                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                    const progExiste = programmesClasses && !!programmesClasses[cl];
                     return (
-                      <div key={cl} onClick={() => { setClasseSelectionneeVue(cleUnique); if (!progExiste) initialiserProgrammeClasse(cleUnique); }} style={styles.carteClasseItem}>
-                        <span style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>🏫 Classe {cl}</span>
+                      <div key={cl} onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={styles.carteClasseItem}>
+                        <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>🏫 {cl}</span>
                         <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
-                          {progExiste ? `${(programmesClasses[cleUnique]?.cycles || []).length} cycle(s) au programme` : 'Cliquez pour initialiser'}
+                          {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) au programme` : 'Cliquez pour initialiser'}
                         </p>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>Ouvrir le programme →</span>
+                        <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
                       </div>
                     );
                   })}
@@ -1343,136 +2080,131 @@ export default function EnseignantDashboard() {
               </div>
             ) : (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
-                    <button onClick={() => setClasseSelectionneeVue(null)} className="bouton bouton-secondaire" style={{ marginBottom: '8px' }}>← Retour aux classes de {ecoleSelectionneeVue}</button>
-                    <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Programme : <span style={{ color: '#2563eb' }}>{classeSelectionneeVue}</span></h2>
+                    <button onClick={() => setClasseSelectionneeVue(null)} className="bouton bouton-secondaire" style={{ marginBottom: '8px' }}>← Retour aux classes</button>
+                    <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: 0 }}>Programme : <span style={{ color: '#2563eb' }}>{classeSelectionneeVue}</span></h2>
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
-                      📥 Télécharger Programme (PDF)
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses?.[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
+                      📥 Télécharger PDF
                     </button>
-                    {!modeSansAffiliation && (
-                      <button onClick={() => soumettreAuCenseur('programme', null)} className="bouton bouton-succes">
-                        🚀 Envoyer au Censeur
-                      </button>
-                    )}
-                    <button onClick={() => setModalAssistant(prev => ({ 
-                      ...prev, ouvert: true, niveauCible: 'cycle', ecolesClassesCibles: [classeSelectionneeVue],
-                      champsPersonnalises: modeleFiche.champsPersoLabels.map((label, i) => ({ id: Date.now() + i, label, valeur: '' }))
-                    }))} className="bouton bouton-principal">
-                      + Créer un Cycle (Multi-Écoles)
+                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'programme_annuel', titreProgramme: `Prog. ${classeSelectionneeVue}`, cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }], classesCiblesCycle: [classeSelectionneeVue] })} className="bouton bouton-succes" style={{ backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}>
+                      📊 Créer le programme annuel
+                    </button>
+                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })} className="bouton bouton-principal">
+                      + Créer un Cycle Multi-écoles
                     </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  {((programmesClasses && programmesClasses[classeSelectionneeVue]?.cycles) || []).map(cycle => (
-                    <div key={cycle.id} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', borderLeft: '6px solid #2563eb', width: '100%', boxSizing: 'border-box' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
-                        <div>
-                          <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#0f172a', margin: '0 0 4px 0' }}>📁 {cycle.titre}</h3>
-                          <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}><strong>Compétence :</strong> {cycle.competence} | <strong>Durée :</strong> Du {cycle.dateDebut} au {cycle.dateFin}</p>
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <button onClick={() => ouvrirModalEdition('cycle', cycle.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
-                          <button onClick={() => telechargerFicheSeancePDF({ titre: cycle.titre, date: cycle.dateDebut, lieu: 'N/A', habilites: cycle.competence, contenus: 'Cycle complet', exercices: 'N/A', evaluations: 'N/A', champsPersonnalises: cycle.champsPersonnalises || [] }, { titre: 'Cycle complet' }, cycle)} className="bouton bouton-principal" style={{ padding: '6px 10px', fontSize: '11px' }}>📥 Télécharger</button>
-                          {!modeSansAffiliation && (
-                            <button onClick={() => soumettreAuCenseur('cycle', cycle.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>🚀 Envoyer</button>
-                          )}
-                          {cycle.statut !== 'Terminé' && (
-                            <button onClick={() => marquerCycleTermine(cycle.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>🏆 Terminer</button>
-                          )}
-                          <span style={{ padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', backgroundColor: cycle.statut === 'Terminé' ? '#dcfce7' : '#e0f2fe', color: cycle.statut === 'Terminé' ? '#166534' : '#0369a1' }}>{cycle.statut} {cycle.soumisAuCenseur ? '(Envoyé)' : ''}</span>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                          <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#334155', margin: 0 }}>Leçons de ce cycle :</h4>
-                          <button onClick={() => setModalAssistant(prev => ({ 
-                            ...prev, ouvert: true, niveauCible: 'lecon', cycleIdCible: cycle.id, ecolesClassesCibles: [classeSelectionneeVue],
-                            champsPersonnalises: modeleFiche.champsPersoLabels.map((label, i) => ({ id: Date.now() + i, label, valeur: '' }))
-                          }))} className="bouton bouton-secondaire" style={{ padding: '6px 12px', fontSize: '11px', color: '#2563eb' }}>
-                            + Créer une Leçon
-                          </button>
-                        </div>
-
-                        {(cycle.lecons || []).map(lecon => (
-                          <div key={lecon.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '14px', width: '100%', boxSizing: 'border-box' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                              <h5 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                                📖 {lecon.titre} <span style={{ fontSize: '11px', color: '#64748b' }}>(Séances prévues : {lecon.nombreSeancesPrevues})</span>
-                              </h5>
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '11px' }}>✏️ Modifier</button>
-                                <button onClick={() => telechargerFicheSeancePDF({ titre: lecon.titre, date: 'N/A', lieu: 'N/A', habilites: 'Leçon', contenus: 'Leçon complète', exercices: 'N/A', evaluations: 'N/A', champsPersonnalises: lecon.champsPersonnalises || [] }, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '11px' }}>📥 Télécharger</button>
-                                {!modeSansAffiliation && (
-                                  <button onClick={() => soumettreAuCenseur('lecon', cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '11px' }}>🚀 Envoyer</button>
-                                )}
-                                {lecon.statut !== 'Terminée' && (
-                                  <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '11px' }}>🏁 Terminer</button>
-                                )}
-                                <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 6px', borderRadius: '4px', backgroundColor: lecon.statut === 'Terminée' ? '#dcfce7' : '#fef3c7', color: lecon.statut === 'Terminée' ? '#166534' : '#92400e' }}>{lecon.statut} {lecon.soumisAuCenseur ? '(Envoyé)' : ''}</span>
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '4px', marginTop: '10px' }}>
-                              {(lecon.seances || []).map(seance => {
-                                const estReportee = !!(seancesReportees && seancesReportees[seance.id]);
-                                return (
-                                  <div key={seance.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
-                                    <div style={{ flex: 1, minWidth: '220px' }}>
-                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
-                                        <span style={{ fontWeight: '700', color: '#2563eb' }}>Séance #{seance.numero}</span>
-                                        <strong style={{ fontSize: '13px', color: '#0f172a' }}>{seance.titre}</strong>
-                                        <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>📅 {seance.date}</span>
-                                      </div>
-                                      <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}>
-                                        <em>Hiérarchie :</em> <strong>{cycle.titre}</strong> ➔ <strong>{lecon.titre}</strong>
-                                      </p>
-
-                                      <div style={{ marginTop: '6px', paddingLeft: '4px', borderLeft: '2px solid #e2e8f0' }}>
-                                        {seance.habilites && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Habiletés :</strong> {seance.habilites}</p>}
-                                        {seance.contenus && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Contenus :</strong> {seance.contenus}</p>}
-                                        {seance.exercices && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Exercices :</strong> {seance.exercices}</p>}
-                                        {seance.evaluations && <p style={{ fontSize: '11px', color: '#475569', margin: '2px 0' }}><strong>Évaluations :</strong> {seance.evaluations}</p>}
-                                      </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                      <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
-                                      <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '6px 10px', fontSize: '11px' }}>📥 Télécharger</button>
-                                      
-                                      <button 
-                                        onClick={() => setModalReportSeance(prev => ({ ...prev, ouvert: true, seanceId: seance.id, seanceTitre: seance.titre, ecolesClassesCibles: [classeSelectionneeVue], date: seance.date, motif: '', fichiersJoints: [] }))} 
-                                        className={estReportee ? "bouton bouton-succes" : "bouton bouton-danger"} 
-                                        style={{ padding: '6px 10px', fontSize: '11px' }}
-                                      >
-                                        {estReportee ? "📤 Transmettre la séance reportée" : "⏰ Reporter"}
-                                      </button>
-
-                                      {!modeSansAffiliation && (
-                                        <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>🚀 Envoyer</button>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-
-                              <div style={{ marginTop: '8px' }}>
-                                <button onClick={() => setModalAssistant(prev => ({ 
-                                  ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, ecolesClassesCibles: [classeSelectionneeVue],
-                                  champsPersonnalises: modeleFiche.champsPersoLabels.map((label, i) => ({ id: Date.now() + i, label, valeur: '' }))
-                                }))} className="bouton bouton-secondaire" style={{ fontSize: '11px', width: '100%', borderStyle: 'dashed' }}>
-                                  + Ajouter une nouvelle séance
-                                </button>
-                              </div>
+                {/* LISTE DES CYCLES AVEC MENU DÉROULANT HIÉRARCHIQUE */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {programmesClasses?.[classeSelectionneeVue]?.cycles && Array.isArray(programmesClasses[classeSelectionneeVue].cycles) && programmesClasses[classeSelectionneeVue].cycles.map(cycle => {
+                    const estCycleOuvert = !!cyclesOuverts[cycle.id];
+                    return (
+                      <div key={cycle.id} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '20px', borderLeft: '6px solid #2563eb', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1 }} onClick={() => toggleCycle(cycle.id)}>
+                            <span style={{ fontSize: '16px', fontWeight: '800', color: '#2563eb' }}>{estCycleOuvert ? '▼' : '▶'}</span>
+                            <div>
+                              <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: '0 0 2px 0' }}>📁 {cycle.titre}</h3>
+                              <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                                <strong>Compétence :</strong> {cycle.competence} | 
+                                <strong>Durée :</strong> {cycle.dureeEstimee ? `${cycle.dureeEstimee}` : `Du ${cycle.dateDebut} au ${cycle.dateFin}`}
+                              </p>
                             </div>
                           </div>
-                        ))}
+
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <button onClick={() => ouvrirModalEdition('cycle', cycle.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
+                            <button onClick={() => setModalDuplicationIntelligente({ ouvert: true, itemSource: cycle, typeSource: 'cycle', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px', color: '#2563eb' }}>⚡ Dupliquer</button>
+                            {cycle.statut !== 'Terminé' && (
+                              <button onClick={() => marquerCycleTermine(cycle.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>🏆 Terminer</button>
+                            )}
+                            <span style={{ padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', backgroundColor: cycle.statut === 'Terminé' ? '#dcfce7' : '#e0f2fe', color: cycle.statut === 'Terminé' ? '#166534' : '#0369a1' }}>{cycle.statut}</span>
+                          </div>
+                        </div>
+
+                        {/* CONTENU DÉROULANT DES LEÇONS DU CYCLE */}
+                        {estCycleOuvert && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px', paddingLeft: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <h4 style={{ fontSize: '13px', fontWeight: '800', color: '#334155', margin: 0 }}>📖 Leçons de ce cycle :</h4>
+                              <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'lecon', cycleIdCible: cycle.id })} className="bouton bouton-secondaire" style={{ padding: '4px 10px', fontSize: '11px', color: '#2563eb' }}>
+                                + Créer une Leçon
+                              </button>
+                            </div>
+
+                            {Array.isArray(cycle.lecons) && cycle.lecons.map(lecon => {
+                              const estLeconOuverte = !!leconsOuvertes[lecon.id];
+                              return (
+                                <div key={lecon.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '14px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 1 }} onClick={() => toggleLecon(lecon.id)}>
+                                      <span style={{ fontSize: '14px', fontWeight: '800', color: '#2563eb' }}>{estLeconOuverte ? '▼' : '▶'}</span>
+                                      <h5 style={{ fontSize: '13px', fontWeight: '800', color: '#1e293b', margin: 0 }}>
+                                        {lecon.titre} <span style={{ fontSize: '11px', color: '#64748b' }}>(Séances : {lecon.nombreSeancesPrevues})</span>
+                                      </h5>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
+                                      {lecon.statut !== 'Terminée' && (
+                                        <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🏁 Terminer</button>
+                                      )}
+                                      <span style={{ fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px', backgroundColor: lecon.statut === 'Terminée' ? '#dcfce7' : '#fef3c7', color: lecon.statut === 'Terminée' ? '#166534' : '#92400e' }}>{lecon.statut}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* CONTENU DÉROULANT DES SÉANCES DE LA LEÇON */}
+                                  {estLeconOuverte && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', borderTop: '1px dashed #cbd5e1', paddingTop: '12px', paddingLeft: '10px' }}>
+                                      {Array.isArray(lecon.seances) && lecon.seances.map(seance => (
+                                        <div key={seance.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '2px' }}>
+                                              <span style={{ fontWeight: '800', color: '#2563eb', fontSize: '11px' }}>Séance #{seance.numero}</span>
+                                              <strong style={{ fontSize: '12px', color: '#0f172a' }}>{seance.titre}</strong>
+                                              <span style={{ fontSize: '10px', color: '#64748b', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>📅 {seance.date}</span>
+                                              {seance.soumisAuCenseur && <span style={{ fontSize: '9px', backgroundColor: '#dcfce7', color: '#166534', padding: '2px 4px', borderRadius: '4px', fontWeight: '800' }}>✓ Envoyé</span>}
+                                            </div>
+                                            <p style={{ fontSize: '11px', color: '#475569', margin: 0 }}>
+                                              {Array.isArray(champsPersonnalises) ? champsPersonnalises.map(champ => (seance.valeursChamps && seance.valeursChamps[champ.id]) ? `${champ.label}: ${seance.valeursChamps[champ.id]} | ` : '').join('') : ''}
+                                            </p>
+                                          </div>
+                                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
+                                            <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 PDF</button>
+                                            
+                                            {!modeSansAffiliation && !seance.soumisAuCenseur && (
+                                              <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
+                                                🚀 Envoyer
+                                              </button>
+                                            )}
+
+                                            <button onClick={() => setModalRapport({ ouvert: true, seanceTitre: seance.titre, ecolesCibles: [], classesCibles: [classeSelectionneeVue], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton" style={{ padding: '4px 8px', fontSize: '10px', backgroundColor: '#d97706', color: '#fff' }}>
+                                              📋 Report
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+
+                                      <div style={{ marginTop: '6px' }}>
+                                        <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', width: '100%', borderStyle: 'dashed', padding: '8px' }}>
+                                          + Ajouter une nouvelle séance
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1482,56 +2214,54 @@ export default function EnseignantDashboard() {
         {/* ONGLET : BIBLIOTHÈQUE */}
         {activeTab === 'bibliotheque' && (
           <div style={styles.cardWide}>
-            <div style={styles.sectionHeader}>
-              <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>Bibliothèque & Base de Données Permanente</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Filtrez par année et par classe pour rechercher, télécharger, consulter et réutiliser vos fiches.</p>
-              </div>
+            <div style={{ marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Bibliothèque & Base de Données Permanente</h2>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Filtrez par année et par classe pour rechercher, télécharger et réutiliser vos fiches.</p>
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
               <div style={{ flex: '1 1 160px' }}>
-                <label style={styles.labelFiltre}>Année Scolaire</label>
-                <select value={filtreBiblioAnnee} onChange={(e) => setFiltreBiblioAnnee(e.target.value)} className="champ-saisie">
+                <label style={styles.labelFiltre}>Année</label>
+                <select value={filtreBiblioAnnee} onChange={(e) => setFiltreBiblioAnnee(e.target.value)} style={styles.inputStyle}>
                   <option value="2025-2026">2025-2026</option>
                   <option value="2026-2027">2026-2027</option>
                 </select>
               </div>
               <div style={{ flex: '1 1 160px' }}>
                 <label style={styles.labelFiltre}>Classe</label>
-                <select value={filtreBiblioClasse} onChange={(e) => setFiltreBiblioClasse(e.target.value)} className="champ-saisie">
+                <select value={filtreBiblioClasse} onChange={(e) => setFiltreBiblioClasse(e.target.value)} style={styles.inputStyle}>
                   <option value="TOUTES">Toutes les classes</option>
-                  {(classesActivesValidees || []).map(cl => <option key={cl} value={cl}>{cl}</option>)}
+                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => <option key={cl} value={cl}>{cl}</option>)}
                 </select>
               </div>
-              <div style={{ flex: '1 1 200px' }}>
+              <div style={{ flex: '1 1 240px' }}>
                 <label style={styles.labelFiltre}>Recherche</label>
-                <input type="text" placeholder="Titre, habileté..." value={filtreBiblioTexte} onChange={(e) => setFiltreBiblioTexte(e.target.value)} className="champ-saisie" />
+                <input type="text" placeholder="Titre, habileté..." value={filtreBiblioTexte} onChange={(e) => setFiltreBiblioTexte(e.target.value)} style={styles.inputStyle} />
               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
-              {(bibliothequeFiltree || []).length === 0 ? (
+              {bibliothequeFiltree.length === 0 ? (
                 <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucune fiche trouvée.</p>
               ) : (
-                (bibliothequeFiltree || []).map(b => (
-                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
-                    <div style={{ flex: 1, minWidth: '200px' }}>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
-                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>{b.classe}</span>
+                bibliothequeFiltree.map(b => (
+                  <div key={b.id} style={styles.itemRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{b.classe}</span>
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{b.nom}</strong>
                       </div>
                       <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Cycle : {b.cycleAssocie} | Leçon : {b.leconAssociee}</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <button onClick={() => telechargerFicheSeancePDF(b, { titre: b.leconAssociee }, { titre: b.cycleAssocie })} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '11px' }}>📥 Télécharger</button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => telechargerFicheSeancePDF(b, { titre: b.leconAssociee }, { titre: b.cycleAssocie })} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px' }}>📥 Télécharger</button>
                       <button onClick={() => setModalConsulterReutiliser({
                         ouvert: true,
                         item: b,
-                        donneesModifiees: { nom: b.nom, habilites: b.habilites, contenus: b.contenus, exercices: b.exercices, evaluations: b.evaluations },
+                        donneesModifiees: { nom: b.nom, valeursChamps: b.valeursChamps || {} },
                         classesSelectionnees: [],
                         datesParClasse: {}
-                      })} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '11px' }}>👁️ Consulter et Réutiliser</button>
+                      })} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>👁️ Réutiliser</button>
                     </div>
                   </div>
                 ))
@@ -1540,47 +2270,71 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* ONGLET : GESTION DES ÉCOLES & AFFILIATIONS */}
-        {activeTab === 'affiliation' && (
+        {/* ONGLET : RAPPORTS DE SÉANCE */}
+        {activeTab === 'rapports' && (
           <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 16px 0' }}>Gestion de vos Établissements & Affiliations</h2>
-            
-            {modeSansAffiliation && (
-              <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fefce8', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                <h3 style={{ fontSize: '15px', color: '#92400e', marginTop: 0, marginBottom: '12px' }}>🛠️ Vos Classes Autonomes (Mode Sans Affiliation)</h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
-                  {(classesSansAffiliation || []).map(cl => (
-                    <span key={cl} style={{ backgroundColor: '#fde68a', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', color: '#92400e', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
-                      {cl}
-                      <button onClick={() => supprimerClasseLibre(cl)} style={{ border: 'none', background: 'transparent', color: '#b45309', cursor: 'pointer', fontWeight: 'bold', padding: 0 }}>✕</button>
-                    </span>
-                  ))}
-                  {(classesSansAffiliation || []).length === 0 && <span style={{ fontSize: '12px', color: '#b45309' }}>Aucune classe autonome configurée.</span>}
-                </div>
-                <form onSubmit={ajouterClasseLibre} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <input type="text" value={nouvelleClasseLibre} onChange={(e) => setNouvelleClasseLibre(e.target.value)} placeholder="Nom de la nouvelle classe (ex: Terminale D)..." className="champ-saisie" style={{ flex: '1 1 200px', borderColor: '#fcd34d' }} />
-                  <button type="submit" className="bouton bouton-succes">Ajouter</button>
-                </form>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📝 Rapports de Séance Transmis</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Historique de vos comptes-rendus et rapports de séance envoyés au censeur.</p>
               </div>
-            )}
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {(affiliations || []).length === 0 ? (
+              {!Array.isArray(rapportsSeances) || rapportsSeances.length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucun rapport de séance transmis pour l'instant.</p>
+              ) : (
+                rapportsSeances.map(r => (
+                  <div key={r.id} style={styles.itemRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                          Écoles: {Array.isArray(r.ecolesCibles) ? r.ecolesCibles.join(', ') : 'Global'} | Classes: {Array.isArray(r.classesCibles) ? r.classesCibles.join(', ') : ''}
+                        </span>
+                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{r.seanceTitre}</strong>
+                        {r.motifReport && <span style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>Report : {r.motifReport}</span>}
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>({r.date})</span>
+                      </div>
+                      {r.nouvelleDatePrevue && <p style={{ fontSize: '12px', color: '#2563eb', margin: '2px 0' }}><strong>Nouvelle date :</strong> {r.nouvelleDatePrevue}</p>}
+                      <p style={{ fontSize: '13px', color: '#334155', margin: '4px 0' }}><strong>Compte rendu :</strong> {r.contenuRapport}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ONGLET : ÉCOLES & AFFILIATIONS */}
+        {activeTab === 'affiliation' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>🏫 Gestion de vos Établissements & Affiliations</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Envoyez des demandes d'affiliation ou quittez un établissement.</p>
+              </div>
+              <button onClick={() => setModalAffiliation(true)} className="bouton bouton-succes">
+                + Demander une affiliation
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+              {!Array.isArray(affiliations) || affiliations.length === 0 ? (
                 <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune école affiliée pour le moment (Mode sans affiliation actif).</p>
               ) : (
-                (affiliations || []).map(aff => aff ? (
-                  <div key={aff.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px', width: '100%', boxSizing: 'border-box' }}>
+                affiliations.map(aff => (
+                  <div key={aff.id} style={styles.itemRow}>
                     <div>
-                      <strong>{aff.ecole}</strong> ({aff.statut})<br/>
-                      <small style={{ color: '#64748b' }}>Classes : {(aff.classes || []).join(', ')}</small>
+                      <strong style={{ color: '#0f172a', fontSize: '14px' }}>{aff.ecole}</strong> <span style={{ color: '#64748b', fontSize: '12px' }}>({aff.statut})</span><br/>
+                      <small style={{ color: '#64748b', fontSize: '12px' }}>Classes : <strong>{Array.isArray(aff.classes) ? aff.classes.join(', ') : ''}</strong></small>
                     </div>
                     <div>
-                      <button onClick={() => setModalConfirmationQuitter({ ouvert: true, affiliationId: aff.id, ecoleNom: aff.ecole })} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '11px' }}>
+                      <button onClick={() => quitterEcole(aff.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>
                         Quitter cette école
                       </button>
                     </div>
                   </div>
-                ) : null)
+                ))
               )}
             </div>
           </div>
@@ -1591,19 +2345,32 @@ export default function EnseignantDashboard() {
 }
 
 const styles = {
-  container: { backgroundColor: '#f1f5f9', minHeight: '100vh', color: '#1e293b', width: '100%', maxWidth: '100vw', overflowX: 'hidden' },
-  mainContentBody: { padding: '20px 16px', width: '100%', maxWidth: '100%', boxSizing: 'border-box', margin: '0 auto', position: 'relative', overflowX: 'hidden' },
-  notificationDropdown: { position: 'absolute', top: '44px', right: 10, backgroundColor: '#ffffff', borderRadius: '10px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 100, padding: '10px' },
-  dropdownHeader: { padding: '4px 8px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
-  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '6px', fontSize: '12px', marginBottom: '4px' },
-  toastSuccess: { backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' },
-  grilleClasses: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginTop: '16px', width: '100%' },
-  carteClasseItem: { backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', cursor: 'pointer', transition: 'all 0.2s ease', width: '100%', boxSizing: 'border-box' },
-  cardWide: { backgroundColor: '#ffffff', padding: '24px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box' },
-  modalCard: { backgroundColor: '#ffffff', padding: '20px 16px', borderRadius: '14px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' },
-  label: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' },
-  labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '700' }
+  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
+  mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
+  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
+  grilleClasses: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginTop: '16px' },
+  carteClasseItem: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', cursor: 'pointer', transition: 'transform 0.2s ease' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
+  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
+  label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
+  inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
+  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
+  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
+  avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  navbarTeacherName: { fontSize: '12px', fontWeight: '800', color: '#ffffff' },
+  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8', fontWeight: '600' },
+  notificationDropdown: { position: 'absolute', top: '50px', left: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '320px', zIndex: 100, padding: '12px' },
+  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
+  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9', cursor: 'pointer' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
+  fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFactor: 'blur(4px)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', zIndex: '1000', padding: '16px' },
+  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
+  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
+  burgerDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 120, padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }
 };

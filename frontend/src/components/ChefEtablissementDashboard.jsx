@@ -65,6 +65,9 @@ export default function ChefEtablissementDashboard() {
   const [ancienMdp, setAncienMdp] = useState('');
   const [nouveauMdp, setNouveauMdp] = useState('');
 
+  // --- MODALE DE CONFIRMATION DE QUITTER L'ÉCOLE ---
+  const [modalQuitterEcole, setModalQuitterEcole] = useState(false);
+
   // --- MENU BURGER FLUIDE POUR LES ONGLETS ---
   const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
   const menuBurgerChefRef = useRef(null);
@@ -73,6 +76,8 @@ export default function ChefEtablissementDashboard() {
     try {
       if (ecoleConfig) {
         localStorage.setItem('app_chef_ecole_config', JSON.stringify(ecoleConfig));
+      } else {
+        localStorage.removeItem('app_chef_ecole_config');
       }
     } catch {}
   }, [ecoleConfig]);
@@ -529,10 +534,14 @@ export default function ChefEtablissementDashboard() {
                 <input type="text" placeholder="Entrez le nom exact..." value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required />
               </div>
               <div>
+                <label style={styles.label}>Code d'accès de l'établissement</label>
+                <input type="text" placeholder="Entrez le code secret..." value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
+              </div>
+              <div>
                 <label style={styles.label}>Année Scolaire</label>
                 <input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                 <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: '700', cursor: 'pointer', padding: 0 }}>
                   Code d'établissement oublié ?
                 </button>
@@ -617,7 +626,7 @@ export default function ChefEtablissementDashboard() {
                   </button>
                   <button 
                     onClick={() => {
-                      setEcoleConfig(null);
+                      setModalQuitterEcole(true);
                       setProfilChefOuvert(false);
                     }} 
                     style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}
@@ -687,6 +696,26 @@ export default function ChefEtablissementDashboard() {
 
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
+
+        {/* MODALE DE CONFIRMATION DE QUITTER L'ÉCOLE */}
+        {modalQuitterEcole && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Quitter l'établissement</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+                Êtes-vous sûr de vouloir rompre l'affiliation avec <strong>{ecoleConfig?.nomEcole}</strong> ? Vous devrez vous reconnecter ou créer un nouvel établissement pour accéder au réseau.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalQuitterEcole(false)} className="bouton bouton-secondaire">Retour (Annuler)</button>
+                <button onClick={() => {
+                  setModalQuitterEcole(false);
+                  setEcoleConfig(null);
+                  showToast("🔗 Affiliation avec l'école rompue.");
+                }} className="bouton bouton-danger">Oui, quitter l'école</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* MODALE DE CONFIRMATION DE DÉCONNEXION */}
         {modalDeconnexion && (
@@ -1160,7 +1189,7 @@ export default function ChefEtablissementDashboard() {
                   <strong style={{ fontSize: '11px', color: '#475569', textTransform: 'uppercase' }}>Personnel administratif enregistré:</strong>
                   {personnelAdministratifManuel.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                      <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | Matricule : <strong>{p.matricule || 'N/A'}</strong> | Contact : {p.contact} | Email : {p.email}[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)</span>
+                      <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | Matricule : <strong>{p.matricule || 'N/A'}</strong> | Contact : {p.contact} | Email : {p.email}[span_0](start_span)[span_0](end_span)</span>
                       <button onClick={() => supprimerPersonnelAdministratif(p.id)} className="bouton bouton-danger" style={{ padding: '2px 8px', fontSize: '11px' }}>Supprimer</button>
                     </div>
                   ))}
@@ -1209,7 +1238,7 @@ export default function ChefEtablissementDashboard() {
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
                       </div>
                       <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>
-                        Matricule : <strong>{prof.matricule}</strong> | Contact : {prof.contact} | Email : {prof.email} | Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong>[span_2](start_span)[span_2](end_span)
+                        Matricule : <strong>{prof.matricule}</strong> | Contact : {prof.contact} | Email : {prof.email} | Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong>[span_1](start_span)[span_1](end_span)
                       </p>
                     </div>
                     <div>

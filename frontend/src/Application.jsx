@@ -83,9 +83,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
   useEffect(() => { localStorage.setItem('app_chef_archives_historiques', JSON.stringify(archivesHistoriques)); }, [archivesHistoriques]);
 
-  const [fichiersAdministratifsUploads, setFichiersAdministratifsUploads] = useState(() => safeGetArray('app_chef_fichiers_admin', []));
-  useEffect(() => { localStorage.setItem('app_chef_fichiers_admin', JSON.stringify(fichiersAdministratifsUploads)); }, [fichiersAdministratifsUploads]);
-
   const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
   useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
 
@@ -94,10 +91,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
-
-  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
-  const [anneeFichier, setAnneeFichier] = useState('2025-2026');
-  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
 
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
@@ -261,25 +254,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const validerCenseur = (id) => { setCenseursAffiliations(prev => prev.map(c => c.id === id ? { ...c, statut: 'Validé' } : c)); showToast("✅ Censeur validé !"); };
   const rejeterCenseur = (id) => { setCenseursAffiliations(prev => prev.filter(c => c.id !== id)); showToast("❌ Demande rejetée."); };
 
-  const ajouterPersonnelAdministratif = (e) => {
-    e.preventDefault();
-    if (!nouveauAdminNom.trim()) return;
-    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'MAT-000', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
-    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
-    setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
-    showToast("✅ Personnel administratif ajouté !");
-  };
-  const supprimerPersonnelAdministratif = (id) => { setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id)); showToast("🗑️ Membre retiré."); };
-
-  const uploaderFichierAdministratifreel = (e) => {
-    e.preventDefault();
-    if (!nomNouveauFichier.trim()) return;
-    const nouveauFichier = { id: Date.now(), nom: nomNouveauFichier.trim(), annee: anneeFichier, nomFichierReel: fichierSelectionneObj ? fichierSelectionneObj.name : 'Document_officiel.pdf', dateAjout: new Date().toLocaleDateString() };
-    setFichiersAdministratifsUploads(prev => [nouveauFichier, ...prev]);
-    setNomNouveauFichier(''); setFichierSelectionneObj(null);
-    showToast("📎 Fichier stocké avec succès !");
-  };
-
   const handleEnregistrerProfilChef = (e) => {
     e.preventDefault();
     setInfosChef({ ...formProfilChef });
@@ -442,7 +416,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
-        {/* MODALE DE DÉCONNEXION CORRIGÉE (APPEL DE onLogout + NETTOYAGE LOCALSTORAGE) */}
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -653,14 +626,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 </div>
               </form>
             )}
-
-            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>📤 Uploader un Fichier Administratif</h3>
-              <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Uploader</button>
-              </form>
-            </div>
           </div>
         )}
 
@@ -775,7 +740,6 @@ const styles = {
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
   
-  // STYLES COMPACTS ET HARMONIEUX POUR LA NAVBAR
   navbarTeacherClickableBlockCompact: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
   avatarNavbarContainerCompact: { width: '26px', height: '26px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0, color: '#94a3b8' },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },

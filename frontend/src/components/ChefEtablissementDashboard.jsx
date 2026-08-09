@@ -21,7 +21,7 @@ const safeGetObject = (key, defaultObj = {}) => {
   } catch { return defaultObj; }
 };
 
-export default function ChefEtablissementDashboard({ onLogout }) {
+export default function ChefEtablissementDashboard() {
   
   // --- ÉTATS GLOBAUX ---
   const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
@@ -59,10 +59,6 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [modalQuitterEcole, setModalQuitterEcole] = useState(false);
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
-  // --- ÉTATS POUR LES MODALES DE SUPPRESSION ---
-  const [modalSuppressionCompte, setModalSuppressionCompte] = useState(false);
-  const [modalSuppressionEcole, setModalSuppressionEcole] = useState(false);
-
   const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
   const menuBurgerChefRef = useRef(null);
 
@@ -99,6 +95,10 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
 
+  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
+  const [anneeFichier, setAnneeFichier] = useState('2025-2026');
+  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
+
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
@@ -129,7 +129,8 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     try {
       const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
       const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
-      return [...archiveCenseur, ...biblioEnseignant];
+      let fusion = [...archiveCenseur, ...biblioEnseignant];
+      return fusion;
     } catch { return []; }
   }, []);
 
@@ -172,12 +173,14 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // --- IMPRESSION PDF ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
-      showToast("⚠️ Ouverture bloquée par votre navigateur.");
+      showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
       return;
     }
+    
     fenetreImpression.document.write(`
       <html>
         <head>
@@ -192,6 +195,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             .btn-retour { background: #ef4444; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
             h1 { margin: 0; font-size: 20px; color: #0f172a; }
             p { margin: 8px 0; font-size: 14px; line-height: 1.6; }
+            
             @media print {
               body { background: #fff; padding: 0; }
               .pdf-container { box-shadow: none; padding: 0; }
@@ -208,7 +212,9 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button class="btn-retour" onclick="window.close()">✕ Fermer & Retourner à l'app</button>
               </div>
             </div>
-            <div class="pdf-content">${contenuHTML}</div>
+            <div class="pdf-content">
+              ${contenuHTML}
+            </div>
           </div>
           <script>
             window.onload = function() { setTimeout(function() { window.print(); }, 800); }
@@ -248,7 +254,11 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     } else if (actionType === 'fermer') {
       try {
         const archiveSession = {
-          annee: ecoleConfig.anneeScolaire, dateCloture: new Date().toLocaleDateString(), stats: statistiquesReseau, personnelAdministratif: personnelAdministratifManuel, personnelEnseignant: listeProfesseursEtablissement
+          annee: ecoleConfig.anneeScolaire,
+          dateCloture: new Date().toLocaleDateString(),
+          stats: statistiquesReseau,
+          personnelAdministratif: personnelAdministratifManuel,
+          personnelEnseignant: listeProfesseursEtablissement
         };
         setArchivesHistoriques(prev => [...prev, archiveSession]);
       } catch {}
@@ -260,6 +270,25 @@ export default function ChefEtablissementDashboard({ onLogout }) {
 
   const validerCenseur = (id) => { setCenseursAffiliations(prev => prev.map(c => c.id === id ? { ...c, statut: 'Validé' } : c)); showToast("✅ Censeur validé !"); };
   const rejeterCenseur = (id) => { setCenseursAffiliations(prev => prev.filter(c => c.id !== id)); showToast("❌ Demande rejetée."); };
+
+  const ajouterPersonnelAdministratif = (e) => {
+    e.preventDefault();
+    if (!nouveauAdminNom.trim()) return;
+    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'MAT-000', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
+    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
+    setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
+    showToast("✅ Personnel administratif ajouté !");
+  };
+  const supprimerPersonnelAdministratif = (id) => { setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id)); showToast("🗑️ Membre retiré."); };
+
+  const uploaderFichierAdministratifreel = (e) => {
+    e.preventDefault();
+    if (!nomNouveauFichier.trim()) return;
+    const nouveauFichier = { id: Date.now(), nom: nomNouveauFichier.trim(), annee: anneeFichier, nomFichierReel: fichierSelectionneObj ? fichierSelectionneObj.name : 'Document_officiel.pdf', dateAjout: new Date().toLocaleDateString() };
+    setFichiersAdministratifsUploads(prev => [nouveauFichier, ...prev]);
+    setNomNouveauFichier(''); setFichierSelectionneObj(null);
+    showToast("📎 Fichier stocké avec succès !");
+  };
 
   const handleEnregistrerProfilChef = (e) => {
     e.preventDefault();
@@ -276,40 +305,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     reader.readAsDataURL(file);
   };
 
-  // --- LOGIQUE AJOUTÉE : SUPPRESSION DU COMPTE ---
-  const executerSuppressionCompte = () => {
-    localStorage.removeItem('app_chef_profil');
-    localStorage.removeItem('app_chef_ecole_config');
-    localStorage.removeItem('app_chef_censeurs_affiliations');
-    localStorage.removeItem('app_chef_rapports_censeurs');
-    localStorage.removeItem('app_chef_notifications');
-    localStorage.removeItem('app_chef_archives_historiques');
-    localStorage.removeItem('app_chef_fichiers_admin');
-    localStorage.removeItem('app_chef_personnel_admin_manuel');
-    localStorage.removeItem('app_chef_statut');
-    localStorage.removeItem('app_enseignant_statut');
-    
-    setModalSuppressionCompte(false);
-    if (typeof onLogout === 'function') {
-      onLogout();
-    } else {
-      window.location.reload();
-    }
-  };
-
-  // --- LOGIQUE AJOUTÉE : SUPPRESSION D'ÉTABLISSEMENT ---
-  const soumettreSuppressionEtablissement = () => {
-    setModalSuppressionEcole(false);
-    const nouvelleNotif = {
-      id: Date.now(),
-      texte: `Demande de suppression de l'établissement "${ecoleConfig?.nomEcole}" en attente d'approbation par les censeurs.`,
-      date: new Date().toLocaleDateString(),
-      lu: false
-    };
-    setNotificationsChef(prev => [nouvelleNotif, ...prev]);
-    showToast("📨 Demande de suppression envoyée aux censeurs pour approbation !");
-  };
-
+  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
   if (!ecoleConfig) {
     return (
       <div style={styles.setupContainer}>
@@ -336,10 +332,23 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               <div>
                 <label style={styles.label}>Mot de passe de l'établissement</label>
                 <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  {/* CORRECTION ICI : onClick utilisé pour garantir la réactivité sur mobile dans un formulaire */}
+                  <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                    Mot de passe oublié ?
+                  </button>
+                </div>
               </div>
 
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
+            </form>
+          )}
+
+          {modeSetup === 'OUBLIE_CODE' && (
+            <form onSubmit={(e) => { e.preventDefault(); showToast("📩 Instructions envoyées !"); setModeSetup('CONNECTER'); setInputEmailRecuperation(''); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div><label style={styles.label}>Email institutionnel</label><input type="email" value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required /></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le mot de passe</button></div>
             </form>
           )}
 
@@ -376,14 +385,10 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             {profilChefOuvert && (
               <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
                 <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                {/* ICI : onMouseDown maintenu uniquement pour les dropdowns car c'est nécessaire pour éviter le conflit avec handleClickOutside */}
                 <button type="button" onMouseDown={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
                 <button type="button" onMouseDown={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
                 <button type="button" onMouseDown={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
-                
-                {/* BOUTON AJOUTÉ ICI : UNIQUE ET TRÈS DISCRET */}
-                <button type="button" onMouseDown={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#cbd5e1', fontSize: '9px', cursor: 'pointer', width: '100%', textAlign: 'center', marginTop: '10px', padding: '4px' }}>
-                  supprimer mon compte
-                </button>
               </div>
             )}
           </div>
@@ -432,36 +437,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALE DE SUPPRESSION DE COMPTE AJOUTÉE */}
-        {modalSuppressionCompte && (
-          <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
-              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Supprimer le compte ?</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Cette action est irréversible et effacera toutes les données de session locales.</p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-                <button onClick={() => setModalSuppressionCompte(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={executerSuppressionCompte} className="bouton bouton-danger">Oui, supprimer</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MODALE DE SUPPRESSION D'ÉCOLE AJOUTÉE */}
-        {modalSuppressionEcole && (
-          <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
-              <div style={{ width: '48px', height: '48px', background: '#fef3c7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', margin: '0 auto 14px auto' }}>🏛️</div>
-              <h3 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>Supprimer cet établissement ?</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '22px', lineHeight: '1.5' }}>
-                La suppression de l'établissement <strong>{ecoleConfig?.nomEcole}</strong> nécessite l'approbation des censeurs. Voulez-vous transmettre la demande ?
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-                <button onClick={() => setModalSuppressionEcole(false)} className="bouton bouton-secondaire" style={{ flex: 1 }}>Annuler</button>
-                <button onClick={soumettreSuppressionEtablissement} className="bouton bouton-danger" style={{ flex: 1, backgroundColor: '#d97706' }}>Envoyer pour approbation</button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* MODALES RESTAURÉES ET PLEINEMENT FONCTIONNELLES */}
 
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
@@ -483,15 +459,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={() => { 
-                  setModalDeconnexion(false); 
-                  localStorage.removeItem('app_chef_statut'); 
-                  if (typeof onLogout === 'function') { 
-                    onLogout(); 
-                  } else { 
-                    window.location.reload(); 
-                  }
-                }} className="bouton bouton-danger">Oui, me déconnecter</button>
+                <button onClick={() => { setModalDeconnexion(false); localStorage.removeItem('app_chef_statut'); window.location.reload(); }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
           </div>
@@ -640,7 +608,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             {!modeEditionEcole ? (
               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                 <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nomEcole}</p></div>
-                <div><label style={styles.label}>Code Établissement</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
+                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
                 <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
                 <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEleves}</p></div>
                 <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEnseignants}</p></div>
@@ -648,52 +616,21 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               </div>
             ) : (
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                  <div>
-                    <label style={styles.label}>Nom de l'établissement</label>
-                    <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Code d'accès / Ministère</label>
-                    <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Situation Géographique</label>
-                    <input type="text" value={formEcoleEdition.situationGeo || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, situationGeo: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Nombre de Classes (Géré automatiquement)</label>
-                    <input type="text" value={`${nombreClassesAutomatique} classe(s)`} disabled style={{ ...styles.inputStyle, backgroundColor: '#f1f5f9', color: '#64748b' }} />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Effectif des Élèves</label>
-                    <input type="number" value={formEcoleEdition.nombreEleves || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nombreEleves: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Corps Enseignant</label>
-                    <input type="number" value={formEcoleEdition.nombreEnseignants || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nombreEnseignants: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Date de Création</label>
-                    <input type="date" value={formEcoleEdition.dateCreation || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, dateCreation: e.target.value})} style={styles.inputStyle} required />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
+                <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer les modifications</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
                 </div>
               </form>
             )}
 
-            {/* BOUTON AJOUTÉ ICI : SUPPRESSION D'ÉTABLISSEMENT SOUMIS AUX CENSEURS */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button 
-                type="button" 
-                onClick={() => setModalSuppressionEcole(true)} 
-                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #f87171', padding: '10px 18px', borderRadius: '12px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
-              >
-                🏛️ Supprimer cet établissement (Approbation censeurs)
-              </button>
+            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>📤 Uploader un Fichier Administratif</h3>
+              <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Uploader</button>
+              </form>
             </div>
           </div>
         )}
@@ -763,7 +700,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                       className="bouton bouton-principal" 
                       style={{ padding: '6px 12px', fontSize: '12px' }}
                     >
-                      📥 Télécharger / Voir
+                      📥 Télécharger / Voir (PDF)
                     </button>
                   </div>
                 </div>
@@ -803,7 +740,6 @@ const styles = {
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
   mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
   cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
-  statCard: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
   itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },

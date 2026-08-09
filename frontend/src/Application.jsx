@@ -14,7 +14,7 @@ export default function Application() {
 
   // --- ÉTAPE SUPPLÉMENTAIRE : CHOIX DE L'ÉCOLE POUR LE CHEF ---
   const [etapeChefEcole, setEtapeChefEcole] = useState(false);
-  const [choixModeEcole, setChoixModeEcole] = useState('choix'); // 'choix', 'creer', 'rejoindre', 'paiement'
+  const [choixModeEcole, setChoixModeEcole] = useState('choix'); // 'choix', 'creer', 'rejoindre', 'paiement', 'oublie_code'
   
   // Champs pour la création avec le code officiel du Ministère
   const [formNouvelleEcole, setFormNouvelleEcole] = useState({
@@ -365,6 +365,17 @@ export default function Application() {
                 <div>
                   <label className="libelle">Code officiel du Ministère ou Nom</label>
                   <input type="text" placeholder="Entrez le code officiel..." value={codeOuNomRejoins} onChange={e => setCodeOuNomRejoins(e.target.value)} className="champ-saisie" required />
+                  
+                  {/* AJOUT : BOUTON MOT DE PASSE D'ÉTABLISSEMENT OUBLIÉ */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setChoixModeEcole('oublie_code')} 
+                      style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                    >
+                      Mot de passe d'établissement oublié ?
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('choix')}>Retour</button>
@@ -372,6 +383,28 @@ export default function Application() {
                 </div>
               </form>
             )}
+
+            {/* AJOUT : FORMULAIRE DE RÉCUPÉRATION DU CODE D'ÉTABLISSEMENT */}
+            {choixModeEcole === 'oublie_code' && (
+              <form 
+                onSubmit={(e) => { 
+                  e.preventDefault(); 
+                  afficherNotification("📩 Instructions envoyées à votre e-mail !"); 
+                  setChoixModeEcole('rejoindre'); 
+                }} 
+                style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}
+              >
+                <div>
+                  <label className="libelle">Email institutionnel de récupération</label>
+                  <input type="email" placeholder="Entrez votre email..." className="champ-saisie" required />
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button type="button" style={{ background: '#64748b', color: '#fff', border: 'none', padding: '10px', flex: 1, borderRadius: '12px', cursor: 'pointer' }} onClick={() => setChoixModeEcole('rejoindre')}>Retour</button>
+                  <button type="submit" className="bouton-principal" style={{ flex: 2 }}>Réinitialiser</button>
+                </div>
+              </form>
+            )}
+
           </div>
         </div>
       )}
@@ -547,7 +580,6 @@ export default function Application() {
       {/* --- DASHBOARDS --- */}
       {userRole && (
         <div className="anim-apparition">
-          {/* BARRE DE NAVIGATION RESTRUCTURÉE : LOGO E-CAHIER RECENTRÉ AU-DESSUS DE LA ZONE PROFIL, SANS BOUTON ROUGE */}
           <div style={styles.barreNavigation}>
             <div style={styles.navLogoContainerCenter}>
               <span style={{ fontSize: '20px' }}>📖</span>

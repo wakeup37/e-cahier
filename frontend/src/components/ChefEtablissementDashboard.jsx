@@ -260,7 +260,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     reader.readAsDataURL(file);
   };
 
-  // --- SUPPRESSION DE COMPTE ---
+  // --- 🔴 FONCTION SUPPRESSION DE COMPTE ---
   const executerSuppressionCompte = () => {
     localStorage.removeItem('app_chef_profil');
     localStorage.removeItem('app_chef_ecole_config');
@@ -282,7 +282,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     }
   };
 
-  // --- SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) ---
+  // --- 🔴 FONCTION SUPPRESSION D'ÉTABLISSEMENT ---
   const soumettreSuppressionEtablissement = () => {
     setModalSuppressionEcole(false);
     const nouvelleNotif = {
@@ -295,6 +295,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     showToast("📨 Demande de suppression envoyée aux censeurs pour approbation !");
   };
 
+  // --- SI AUCUN ÉTABLISSEMENT N'EST CONFIGURÉ ---
   if (!ecoleConfig) {
     return (
       <div style={styles.setupContainer}>
@@ -321,22 +322,10 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               <div>
                 <label style={styles.label}>Mot de passe de l'établissement</label>
                 <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                  <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-                    Mot de passe oublié ?
-                  </button>
-                </div>
               </div>
 
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
-            </form>
-          )}
-
-          {modeSetup === 'OUBLIE_CODE' && (
-            <form onSubmit={(e) => { e.preventDefault(); showToast("📩 Instructions envoyées !"); setModeSetup('CONNECTER'); setInputEmailRecuperation(''); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div><label style={styles.label}>Email institutionnel</label><input type="email" value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le mot de passe</button></div>
             </form>
           )}
 
@@ -375,7 +364,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
                 <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
                 
-                {/* LIEN UNIQUE, TRÈS DISCRET ET EN TOUT PETIT POUR SUPPRIMER LE COMPTE */}
+                {/* 🔴 BOUTON SUPPRIMER MON COMPTE UNIQUE, TRÈS DISCRET ET EN TOUT PETIT */}
                 <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', textAlign: 'center' }}>
                   <button type="button" onClick={() => { setModalSuppressionCompte(true); setProfilChefOuvert(false); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '10px', fontWeight: '600', cursor: 'pointer', padding: '2px 4px' }}>
                     Supprimer mon compte
@@ -437,7 +426,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALE DE SUPPRESSION DE COMPTE */}
+        {/* 🔴 MODALE DE SUPPRESSION DE COMPTE */}
         {modalSuppressionCompte && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
@@ -454,7 +443,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
           </div>
         )}
 
-        {/* MODALE DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
+        {/* 🔴 MODALE DE SUPPRESSION D'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
         {modalSuppressionEcole && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
@@ -693,7 +682,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
               </form>
             )}
 
-            {/* BOUTON DE SUPPRESSION DE L'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
+            {/* 🔴 BOUTON DE SUPPRESSION DE L'ÉTABLISSEMENT (APPROBATION CENSEURS) */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
               <button 
                 type="button" 

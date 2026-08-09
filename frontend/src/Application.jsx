@@ -21,7 +21,6 @@ const safeGetObject = (key, defaultObj = {}) => {
   } catch { return defaultObj; }
 };
 
-// Acceptation de "onLogout" en prop si jamais l'App parent la passe
 export default function ChefEtablissementDashboard({ onLogout }) {
   
   // --- ÉTATS GLOBAUX ---
@@ -51,6 +50,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
   const [formProfilChef, setFormProfilChef] = useState({ ...infosChef });
   const [profilChefOuvert, setProfilChefOuvert] = useState(false);
+  const profilChefRef = useRef(null);
 
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
@@ -60,7 +60,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
   const [menuBurgerChefOuvert, setMenuBurgerChefOuvert] = useState(false);
-  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
+  const menuBurgerChefRef = useRef(null);
 
   const [modalConfirmationActionAnnee, setModalConfirmationActionAnnee] = useState({ ouvert: false, actionType: null });
   const [modeEditionEcole, setModeEditionEcole] = useState(false);
@@ -76,6 +76,9 @@ export default function ChefEtablissementDashboard({ onLogout }) {
     { id: 1, texte: 'Bienvenue sur votre tableau de bord du réseau de l’établissement.', date: 'Aujourd’hui', lu: false }
   ]));
   useEffect(() => { localStorage.setItem('app_chef_notifications', JSON.stringify(notificationsChef)); }, [notificationsChef]);
+
+  const [notifChefOuvert, setNotifChefOuvert] = useState(false);
+  const notifChefRef = useRef(null);
 
   const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
   useEffect(() => { localStorage.setItem('app_chef_archives_historiques', JSON.stringify(archivesHistoriques)); }, [archivesHistoriques]);
@@ -158,6 +161,17 @@ export default function ChefEtablissementDashboard({ onLogout }) {
 
   const [message, setMessage] = useState('');
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
+
+  // --- FERMETURE DES MENUS AU CLIC EXTÉRIEUR ---
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profilChefRef.current && !profilChefRef.current.contains(event.target)) setProfilChefOuvert(false);
+      if (notifChefRef.current && !notifChefRef.current.contains(event.target)) setNotifChefOuvert(false);
+      if (menuBurgerChefRef.current && !menuBurgerChefRef.current.contains(event.target)) setMenuBurgerChefOuvert(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // --- IMPRESSION PDF SÉCURISÉE ---
   const telechargerDocumentPDF = (titre, contenuHTML) => {
@@ -348,7 +362,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
           
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} ref={profilChefRef}>
             <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
                 {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
@@ -360,58 +374,49 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             </button>
 
             {profilChefOuvert && (
-              <>
-                <div style={styles.overlayFermeture} onClick={() => setProfilChefOuvert(false)} />
-                <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
-                  <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
-                  <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
-                  <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
-                  <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
-                </div>
-              </>
+              <div style={{ ...styles.dropdownAbsolu, left: 0 }}>
+                <div style={styles.dropdownHeader}>Mon Compte Directeur</div>
+                <button type="button" onClick={() => { setModalProfilChefOuvert(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>⚙️ Modifier mon profil</button>
+                <button type="button" onClick={() => { setModalSecurite(true); setProfilChefOuvert(false); }} style={styles.optionMenu}>🔒 Changer mot de passe</button>
+                <button type="button" onClick={() => { setModalQuitterEcole(true); setProfilChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '800' }}>🚪 Quitter l'école</button>
+              </div>
             )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }} ref={notifChefRef}>
               <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
                 {notificationsChef.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notificationsChef.filter(n => !n.lu).length}</span>}
               </button>
               {notifChefOuvert && (
-                <>
-                  <div style={styles.overlayFermeture} onClick={() => setNotifChefOuvert(false)} />
-                  <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
-                    <div style={styles.dropdownHeader}>Notifications</div>
-                    {notificationsChef.map(n => (
-                       <div key={n.id} style={styles.notifItem}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
-                        <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '280px' }}>
+                  <div style={styles.dropdownHeader}>Notifications</div>
+                  {notificationsChef.map(n => (
+                     <div key={n.id} style={styles.notifItem}>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '12px' }}>{n.texte}</p>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }} ref={menuBurgerChefRef}>
               <button onClick={() => setMenuBurgerChefOuvert(!menuBurgerChefOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerChefOuvert && (
-                <>
-                  <div style={styles.overlayFermeture} onClick={() => setMenuBurgerChefOuvert(false)} />
-                  <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
-                    <div style={styles.dropdownHeader}>Menu Direction</div>
-                    <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
-                    <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
-                    <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                    <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
-                    <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
-                    <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                      <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
-                    </div>
+                <div style={{ ...styles.dropdownAbsolu, right: 0, width: '260px' }}>
+                  <div style={styles.dropdownHeader}>Menu Direction</div>
+                  <button type="button" onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>🏛️ Profil & Carte d'Identité</button>
+                  <button type="button" onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👥 Validation Censeurs</button>
+                  <button type="button" onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
+                  <button type="button" onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📚 Fiches Pédagogiques</button>
+                  <button type="button" onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} style={styles.optionMenu}>📈 Rapports Détaillés</button>
+                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                    <button type="button" onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
-                </>
+                </div>
               )}
             </div>
 
@@ -446,8 +451,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                 <button onClick={() => { 
                   setModalDeconnexion(false); 
                   localStorage.removeItem('app_chef_statut'); 
-                  localStorage.removeItem('app_enseignant_statut'); 
-                  if (onLogout) { onLogout(); } else { window.location.reload(); }
+                  if (onLogout) { onLogout(); } else { window.location.href = '/'; }
                 }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
@@ -597,14 +601,14 @@ export default function ChefEtablissementDashboard({ onLogout }) {
             {!modeEditionEcole ? (
               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                 <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nomEcole}</p></div>
-                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
+                <div><label style={styles.label}>Code Établissement</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
                 <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
                 <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEleves}</p></div>
                 <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEnseignants}</p></div>
                 <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
               </div>
             ) : (
-              // RESTAURATION COMPLÈTE DU FORMULAIRE DE MODIFICATION
+              // RESTAURATION COMPLÈTE DU FORMULAIRE DE MODIFICATION AVEC LABELS CLAIRS
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div>
@@ -620,7 +624,7 @@ export default function ChefEtablissementDashboard({ onLogout }) {
                     <input type="text" value={formEcoleEdition.situationGeo || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, situationGeo: e.target.value})} style={styles.inputStyle} required />
                   </div>
                   <div>
-                    <label style={styles.label}>Nombre de Classes (Auto)</label>
+                    <label style={styles.label}>Nombre de Classes (Géré automatiquement)</label>
                     <input type="text" value={`${nombreClassesAutomatique} classe(s)`} disabled style={{ ...styles.inputStyle, backgroundColor: '#f1f5f9', color: '#64748b' }} />
                   </div>
                   <div>
@@ -777,6 +781,5 @@ const styles = {
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
   burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
   boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(22,163,74,0.3)' },
-  boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' },
-  overlayFermeture: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, cursor: 'default' }
+  boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 24px', borderRadius: '14px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', boxShadow: '0 10px 20px rgba(220,38,38,0.3)' }
 };

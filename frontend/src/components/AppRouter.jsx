@@ -368,11 +368,14 @@ export default function AppRouter() {
                   </span>
                 </div>
                 
-                <div style={{ textAlign: 'right', marginTop: '6px' }}>
-                  <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
-                    Mot de passe oublié ?
-                  </span>
-                </div>
+                {/* Condition ajoutée : seulement en mode connexion */}
+                {modeAuth === 'connexion' && (
+                  <div style={{ textAlign: 'right', marginTop: '6px' }}>
+                    <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
+                      Mot de passe oublié ?
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>

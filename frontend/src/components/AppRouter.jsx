@@ -1,24 +1,26 @@
-Approuteur
-
-
 import React, { useState, useEffect } from 'react';
 import API from '../api.js';
-import Application from './Application';
-import EnseignantDashboard from './components/EnseignantDashboard';
-import CenseurDashboard from './components/CenseurDashboard';
-import ChefEtablissementDashboard from './components/ChefEtablissementDashboard';
+import Application from '../Application.jsx';
+import EnseignantDashboard from './EnseignantDashboard';
+import CenseurDashboard from './CenseurDashboard';
+import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 
 export default function AppRouter() {
-  // Gère le rôle de l'utilisateur connecté ('', 'enseignant', 'censeur', 'chef')
   const [userRole, setUserRole] = useState(''); 
-
-  // --- ÉTATS POUR L'ÉCRAN INTERMÉDIAIRE DU CHEF D'ÉTABLISSEMENT ---
+  
+  // États pour le Chef d'établissement
   const [etapeChefEcole, setEtapeChefEcole] = useState(false);
-  const [choixModeEcole, setChoixModeEcole] = useState('choix'); // 'choix', 'creer', 'rejoindre'
+  const [choixModeEcole, setChoixModeEcole] = useState('choix');
   const [nomEcoleSaisi, setNomEcoleSaisi] = useState('');
+  
+  // États pour Enseignant et Censeur (Connexion/Inscription)
+  const [etapeAuth, setEtapeAuth] = useState(null); // 'enseignant' ou 'censeur'
+  const [modeAuth, setModeAuth] = useState('connexion'); // 'connexion' ou 'inscription'
+  const [emailSaisi, setEmailSaisi] = useState('');
+  const [mdpSaisi, setMdpSaisi] = useState('');
+
   const [notification, setNotification] = useState('');
 
-  // --- ÉTATS GLOBAUX DE L'APPLICATION ---
   const [demandesAffiliation, setDemandesAffiliation] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_demandes_affiliation')) || []; } catch { return []; }
   });
@@ -32,7 +34,6 @@ export default function AppRouter() {
     { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
   ]);
 
-  // --- CHARGEMENT INITIAL DEPUIS LE BACKEND ---
   useEffect(() => {
     const chargerDonneesBackend = async () => {
       try {
@@ -46,10 +47,9 @@ export default function AppRouter() {
         if (resBiblio.data && resBiblio.data.length > 0) setBibliotheque(resBiblio.data);
         if (resDemandes.data && resDemandes.data.length > 0) setDemandesAffiliation(resDemandes.data);
       } catch (err) {
-        console.warn("Mode hors-ligne ou routes backend non encore initialisées, utilisation du cache local.", err);
+        console.warn("Mode hors-ligne", err);
       }
     };
-
     chargerDonneesBackend();
   }, []);
 
@@ -62,17 +62,26 @@ export default function AppRouter() {
     setTimeout(() => setNotification(''), 4000);
   };
 
-  // --- INTERCEPTION DE LA CONNEXION ---
   const handleLoginRouter = (role) => {
     if (role === 'chef') {
-      // Si c'est un chef, on déclenche l'étape intermédiaire de l'école
       setEtapeChefEcole(true);
     } else {
-      setUserRole(role);
+      setEtapeAuth(role); // Ouvre l'écran de connexion pour prof/censeur
+      setModeAuth('connexion');
     }
   };
 
-  // Validation de l'école par le Chef
+  const validerAuthUtilisateur = (e) => {
+    e.preventDefault();
+    if (!emailSaisi || !mdpSaisi) {
+      afficherNotification("⚠️ Veuillez remplir tous les champs.");
+      return;
+    }
+    afficherNotification(modeAuth === 'inscription' ? "✅ Compte créé avec succès !" : "🔓 Connexion réussie !");
+    setUserRole(etapeAuth);
+    setEtapeAuth(null);
+  };
+
   const validerEcoleChef = (action) => {
     if (!nomEcoleSaisi.trim()) {
       afficherNotification("⚠️ Veuillez entrer le nom de l'établissement.");
@@ -89,26 +98,21 @@ export default function AppRouter() {
     setUserRole('chef');
   };
 
-  // --- LE ROUTAGE (Le choix de l'écran à afficher) ---
-
-  // 0. Si le chef d'établissement vient de se connecter, on affiche l'écran de choix d'école
+  // 1. ÉCRAN CHEF D'ÉTABLISSEMENT
   if (etapeChefEcole) {
     return (
       <div style={styles.ecranAuth}>
         {notification && <div style={styles.conteneurNotification}>{notification}</div>}
-        <div style={styles.carteAuth} className="anim-apparition">
+        <div style={styles.carteAuth}>
           <span style={{ fontSize: '36px' }}>🏫</span>
           <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', margin: '10px 0 6px 0' }}>Espace Chef d'Établissement</h2>
-          <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '20px' }}>Veuillez vous connecter à un ancien établissement ou créer un nouvel établissement.</p>
+          <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '20px' }}>Veuillez vous connecter à un établissement.</p>
 
           {choixModeEcole === 'choix' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>
-                ➕ Créer un nouvel établissement
-              </button>
-              <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>
-                🔗 Se connecter à un ancien établissement
-              </button>
+              <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un nouvel établissement</button>
+              <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Se connecter à un ancien établissement</button>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '10px' }} onClick={() => setEtapeChefEcole(false)}>⬅️ Retour</button>
             </div>
           )}
 
@@ -120,7 +124,7 @@ export default function AppRouter() {
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>Retour</button>
-                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => validerEcoleChef('creer')}>Valider la création</button>
+                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => validerEcoleChef('creer')}>Valider</button>
               </div>
             </div>
           )}
@@ -128,12 +132,12 @@ export default function AppRouter() {
           {choixModeEcole === 'rejoindre' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
               <div>
-                <label style={styles.libelle}>Nom de l'ancien établissement existant</label>
+                <label style={styles.libelle}>Nom de l'établissement existant</label>
                 <input type="text" placeholder="Entrez le nom exact..." value={nomEcoleSaisi} onChange={e => setNomEcoleSaisi(e.target.value)} style={styles.champSaisie} required />
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>Retour</button>
-                <button type="button" style={{ ...styles.boutonInscription, flex: 2 }} onClick={() => validerEcoleChef('rejoindre')}>Se connecter à l'école</button>
+                <button type="button" style={{ ...styles.boutonInscription, flex: 2 }} onClick={() => validerEcoleChef('rejoindre')}>Se connecter</button>
               </div>
             </div>
           )}
@@ -141,23 +145,67 @@ export default function AppRouter() {
       </div>
     );
   }
+
+  // 2. ÉCRAN CONNEXION/INSCRIPTION POUR ENSEIGNANT & CENSEUR
+  if (etapeAuth) {
+    const roleLabel = etapeAuth === 'enseignant' ? 'Enseignant' : 'Censeur';
+    const icone = etapeAuth === 'enseignant' ? '👨‍🏫' : '📋';
+    
+    return (
+      <div style={styles.ecranAuth}>
+        {notification && <div style={styles.conteneurNotification}>{notification}</div>}
+        <div style={styles.carteAuth}>
+          <span style={{ fontSize: '36px' }}>{icone}</span>
+          <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a', margin: '10px 0 6px 0' }}>Espace {roleLabel}</h2>
+          
+          <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', justifyContent: 'center', fontSize: '14px' }}>
+              <span onClick={() => setModeAuth('connexion')} style={{ cursor: 'pointer', fontWeight: modeAuth === 'connexion' ? '800' : 'normal', color: modeAuth === 'connexion' ? '#2563eb' : '#94a3b8' }}>Connexion</span>
+              <span style={{ color: '#cbd5e1' }}>|</span>
+              <span onClick={() => setModeAuth('inscription')} style={{ cursor: 'pointer', fontWeight: modeAuth === 'inscription' ? '800' : 'normal', color: modeAuth === 'inscription' ? '#16a34a' : '#94a3b8' }}>Inscription</span>
+          </div>
+
+          <form onSubmit={validerAuthUtilisateur} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
+            <div>
+              <label style={styles.libelle}>Email</label>
+              <input type="email" placeholder="votre@email.com" value={emailSaisi} onChange={e => setEmailSaisi(e.target.value)} style={styles.champSaisie} required />
+            </div>
+            <div>
+              <label style={styles.libelle}>Mot de passe</label>
+              <input type="password" placeholder="••••••••" value={mdpSaisi} onChange={e => setMdpSaisi(e.target.value)} style={styles.champSaisie} required />
+              
+              {/* Le lien "Mot de passe oublié" apparaît uniquement en mode connexion */}
+              {modeAuth === 'connexion' && (
+                <div style={{ textAlign: 'right', marginTop: '6px' }}>
+                  <span 
+                    onClick={() => afficherNotification("📩 Un lien de réinitialisation vous a été envoyé.")} 
+                    style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}
+                  >
+                    Mot de passe oublié ?
+                  </span>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); }}>⬅️ Retour</button>
+              <button type="submit" style={{ ...(modeAuth === 'connexion' ? styles.boutonPrincipal : styles.boutonInscription), flex: 2 }}>
+                {modeAuth === 'connexion' ? 'Se connecter' : "S'inscrire"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
   
-  // 1. Si personne n'est connecté, on affiche la page de Connexion (Application.jsx)
+  // 3. ÉCRAN D'ACCUEIL PRINCIPAL (Choix du profil)
   if (!userRole) {
     return <Application onLogin={handleLoginRouter} />;
   }
 
-  // 2. Si l'utilisateur est connecté, on affiche son tableau de bord
+  // 4. TABLEAUX DE BORD (Une fois connecté)
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       {notification && <div style={styles.conteneurNotification}>{notification}</div>}
-      <div style={styles.barreNavigation}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '18px' }}>📖</span>
-          <span style={{ fontWeight: '800' }}>E-cahier !</span>
-        </div>
-        <button style={styles.boutonDeconnexion} onClick={() => { setUserRole(''); setEtapeChefEcole(false); setChoixModeEcole('choix'); setNomEcoleSaisi(''); }}>Se déconnecter</button>
-      </div>
 
       {userRole === 'enseignant' && (
         <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} />
@@ -175,10 +223,9 @@ export default function AppRouter() {
 }
 
 const styles = {
-  barreNavigation: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', color: '#ffffff', padding: '14px 30px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' },
-  boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' },
+  boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
   ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px', backgroundColor: '#f8fafc' },
-  carteAuth: { background: '#ffffff', padding: '36px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '500px', textAlign: 'center' },
+  carteAuth: { background: '#ffffff', padding: '36px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center' },
   boutonPrincipal: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%' },
   boutonInscription: { backgroundColor: '#16a34a', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%' },
   champSaisie: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#f8fafc', outline: 'none', marginTop: '4px' },

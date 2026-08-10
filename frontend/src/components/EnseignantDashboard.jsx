@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 export default function EnseignantDashboard() {
   
-  // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS ---
+  // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS & DEMANDES DE DÉPART ---
   const [affiliations, setAffiliations] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('app_enseignant_affiliations')) || [
@@ -19,9 +19,27 @@ export default function EnseignantDashboard() {
     localStorage.setItem('app_enseignant_affiliations', JSON.stringify(affiliations));
   }, [affiliations]);
 
-  const estAffiliationValidee = useMemo(() => {
-    return affiliations.some(aff => aff.statut === 'Validée');
-  }, [affiliations]);
+  const [demandesDepart, setDemandesDepart] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('app_enseignant_demandes_depart')) || [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_enseignant_demandes_depart', JSON.stringify(demandesDepart));
+  }, [demandesDepart]);
+
+  const [modalDepart, setModalDepart] = useState({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
+
+  // --- MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES ---
+  const [modalConfirmation, setModalConfirmation] = useState({
+    ouvert: false,
+    titre: '',
+    message: '',
+    actionCallback: null
+  });
 
   const [modeSansAffiliation, setModeSansAffiliation] = useState(() => {
     return localStorage.getItem('app_enseignant_mode_sans_aff') === 'true';
@@ -63,19 +81,15 @@ export default function EnseignantDashboard() {
   const [activeTab, setActiveTab] = useState('cycles');
   const [message, setMessage] = useState('');
 
-  // --- MENU BURGER FLUIDE ---
+  // --- MENU BURGER & DROPDOWNS ---
   const [menuBurgerOuvert, setMenuBurgerOuvert] = useState(false);
   const menuBurgerRef = useRef(null);
 
-  // --- MODALE DE CONFIRMATION DE DÉCONNEXION ---
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
-
-  // --- SÉCURITÉ : MOT DE PASSE (MODIFIÉ DEPUIS LE PROFIL) ---
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
   const [nouveauMdp, setNouveauMdp] = useState('');
 
-  // --- RAPPORTS DE SÉANCE (UNE SEULE MANIÈRE UNIFIÉE) ---
   const [rapportsSeances, setRapportsSeances] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('app_enseignant_rapports')) || [];
@@ -161,7 +175,6 @@ export default function EnseignantDashboard() {
   const [profilOuvert, setProfilOuvert] = useState(false);
   const profilRef = useRef(null);
 
-  // --- ÉTATS POUR LA DEMANDE DE PROMOTION (DEVENIR CENSEUR) ---
   const [demandePromotionCenseur, setDemandePromotionCenseur] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('app_enseignant_demande_promotion')) || null;
@@ -177,9 +190,8 @@ export default function EnseignantDashboard() {
   const [modalPromotion, setModalPromotion] = useState(false);
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: infosEnseignant.etablissementSaisi });
 
-  // --- ÉTATS POUR LE MODE PLEIN ÉCRAN DYNAMIQUE & SUPPRESSION SÉCURISÉE ---
-  const [champEnEditionPleinEcran, setChampEnEditionPleinEcran] = useState(null); // { id, label, valeurTemporaire }
-  const [champASupprimer, setChampASupprimer] = useState(null); // ID du champ en attente de confirmation
+  const [champEnEditionPleinEcran, setChampEnEditionPleinEcran] = useState(null);
+  const [champASupprimer, setChampASupprimer] = useState(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -273,7 +285,6 @@ export default function EnseignantDashboard() {
     localStorage.setItem('app_enseignant_programmes_classes', JSON.stringify(programmesClasses));
   }, [programmesClasses]);
 
-  // --- CHAMPS PERSONNALISABLES DE SÉANCE ENREGISTRÉS SUR MESURE ---
   const [champsPersonnalises, setChampsPersonnalises] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('app_enseignant_champs_perso')) || [
@@ -296,7 +307,6 @@ export default function EnseignantDashboard() {
     localStorage.setItem('app_enseignant_champs_perso', JSON.stringify(champsPersonnalises));
   }, [champsPersonnalises]);
 
-  // --- ETAT POUR LA GESTION DES MENUS DÉROULANTS HIÉRARCHIQUES ---
   const [cyclesOuverts, setCyclesOuverts] = useState({});
   const [leconsOuvertes, setLeconsOuvertes] = useState({});
 
@@ -384,6 +394,29 @@ export default function EnseignantDashboard() {
     });
     setModalPromotion(false);
     showToast("🚀 Demande d'évolution vers le poste de Censeur envoyée au chef d'établissement !");
+  };
+
+  const soumettreDemandeDepart = (e) => {
+    e.preventDefault();
+    if (!modalDepart.ecoleId) return;
+
+    const nouvelleDemande = {
+      id: Date.now(),
+      ecoleId: modalDepart.ecoleId,
+      ecoleNom: modalDepart.ecoleNom,
+      motif: modalDepart.motif,
+      dateDemande: new Date().toLocaleDateString(),
+      statut: 'En attente du visa du censeur'
+    };
+
+    setDemandesDepart(prev => [nouvelleDemande, ...prev]);
+    setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
+    showToast("📤 Demande de départ transmise au censeur pour visa officiel !");
+  };
+
+  const supprimerClasseLibre = (classeNom) => {
+    setClassesSansAffiliation(prev => Array.isArray(prev) ? prev.filter(c => c !== classeNom) : []);
+    showToast(`🗑️ Classe "${classeNom}" supprimée avec succès !`);
   };
 
   const executerDuplicationIntelligente = (e) => {
@@ -496,7 +529,6 @@ export default function EnseignantDashboard() {
     setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} });
   };
 
-  // --- SOUMISSION DE RAPPORT (UNE SEULE MANIÈRE UNIFIÉE) ---
   const soumettreRapportSeance = (e) => {
     e.preventDefault();
     if (!modalRapport.seanceTitre || !Array.isArray(modalRapport.classesCibles) || modalRapport.classesCibles.length === 0) {
@@ -532,7 +564,6 @@ export default function EnseignantDashboard() {
     e.preventDefault();
     const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, titreLecon, nombreSeancesLecon, titreSeance, dateSeance, lieuSeance, valeursChamps, fichiersMultimedias, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
-    // --- CRÉATION DU PROGRAMME ANNUEL COMPLET ---
     if (niveauCible === 'programme_annuel') {
       if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce programme.");
@@ -574,7 +605,6 @@ export default function EnseignantDashboard() {
 
       showToast("✨ Programme annuel complet généré avec succès !");
     }
-    // --- CRÉATION DE CYCLE MULTI-ÉCOLES / MULTI-CLASSES ---
     else if (niveauCible === 'cycle') {
       if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce cycle.");
@@ -610,7 +640,6 @@ export default function EnseignantDashboard() {
       showToast("✨ Cycle créé et dupliqué avec succès !");
     } 
     else {
-      // Pour les leçons ou séances créées sur la classe en cours de visionnage
       if (!classeSelectionneeVue) return;
       const progClasse = programmesClasses[classeSelectionneeVue];
       if (!progClasse) return;
@@ -890,31 +919,6 @@ export default function EnseignantDashboard() {
     showToast("✅ Modification enregistrée !");
   };
 
-  const quitterEcole = (idAff) => {
-    const updated = Array.isArray(affiliations) ? affiliations.filter(a => a.id !== idAff) : [];
-    setAffiliations(updated);
-    if (updated.length === 0) {
-      setModeSansAffiliation(true);
-      showToast("⚠️ Passage en mode sans affiliation.");
-    } else {
-      showToast("⚠️ Affiliation rompue avec cet établissement.");
-    }
-  };
-
-  const accepterProposition = (prop) => {
-    if (!prop) return;
-    const nouvelleAff = {
-      id: Date.now(),
-      ecole: prop.ecole,
-      statut: 'Validée',
-      classes: prop.classes || []
-    };
-    setAffiliations(prev => [...(Array.isArray(prev) ? prev : []), nouvelleAff]);
-    setPropositionsCenseur(prev => Array.isArray(prev) ? prev.filter(p => p.id !== prop.id) : []);
-    setModeSansAffiliation(false);
-    showToast(`✅ Affiliation acceptée pour ${prop.ecole} !`);
-  };
-
   const soumettreDemandeAffiliation = (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim()) return;
@@ -964,16 +968,14 @@ export default function EnseignantDashboard() {
           ${contenuTableau}
           <script>
             window.onload = function() { 
-              setTimeout(function() {
-                window.print(); 
-              }, 300);
+              setTimeout(function() { window.print(); }, 300);
             }
           </script>
         </body>
       </html>
     `);
     fenetreImpression.document.close();
-    showToast(`📥 Document "${titreEntite}" prêt à l'impression / téléchargement !`);
+    showToast(`📥 Document "${titreEntite}" prêt pour impression / téléchargement !`);
   };
 
   const telechargerFicheSeancePDF = (seance, lecon, cycle) => {
@@ -991,6 +993,62 @@ export default function EnseignantDashboard() {
     telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Leçon: ${lecon?.titre || ''}`, champsHtml);
   };
 
+  const telechargerLeconPDF = (lecon, cycle) => {
+    let htmlContent = `<h3 style="color: #0f172a; font-size: 16px; border-bottom: 2px solid #2563eb; padding-bottom: 6px;">📖 Leçon : ${lecon.titre}</h3>`;
+    htmlContent += `<p style="font-size: 13px; color: #475569;"><strong>Cycle parent :</strong> ${cycle.titre} | <strong>Séances prévues :</strong> ${lecon.nombreSeancesPrevues}</p>`;
+    
+    if (Array.isArray(lecon.seances) && lecon.seances.length > 0) {
+      lecon.seances.forEach(sc => {
+        htmlContent += `<div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #f8fafc;">`;
+        htmlContent += `<h4 style="margin: 0 0 8px 0; color: #2563eb; font-size: 14px;">⚡ Séance #${sc.numero} : ${sc.titre} (Date : ${sc.date})</h4>`;
+        htmlContent += `<table>`;
+        if (Array.isArray(champsPersonnalises)) {
+          champsPersonnalises.forEach(champ => {
+            const val = (sc.valeursChamps && sc.valeursChamps[champ.id]) || 'N/A';
+            htmlContent += `<tr><th>${champ.label}</th><td>${val.replace(/\n/g, '<br>')}</td></tr>`;
+          });
+        }
+        htmlContent += `</table></div>`;
+      });
+    } else {
+      htmlContent += `<p style="font-style: italic; color: #94a3b8;">Aucune séance enregistrée pour cette leçon.</p>`;
+    }
+
+    telechargerPDFEntite(`Leçon - ${lecon.titre}`, `Regroupement complet de la leçon`, htmlContent);
+  };
+
+  const telechargerCyclePDF = (cycle) => {
+    let htmlContent = `<h3 style="color: #0f172a; font-size: 16px; border-bottom: 2px solid #16a34a; padding-bottom: 6px;">📁 Cycle : ${cycle.titre}</h3>`;
+    htmlContent += `<p style="font-size: 13px; color: #475569;"><strong>Compétence :</strong> ${cycle.competence} | <strong>Période :</strong> Du ${cycle.dateDebut} au ${cycle.dateFin}</p>`;
+
+    if (Array.isArray(cycle.lecons) && cycle.lecons.length > 0) {
+      cycle.lecons.forEach(lc => {
+        htmlContent += `<div style="margin-top: 25px; border-top: 2px dashed #cbd5e1; padding-top: 15px;">`;
+        htmlContent += `<h4 style="color: #1e293b; font-size: 15px; margin: 0 0 6px 0;">📖 Leçon : ${lc.titre}</h4>`;
+        
+        if (Array.isArray(lc.seances) && lc.seances.length > 0) {
+          lc.seances.forEach(sc => {
+            htmlContent += `<div style="margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; background: #fdfdfd;">`;
+            htmlContent += `<h5 style="margin: 0 0 6px 0; color: #2563eb; font-size: 13px;">Séance #${sc.numero} : ${sc.titre} (${sc.date})</h5>`;
+            htmlContent += `<table>`;
+            if (Array.isArray(champsPersonnalises)) {
+              champsPersonnalises.forEach(champ => {
+                const val = (sc.valeursChamps && sc.valeursChamps[champ.id]) || 'N/A';
+                htmlContent += `<tr><th>${champ.label}</th><td>${val.replace(/\n/g, '<br>')}</td></tr>`;
+              });
+            }
+            htmlContent += `</table></div>`;
+          });
+        }
+        htmlContent += `</div>`;
+      });
+    } else {
+      htmlContent += `<p style="font-style: italic; color: #94a3b8;">Aucune leçon enregistrée dans ce cycle.</p>`;
+    }
+
+    telechargerPDFEntite(`Cycle - ${cycle.titre}`, `Regroupement complet du cycle`, htmlContent);
+  };
+
   const telechargerProgrammeAnnuelPDF = (progClasse, classeNom) => {
     let htmlContent = '<h3 style="color: #0f172a; font-size: 15px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px;">Programme Annuel Complet</h3>';
     if (progClasse && Array.isArray(progClasse.cycles)) {
@@ -1000,7 +1058,7 @@ export default function EnseignantDashboard() {
         htmlContent += `<p style="margin: 0 0 8px 0; font-size: 12px;"><strong>Compétence :</strong> ${cy.competence}</p>`;
         if (Array.isArray(cy.lecons)) {
           cy.lecons.forEach(lc => {
-            htmlContent += `<div style="margin-left: 10px; margin-top: 8px; border-top: 1px dashed #cbd5e1; paddingTop: 6px;">`;
+            htmlContent += `<div style="margin-left: 10px; margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">`;
             htmlContent += `<p style="margin: 0 0 4px 0; font-size: 12px;"><strong>📖 Leçon :</strong> ${lc.titre}</p>`;
             if (Array.isArray(lc.seances)) {
               lc.seances.forEach(sc => {
@@ -1032,98 +1090,79 @@ export default function EnseignantDashboard() {
   return (
     <div style={styles.container}>
       <header style={styles.darkNavbar}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           
-          {/* SECTION PROFIL ÉPURÉE (SANS DOUBLE LOGO) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ position: 'relative' }} ref={profilRef}>
-              <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
-                <div style={styles.avatarNavbarContainer}>
-                  {infosEnseignant.photoProfil ? (
-                    <img src={infosEnseignant.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
-                  ) : (
-                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
-                  )}
-                </div>
-                <div style={styles.navbarTeacherInfo}>
-                  <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>
-                    {infosEnseignant.civilite} {infosEnseignant.nom}
-                  </span>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                    Espace Enseignant
-                  </span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>{profilOuvert ? '▲' : '▼'}</span>
-              </button>
+          {/* SECTION PROFIL ÉPURÉE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilRef}>
+            <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
+              <div style={styles.avatarNavbarContainer}>
+                {infosEnseignant.photoProfil ? (
+                  <img src={infosEnseignant.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
+                ) : (
+                  <div style={styles.avatarNavbarPlaceholder}>👤</div>
+                )}
+              </div>
+              <div style={styles.navbarTeacherInfo}>
+                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                  {infosEnseignant.civilite} {infosEnseignant.nom}
+                </span>
+                <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase' }}>
+                  Enseignant
+                </span>
+              </div>
+              <span style={{ fontSize: '9px', color: '#94a3b8', marginLeft: '2px' }}>{profilOuvert ? '▲' : '▼'}</span>
+            </button>
 
-              {profilOuvert && (
-                <div style={styles.notificationDropdown}>
-                  <div style={styles.dropdownHeader}>Mon Compte Enseignant</div>
-                  <div style={{ padding: '10px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px', background: '#f8fafc', borderRadius: '8px' }}>
-                    <strong>{infosEnseignant.civilite} {infosEnseignant.nom} {infosEnseignant.prenoms}</strong><br />
-                    <span style={{ color: '#64748b', fontSize: '11px' }}>
-                      {infosEnseignant.etablissementSaisi}<br />
-                      <em>{infosEnseignant.matiere}</em>
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setFormProfil({ ...infosEnseignant });
-                      setModalProfilOuvert(true);
-                      setProfilOuvert(false);
-                    }} 
-                    style={styles.optionMenu}
-                  >
-                    ⚙️ Modifier mon profil
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setModalSecurite(true);
-                      setProfilOuvert(false);
-                    }} 
-                    style={styles.optionMenu}
-                  >
-                    🔒 Changer mon mot de passe
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setModalPromotion(true);
-                      setProfilOuvert(false);
-                    }} 
-                    style={{ ...styles.optionMenu, color: '#8b5cf6', fontWeight: '800' }}
-                  >
-                    🎓 Devenir Censeur (Évolution)
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (!modeSansAffiliation) {
-                        setModalPaiement(true);
-                      } else {
-                        setModeSansAffiliation(false);
-                        showToast("Mode sans affiliation désactivé.");
-                      }
-                      setProfilOuvert(false);
-                    }} 
-                    style={{ ...styles.optionMenu, color: '#d97706', fontWeight: '800' }}
-                  >
-                    {modeSansAffiliation ? '🔄 Quitter le mode sans affiliation' : '💳 Activer Mode Sans Affiliation'}
-                  </button>
+            {profilOuvert && (
+              <div style={{ ...styles.notificationDropdown, left: 0, right: 'auto' }}>
+                <div style={styles.dropdownHeader}>Mon Compte Enseignant</div>
+                <div style={{ padding: '10px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px', background: '#f8fafc', borderRadius: '8px' }}>
+                  <strong>{infosEnseignant.civilite} {infosEnseignant.nom} {infosEnseignant.prenoms}</strong><br />
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>
+                    {infosEnseignant.etablissementSaisi}<br />
+                    <em>{infosEnseignant.matiere}</em>
+                  </span>
                 </div>
-              )}
-            </div>
+                <button onClick={() => { setFormProfil({ ...infosEnseignant }); setModalProfilOuvert(true); setProfilOuvert(false); }} className="bouton-option">
+                  ⚙️ Modifier mon profil
+                </button>
+                <button onClick={() => { setModalSecurite(true); setProfilOuvert(false); }} className="bouton-option">
+                  🔒 Changer mon mot de passe
+                </button>
+                <button onClick={() => { setModalPromotion(true); setProfilOuvert(false); }} className="bouton-option" style={{ color: '#8b5cf6', fontWeight: '800' }}>
+                  🎓 Devenir Censeur (Évolution)
+                </button>
+                <button onClick={() => {
+                  if (!modeSansAffiliation) {
+                    setModalPaiement(true);
+                  } else {
+                    setModeSansAffiliation(false);
+                    showToast("Mode sans affiliation désactivé.");
+                  }
+                  setProfilOuvert(false);
+                }} className="bouton-option" style={{ color: '#d97706', fontWeight: '800' }}>
+                  {modeSansAffiliation ? '🔄 Quitter le mode sans affiliation' : '💳 Activer Mode Sans Affiliation'}
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* MENU BURGER & NOTIFICATIONS */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }} ref={menuBurgerRef}>
+          {/* LOGO CENTRAL (ENTRE PROFIL ET NOTIFICATIONS) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+            <span style={{ fontSize: '12px' }}>📖</span>
+          </div>
+
+          {/* MENU BURGER & NOTIFICATIONS SÉCURISÉS DANS LE BON SENS */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             
-            {/* CLOCHE DE NOTIFICATION */}
             <div style={{ position: 'relative' }} ref={notifRef}>
               <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
                 {Array.isArray(notifications) && notifications.filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{notifications.filter(n => !n.lu).length}</span>}
               </button>
               {notifOuvert && (
-                <div style={styles.notificationDropdown}>
+                <div style={{ ...styles.notificationDropdown, right: 0, left: 'auto' }}>
                   <div style={styles.dropdownHeader}>Notifications & Validations</div>
                   {Array.isArray(notifications) && notifications.map(n => (
                     <div key={n.id} style={styles.notifItem}>
@@ -1137,7 +1176,13 @@ export default function EnseignantDashboard() {
                       {propositionsCenseur.map(p => (
                         <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '8px', borderRadius: '8px', marginTop: '6px', fontSize: '12px', border: '1px solid #bfdbfe' }}>
                           <strong>{p.ecole}</strong> ({p.censeur})<br/>
-                          <button onClick={() => accepterProposition(p)} className="bouton bouton-succes" style={{ padding: '4px 10px', fontSize: '11px', marginTop: '6px' }}>Accepter l'affiliation</button>
+                          <button onClick={() => {
+                            const nouvelleAff = { id: Date.now(), ecole: p.ecole, statut: 'Validée', classes: p.classes || [] };
+                            setAffiliations(prev => [...prev, nouvelleAff]);
+                            setPropositionsCenseur(prev => prev.filter(prop => prop.id !== p.id));
+                            setModeSansAffiliation(false);
+                            showToast(`✅ Affiliation acceptée pour ${p.ecole} !`);
+                          }} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '11px', marginTop: '6px' }}>Accepter l'affiliation</button>
                         </div>
                       ))}
                     </div>
@@ -1146,41 +1191,112 @@ export default function EnseignantDashboard() {
               )}
             </div>
 
-            {/* BOUTON BURGER */}
-            <button 
-              onClick={() => setMenuBurgerOuvert(!menuBurgerOuvert)} 
-              style={styles.burgerBtn}
-              title="Menu des fonctionnalités"
-            >
-              ☰
-            </button>
+            <div style={{ position: 'relative' }} ref={menuBurgerRef}>
+              <button onClick={() => setMenuBurgerOuvert(!menuBurgerOuvert)} style={styles.burgerBtn} title="Menu des fonctionnalités">
+                ☰
+              </button>
 
-            {menuBurgerOuvert && (
-              <div style={styles.burgerDropdown} className="anim-apparition">
-                <div style={styles.dropdownHeader}>Menu de Navigation</div>
-                <button onClick={() => { setActiveTab('cycles'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📊 Programme Annuel</button>
-                <button onClick={() => { setActiveTab('bibliotheque'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📁 Bibliothèque Permanente</button>
-                <button onClick={() => { setActiveTab('affiliation'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>🏫 Gestion des Écoles (Quitter / Affiliation)</button>
-                <button onClick={() => { setActiveTab('rapports'); setMenuBurgerOuvert(false); }} style={styles.optionMenu}>📝 Rapports de Séance</button>
-                <button onClick={() => { setModalAffiliation(true); setMenuBurgerOuvert(false); }} style={{ ...styles.optionMenu, color: '#16a34a', fontWeight: '800' }}>+ Demander une Affiliation</button>
-                
-                {/* DÉCONNEXION DANS LE MENU DÉROULANT */}
-                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
-                  <button onClick={() => { setModalDeconnexion(true); setMenuBurgerOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>
-                    🚪 Se déconnecter
-                  </button>
+              {menuBurgerOuvert && (
+                <div style={{ ...styles.burgerDropdown, right: 0, left: 'auto' }}>
+                  <div style={styles.dropdownHeader}>Menu de Navigation</div>
+                  <button onClick={() => { setActiveTab('cycles'); setMenuBurgerOuvert(false); }} className="bouton-option">📊 Programme Annuel</button>
+                  <button onClick={() => { setActiveTab('bibliotheque'); setMenuBurgerOuvert(false); }} className="bouton-option">📁 Bibliothèque Permanente</button>
+                  <button onClick={() => { setActiveTab('affiliation'); setMenuBurgerOuvert(false); }} className="bouton-option">🏫 Gestion des Écoles & Demandes de Départ</button>
+                  <button onClick={() => { setActiveTab('rapports'); setMenuBurgerOuvert(false); }} className="bouton-option">📝 Rapports de Séance</button>
+                  <button onClick={() => { setModalAffiliation(true); setMenuBurgerOuvert(false); }} className="bouton-option" style={{ color: '#16a34a', fontWeight: '800' }}>+ Demander une Affiliation</button>
+                  
+                  <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
+                    <button onClick={() => { setModalDeconnexion(true); setMenuBurgerOuvert(false); }} className="bouton-option" style={{ color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>
+                      🚪 Se déconnecter
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
           </div>
 
         </div>
       </header>
 
+      {/* --- STYLE UNIVERSEL DES BOUTONS HARMONIEUX ET MODERNES --- */}
+      <style>{`
+        .bouton {
+          padding: 8px 16px;
+          border-radius: 12px;
+          font-weight: 800;
+          font-size: 13px;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+        .bouton:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .bouton-principal {
+          background-color: #2563eb;
+          color: #ffffff;
+        }
+        .bouton-secondaire {
+          background-color: #f1f5f9;
+          color: #334155;
+          border: 1px solid #cbd5e1;
+        }
+        .bouton-succes {
+          background-color: #16a34a;
+          color: #ffffff;
+        }
+        .bouton-danger {
+          background-color: #ef4444;
+          color: #ffffff;
+        }
+        .bouton-option {
+          width: 100%;
+          text-align: left;
+          padding: 9px 12px;
+          background: transparent;
+          border: none;
+          color: #334155;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          border-radius: 8px;
+          margin-bottom: 2px;
+          transition: background 0.15s ease;
+        }
+        .bouton-option:hover {
+          background-color: #f1f5f9;
+        }
+      `}</style>
+
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALE DE CONFIRMATION DE DÉCONNEXION */}
+        {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
+        {modalConfirmation.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>{modalConfirmation.titre}</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+                {modalConfirmation.message}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmation({ ouvert: false, titre: '', message: '', actionCallback: null })} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={() => {
+                  if (modalConfirmation.actionCallback) modalConfirmation.actionCallback();
+                  setModalConfirmation({ ouvert: false, titre: '', message: '', actionCallback: null });
+                }} className="bouton bouton-danger">Confirmer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -1200,7 +1316,36 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE CONFIRMATION DE SUPPRESSION D'UN CHAMP */}
+        {modalDepart.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Demande de Départ / Mutation</h3>
+                <button onClick={() => setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
+                Vous demandez à quitter l'établissement <strong>{modalDepart.ecoleNom}</strong>. Conformément aux règles administratives, cette demande sera transmise au censeur pour <strong>visa officiel</strong>.
+              </p>
+              <form onSubmit={soumettreDemandeDepart} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Motif du départ / Mutation (obligatoire)</label>
+                  <textarea 
+                    value={modalDepart.motif} 
+                    onChange={(e) => setModalDepart(prev => ({ ...prev, motif: e.target.value }))} 
+                    placeholder="Précisez la raison..." 
+                    style={{ ...styles.inputStyle, height: '90px', resize: 'vertical' }} 
+                    required 
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-danger">Soumettre pour visa du censeur</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {champASupprimer && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '16px' }}>
             <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
@@ -1220,7 +1365,6 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE SÉCURITÉ */}
         {modalSecurite && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
@@ -1257,7 +1401,6 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE DEMANDE DE PROMOTION (DEVENIR CENSEUR) */}
         {modalPromotion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px' }}>
@@ -1295,7 +1438,6 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE RAPPORT DE SÉANCE UNIFIÉE */}
         {modalRapport.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -1310,7 +1452,6 @@ export default function EnseignantDashboard() {
                   <input type="text" placeholder="Ex: Séance d'initiation..." value={modalRapport.seanceTitre} onChange={e => setModalRapport({...modalRapport, seanceTitre: e.target.value})} style={styles.inputStyle} required />
                 </div>
 
-                {/* SÉLECTION MULTI-ÉCOLES */}
                 <div>
                   <label style={{ ...styles.label, marginBottom: '6px' }}>Établissements concernés :</label>
                   {Array.isArray(affiliations) && affiliations.map(aff => {
@@ -1333,7 +1474,6 @@ export default function EnseignantDashboard() {
                   })}
                 </div>
 
-                {/* SÉLECTION MULTI-CLASSES */}
                 <div>
                   <label style={{ ...styles.label, marginBottom: '6px' }}>Classes concernées (Multi-classes) :</label>
                   {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
@@ -1358,7 +1498,7 @@ export default function EnseignantDashboard() {
 
                 <div>
                   <label style={styles.label}>Motif du report (optionnel)</label>
-                  <input type="text" placeholder="Ex: Intempéries, absence professeur, grève..." value={modalRapport.motifReport} onChange={e => setModalRapport({...modalRapport, motifReport: e.target.value})} style={styles.inputStyle} />
+                  <input type="text" placeholder="Ex: Intempéries, absence professeur..." value={modalRapport.motifReport} onChange={e => setModalRapport({...modalRapport, motifReport: e.target.value})} style={styles.inputStyle} />
                 </div>
                 <div>
                   <label style={styles.label}>📅 Nouvelle date de report prévue (optionnel)</label>
@@ -1366,7 +1506,7 @@ export default function EnseignantDashboard() {
                 </div>
                 <div>
                   <label style={styles.label}>Compte rendu / Observations / Difficultés</label>
-                  <textarea placeholder="Détails complémentaires de la séance..." value={modalRapport.contenuRapport} onChange={e => setModalRapport({...modalRapport, contenuRapport: e.target.value})} style={{ ...styles.inputStyle, height: '80px', resize: 'vertical' }} required />
+                  <textarea placeholder="Détails complémentaires..." value={modalRapport.contenuRapport} onChange={e => setModalRapport({...modalRapport, contenuRapport: e.target.value})} style={{ ...styles.inputStyle, height: '80px', resize: 'vertical' }} required />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton bouton-secondaire">Annuler</button>
@@ -1377,7 +1517,6 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE DUPLICATION INTELLIGENTE */}
         {modalDuplicationIntelligente.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px' }}>
@@ -1506,36 +1645,25 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* MODALE DE PAIEMENT POUR LE MODE SANS AFFILIATION */}
         {modalPaiement && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>💳 Abonnement Mode Sans Affiliation</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
-                Définissez vos propres classes en toute autonomie. Montant de l'abonnement : <strong style={{ color: '#d97706' }}>1 900 FCFA / mois</strong>.
+                Définissez vos propres classes en toute autonomie. Montant : <strong style={{ color: '#d97706' }}>1 900 FCFA / mois</strong>.
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                <label style={styles.label}>Choisissez votre moyen de paiement :</label>
+                <label style={styles.label}>Moyen de paiement :</label>
                 
                 <div onClick={() => setMethodePaiement('wave')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'wave' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
                   <div style={{ width: '42px', height: '42px', backgroundColor: '#0083ff', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '15px' }}>W</div>
-                  <div style={{ flex: 1 }}><strong>Wave Mobile Money</strong><br/><small style={{ color: '#64748b' }}>Paiement instantané par QR code</small></div>
+                  <div style={{ flex: 1 }}><strong>Wave Mobile Money</strong></div>
                 </div>
 
                 <div onClick={() => setMethodePaiement('orange')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'orange' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
                   <div style={{ width: '42px', height: '42px', backgroundColor: '#ff6600', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '12px' }}>OM</div>
-                  <div style={{ flex: 1 }}><strong>Orange Money</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé via code marchand</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('mtn')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'mtn' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#ffcc00', borderRadius: '10px', color: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '11px' }}>MTN</div>
-                  <div style={{ flex: 1 }}><strong>MTN MoMo</strong><br/><small style={{ color: '#64748b' }}>Validation par code PIN</small></div>
-                </div>
-
-                <div onClick={() => setMethodePaiement('carte')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', border: methodePaiement === 'carte' ? '2px solid #2563eb' : '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: '#f8fafc' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0f172a', borderRadius: '10px', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: '900', fontSize: '16px' }}>💳</div>
-                  <div style={{ flex: 1 }}><strong>Visa / Mastercard</strong><br/><small style={{ color: '#64748b' }}>Paiement sécurisé par carte bancaire</small></div>
+                  <div style={{ flex: 1 }}><strong>Orange Money</strong></div>
                 </div>
               </div>
 
@@ -1544,7 +1672,7 @@ export default function EnseignantDashboard() {
                 <button type="button" onClick={() => {
                   setModeSansAffiliation(true);
                   setModalPaiement(false);
-                  showToast("💳 Paiement validé avec succès ! Mode Sans Affiliation activé.");
+                  showToast("💳 Paiement validé ! Mode Sans Affiliation activé.");
                 }} className="bouton bouton-principal">Procéder au paiement (1 900 FCFA)</button>
               </div>
             </div>
@@ -1555,9 +1683,6 @@ export default function EnseignantDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Demande d'Affiliation à une École</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.5' }}>
-                Faites votre demande de rattachement ou envoyez une demande d'affiliation au censeur.
-              </p>
               <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={styles.label}>Nom de l'établissement</label>
@@ -1576,7 +1701,6 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* --- MODALE DYNAMIQUE PLEIN ÉCRAN POUR L'ÉDITION D'UN CHAMP (Z-INDEX 99999 GARANTI) --- */}
         {champEnEditionPleinEcran && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '16px' }}>
             <div style={{ ...styles.cardWide, width: '90vw', maxWidth: '650px', height: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRadius: '24px' }}>
@@ -1585,9 +1709,6 @@ export default function EnseignantDashboard() {
                   <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✍️ Rédiger : {champEnEditionPleinEcran.label}</h3>
                   <button onClick={() => setChampEnEditionPleinEcran(null)} className="bouton bouton-secondaire" style={{ padding: '6px 12px' }}>✕</button>
                 </div>
-                <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
-                  Saisissez votre contenu en mode plein écran. Appuyez sur <strong>OK</strong> pour valider.
-                </p>
                 <textarea 
                   autoFocus
                   value={champEnEditionPleinEcran.valeurTemporaire}
@@ -1613,7 +1734,7 @@ export default function EnseignantDashboard() {
                     showToast("✨ Texte validé avec succès !");
                   }} 
                   className="bouton bouton-succes"
-                  style={{ backgroundColor: '#16a34a', borderColor: '#16a34a', padding: '10px 24px', fontWeight: '900', borderRadius: '12px', fontSize: '14px' }}
+                  style={{ padding: '10px 24px', fontWeight: '900', fontSize: '14px' }}
                 >
                   OK
                 </button>
@@ -1622,32 +1743,27 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* ASSISTANT DE CRÉATION */}
         {modalAssistant.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '640px', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>
                   {modalAssistant.niveauCible === 'programme_annuel' && '📊 Créer un Programme Annuel Complet'}
-                  {modalAssistant.niveauCible === 'cycle' && '✨ Créer un Cycle Multi-Écoles & Multi-Classes sur mesure'}
+                  {modalAssistant.niveauCible === 'cycle' && '✨ Créer un Cycle Multi-Écoles & Multi-Classes'}
                   {modalAssistant.niveauCible === 'lecon' && '📖 Créer une nouvelle Leçon'}
-                  {modalAssistant.niveauCible === 'seance' && '📝 Créer une Séance avec vos Champs Modélisés'}
+                  {modalAssistant.niveauCible === 'seance' && '📝 Créer une Séance'}
                 </h3>
                 <button onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
-              {/* --- SECTION STANDING : MODÉLISATION DES CHAMPS FLUIDES ET ÉPURÉS --- */}
               <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <label style={{ ...styles.label, color: '#2563eb', fontSize: '13px', margin: 0 }}>⚙️ Structure & Champs de la fiche :</label>
-                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>Mobile-First & Intuitif</span>
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '14px' }}>
                   {Array.isArray(champsPersonnalises) && champsPersonnalises.map((champ, index) => (
-                    <div key={champ.id} style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      
-                      {/* LIGNE DU HAUT : ÉNONCÉ DU CHAMP + BOUTON MOINS (-) SÉCURISÉ */}
+                    <div key={champ.id} style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>ÉNONCÉ DU CHAMP #{index + 1}</label>
@@ -1658,27 +1774,23 @@ export default function EnseignantDashboard() {
                               const val = e.target.value;
                               setChampsPersonnalises(prev => prev.map(c => c.id === champ.id ? { ...c, label: val } : c));
                             }}
-                            placeholder="Nom du champ (ex: Habilités)..."
                             style={{ ...styles.inputStyle, padding: '10px 12px', fontSize: '13px', fontWeight: '800', backgroundColor: '#f8fafc' }}
                           />
                         </div>
 
-                        {/* BOUTON MOINS (-) AVEC CONFIRMATION */}
                         {champsPersonnalises.length > 1 && (
                           <button 
                             type="button" 
                             onClick={() => setChampASupprimer(champ.id)}
                             style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', fontWeight: '900', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginTop: '16px' }}
-                            title="Retirer ce champ"
                           >
                             −
                           </button>
                         )}
                       </div>
 
-                      {/* LIGNE DU BAS : ZONE DE REMPLISSAGE DU CONTENU (CLIC POUR OUVRIR EN GRAND) */}
                       <div>
-                        <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>CONTENU CORRESPONDANT</label>
+                        <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>CONTENU</label>
                         <textarea 
                           onClick={() => {
                             setChampEnEditionPleinEcran({
@@ -1688,7 +1800,6 @@ export default function EnseignantDashboard() {
                             });
                           }}
                           readOnly
-                          placeholder="Appuyez ici pour rédiger le contenu en grand écran..." 
                           value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''}
                           style={{ ...styles.inputStyle, height: '65px', resize: 'none', backgroundColor: '#fdfdfd', fontSize: '12px', cursor: 'pointer', color: '#334155' }} 
                         />
@@ -1697,52 +1808,18 @@ export default function EnseignantDashboard() {
                   ))}
                 </div>
 
-                {/* BOUTON PLUS (+) POUR AJOUTER UN CHAMP */}
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '14px' }}>
-                  <button 
-                    type="button" 
-                    onClick={() => {
-                      const newId = `champ_${Date.now()}`;
-                      const nouveauChamp = { id: newId, label: 'Nouveau champ', type: 'textarea' };
-                      setChampsPersonnalises(prev => [...(Array.isArray(prev) ? prev : []), nouveauChamp]);
-                      showToast("➕ Nouveau champ ajouté avec succès !");
-                    }} 
-                    style={{ width: '100%', padding: '12px', fontSize: '13px', backgroundColor: '#16a34a', color: '#fff', fontWeight: '900', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', border: 'none', cursor: 'pointer', boxShadow: '0 4px 12px rgba(22,163,74,0.2)' }}
-                  >
-                    <span style={{ fontSize: '16px', fontWeight: '900' }}>+</span> Ajouter un champ
-                  </button>
-                </div>
-
-                {/* BOUTON ENREGISTRER LA MODÉLISATION AU DESIGN HAUT DE GAMME */}
                 <button 
                   type="button" 
                   onClick={() => {
-                    localStorage.setItem('app_enseignant_champs_perso', JSON.stringify(champsPersonnalises));
-                    showToast("💾 Modélisation enregistrée avec succès !");
-                  }}
-                  style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', padding: '14px', fontWeight: '900', borderRadius: '14px', border: 'none', cursor: 'pointer', boxShadow: '0 4px 12px rgba(15,23,42,0.2)', fontSize: '14px' }}
-                >
-                  💾 Enregistrer la modélisation
-                </button>
-              </div>
-
-              <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px dashed #cbd5e1', marginBottom: '16px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '6px' }}>📎 Uploader des fichiers multimédias (Images, PDF, Schémas...)</label>
-                <input 
-                  type="file" 
-                  multiple 
-                  accept="image/*,.pdf" 
-                  onChange={(e) => {
-                    const files = e.target.files ? Array.from(e.target.files).map(f => f.name) : [];
-                    setModalAssistant(prev => ({ ...prev, fichiersMultimedias: files }));
+                    const newId = `champ_${Date.now()}`;
+                    setChampsPersonnalises(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label: 'Nouveau champ', type: 'textarea' }]);
+                    showToast("➕ Champ ajouté !");
                   }} 
-                  style={{ fontSize: '12px' }} 
-                />
-                {Array.isArray(modalAssistant.fichiersMultimedias) && modalAssistant.fichiersMultimedias.length > 0 && (
-                  <p style={{ fontSize: '11px', color: '#166534', marginTop: '4px', margin: 0 }}>
-                    Fichiers joints : {modalAssistant.fichiersMultimedias.join(', ')}
-                  </p>
-                )}
+                  className="bouton bouton-succes"
+                  style={{ width: '100%', marginBottom: '10px' }}
+                >
+                  + Ajouter un champ
+                </button>
               </div>
 
               <form onSubmit={gererValidationAssistant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1750,11 +1827,11 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre du programme annuel</label>
-                      <input type="text" placeholder="Ex: Programme Annuel 2025-2026..." value={modalAssistant.titreProgramme} onChange={(e) => setModalAssistant({...modalAssistant, titreProgramme: e.target.value})} style={styles.inputStyle} required />
+                      <input type="text" value={modalAssistant.titreProgramme} onChange={(e) => setModalAssistant({...modalAssistant, titreProgramme: e.target.value})} style={styles.inputStyle} required />
                     </div>
 
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Sélectionner les classes cibles (Multi-écoles / Multi-classes) :</label>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles :</label>
                       {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
                         const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
                         return (
@@ -1765,9 +1842,7 @@ export default function EnseignantDashboard() {
                                 checked={estCoche}
                                 onChange={() => {
                                   const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
-                                  const updated = estCoche 
-                                    ? ciblesActuelles.filter(c => c !== cl)
-                                    : [...ciblesActuelles, cl];
+                                  const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
                                   setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
                                 }} 
                               />
@@ -1776,79 +1851,6 @@ export default function EnseignantDashboard() {
                           </div>
                         );
                       })}
-                    </div>
-
-                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '10px' }}>
-                      <label style={{ ...styles.label, color: '#0f172a' }}>📁 Ajouter les cycles au programme annuel :</label>
-                      {modalAssistant.cyclesProgramme.map((cycle, index) => (
-                        <div key={cycle.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '10px', alignItems: 'end', marginBottom: '10px', backgroundColor: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                          <div>
-                            <label style={{ fontSize: '10px', color: '#64748b' }}>Titre du cycle</label>
-                            <input 
-                              type="text" 
-                              value={cycle.titre} 
-                              onChange={(e) => {
-                                const newCycles = [...modalAssistant.cyclesProgramme];
-                                newCycles[index].titre = e.target.value;
-                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
-                              }} 
-                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
-                              required 
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '10px', color: '#64748b' }}>Durée estimée</label>
-                            <input 
-                              type="text" 
-                              placeholder="ex: 4 sem."
-                              value={cycle.duree} 
-                              onChange={(e) => {
-                                const newCycles = [...modalAssistant.cyclesProgramme];
-                                newCycles[index].duree = e.target.value;
-                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
-                              }} 
-                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '10px', color: '#64748b' }}>Nb Leçons</label>
-                            <input 
-                              type="number" 
-                              min="1"
-                              value={cycle.nbLecons} 
-                              onChange={(e) => {
-                                const newCycles = [...modalAssistant.cyclesProgramme];
-                                newCycles[index].nbLecons = parseInt(e.target.value) || 1;
-                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
-                              }} 
-                              style={{ ...styles.inputStyle, padding: '6px', fontSize: '12px' }} 
-                            />
-                          </div>
-                          {modalAssistant.cyclesProgramme.length > 1 && (
-                            <button 
-                              type="button" 
-                              onClick={() => {
-                                const newCycles = modalAssistant.cyclesProgramme.filter((_, i) => i !== index);
-                                setModalAssistant(prev => ({ ...prev, cyclesProgramme: newCycles }));
-                              }}
-                              style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: '800', cursor: 'pointer', paddingBottom: '8px' }}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          const newCycle = { id: Date.now(), titre: `Cycle ${modalAssistant.cyclesProgramme.length + 1}`, duree: '3 semaines', nbLecons: 2 };
-                          setModalAssistant(prev => ({ ...prev, cyclesProgramme: [...prev.cyclesProgramme, newCycle] }));
-                        }}
-                        className="bouton bouton-secondaire"
-                        style={{ fontSize: '11px', padding: '6px 12px' }}
-                      >
-                        + Ajouter un autre cycle
-                      </button>
                     </div>
                   </>
                 )}
@@ -1857,76 +1859,11 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre du cycle</label>
-                      <input type="text" placeholder="Ex: Cycle 1 : Activité physique..." value={modalAssistant.titreCycle} onChange={(e) => setModalAssistant({...modalAssistant, titreCycle: e.target.value})} style={styles.inputStyle} required />
+                      <input type="text" value={modalAssistant.titreCycle} onChange={(e) => setModalAssistant({...modalAssistant, titreCycle: e.target.value})} style={styles.inputStyle} required />
                     </div>
                     <div>
                       <label style={styles.label}>Compétence visée</label>
-                      <input type="text" placeholder="Ex: Traiter une situation..." value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
-                    </div>
-
-                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Sélectionner les classes cibles (Multi-écoles / Multi-classes) et attribuer leurs dates :</label>
-                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
-                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
-                        return (
-                          <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
-                              <input 
-                                type="checkbox" 
-                                checked={estCoche}
-                                onChange={() => {
-                                  const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
-                                  const updated = estCoche 
-                                    ? ciblesActuelles.filter(c => c !== cl)
-                                    : [...ciblesActuelles, cl];
-                                  setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
-                                }} 
-                              />
-                              Classe {cl}
-                            </label>
-                            {estCoche && (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px', marginLeft: '22px' }}>
-                                <div>
-                                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Date début</label>
-                                  <input 
-                                    type="date" 
-                                    value={(modalAssistant.datesParClasseCycle && modalAssistant.datesParClasseCycle[cl]?.debut) || ''} 
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setModalAssistant(prev => ({
-                                        ...prev,
-                                        datesParClasseCycle: {
-                                          ...(prev.datesParClasseCycle || {}),
-                                          [cl]: { ...(prev.datesParClasseCycle?.[cl] || {}), debut: val }
-                                        }
-                                      }));
-                                    }}
-                                    style={{ ...styles.inputStyle, padding: '6px' }} 
-                                  />
-                                </div>
-                                <div>
-                                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Date fin</label>
-                                  <input 
-                                    type="date" 
-                                    value={(modalAssistant.datesParClasseCycle && modalAssistant.datesParClasseCycle[cl]?.fin) || ''} 
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setModalAssistant(prev => ({
-                                        ...prev,
-                                        datesParClasseCycle: {
-                                          ...(prev.datesParClasseCycle || {}),
-                                          [cl]: { ...(prev.datesParClasseCycle?.[cl] || {}), fin: val }
-                                        }
-                                      }));
-                                    }}
-                                    style={{ ...styles.inputStyle, padding: '6px' }} 
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
                     </div>
                   </>
                 )}
@@ -1935,10 +1872,10 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre de la leçon</label>
-                      <input type="text" placeholder="Ex: Leçon 1..." value={modalAssistant.titreLecon} onChange={(e) => setModalAssistant({...modalAssistant, titreLecon: e.target.value})} style={styles.inputStyle} required />
+                      <input type="text" value={modalAssistant.titreLecon} onChange={(e) => setModalAssistant({...modalAssistant, titreLecon: e.target.value})} style={styles.inputStyle} required />
                     </div>
                     <div>
-                      <label style={styles.label}>Nombre de séances prévues</label>
+                      <label style={styles.label}>Nombre de séances</label>
                       <input type="number" min="1" value={modalAssistant.nombreSeancesLecon} onChange={(e) => setModalAssistant({...modalAssistant, nombreSeancesLecon: e.target.value})} style={styles.inputStyle} required />
                     </div>
                   </>
@@ -1948,60 +1885,20 @@ export default function EnseignantDashboard() {
                   <>
                     <div>
                       <label style={styles.label}>Titre de la séance</label>
-                      <input type="text" placeholder="Ex: Séance 1..." value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required />
+                      <input type="text" value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div>
-                        <label style={styles.label}>Date</label>
-                        <input type="date" value={modalAssistant.dateSeance} onChange={(e) => setModalAssistant({...modalAssistant, dateSeance: e.target.value})} style={styles.inputStyle} required />
-                      </div>
-                      <div>
-                        <label style={styles.label}>Lieu</label>
-                        <input type="text" placeholder="Ex: Gymnase A" value={modalAssistant.lieuSeance} onChange={(e) => setModalAssistant({...modalAssistant, lieuSeance: e.target.value})} style={styles.inputStyle} />
-                      </div>
-                    </div>
-
-                    {Array.isArray(champsPersonnalises) && champsPersonnalises.map(champ => (
-                      <div key={champ.id} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', alignItems: 'center', backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                        <div>
-                          <strong style={{ fontSize: '12px', color: '#0f172a' }}>{champ.label}</strong>
-                        </div>
-                        <div>
-                          <textarea 
-                            onClick={() => {
-                              setChampEnEditionPleinEcran({
-                                id: champ.id,
-                                label: champ.label,
-                                valeurTemporaire: (modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''
-                              });
-                            }}
-                            readOnly
-                            value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''} 
-                            placeholder={`Cliquer pour remplir ${champ.label}...`}
-                            style={{ ...styles.inputStyle, height: '60px', resize: 'vertical', cursor: 'pointer' }} 
-                          />
-                        </div>
-                      </div>
-                    ))}
                   </>
                 )}
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire">Annuler</button>
-                  <button 
-                    type="submit" 
-                    className="bouton" 
-                    style={{ fontWeight: '800', backgroundColor: '#2563eb', color: '#fff' }}
-                  >
-                    🚀 Valider & Enregistrer
-                  </button>
+                  <button type="submit" className="bouton bouton-principal">Valider & Enregistrer</button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {/* MODALE D'ÉDITION */}
         {modalEdition.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2047,68 +1944,6 @@ export default function EnseignantDashboard() {
                   />
                 </div>
 
-                {Array.isArray(champsPersonnalises) && champsPersonnalises.map(champ => (
-                  <div key={champ.id}>
-                    <label style={styles.label}>{champ.label}</label>
-                    <textarea 
-                      value={(modalConsulterReutiliser.donneesModifiees && modalConsulterReutiliser.donneesModifiees.valeursChamps && modalConsulterReutiliser.donneesModifiees.valeursChamps[champ.id]) || ''} 
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setModalConsulterReutiliser(prev => ({
-                          ...prev,
-                          donneesModifiees: {
-                            ...(prev.donneesModifiees || {}),
-                            valeursChamps: { ...(prev.donneesModifiees?.valeursChamps || {}), [champ.id]: val }
-                          }
-                        }));
-                      }} 
-                      style={{ ...styles.inputStyle, height: '60px' }} 
-                    />
-                  </div>
-                ))}
-
-                <div style={{ marginTop: '10px' }}>
-                  <label style={{ ...styles.label, marginBottom: '8px' }}>Sélectionner les classes cibles et leurs dates :</label>
-                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
-                    const estSelectionne = Array.isArray(modalConsulterReutiliser.classesSelectionnees) && modalConsulterReutiliser.classesSelectionnees.includes(cl);
-                    return (
-                      <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '10px', backgroundColor: '#f8fafc', marginBottom: '8px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={estSelectionne} 
-                            onChange={() => {
-                              const selActuelles = Array.isArray(modalConsulterReutiliser.classesSelectionnees) ? modalConsulterReutiliser.classesSelectionnees : [];
-                              const updatedClasses = estSelectionne 
-                                ? selActuelles.filter(c => c !== cl)
-                                : [...selActuelles, cl];
-                              setModalConsulterReutiliser(prev => ({ ...prev, classesSelectionnees: updatedClasses }));
-                            }} 
-                          />
-                          {cl}
-                        </label>
-                        {estSelectionne && (
-                          <div style={{ marginTop: '8px', marginLeft: '22px' }}>
-                            <label style={{ fontSize: '11px', color: '#475569', display: 'block', marginBottom: '4px', fontWeight: '700' }}>Date pour la classe {cl} :</label>
-                            <input 
-                              type="date" 
-                              value={(modalConsulterReutiliser.datesParClasse && modalConsulterReutiliser.datesParClasse[cl]) || ''} 
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setModalConsulterReutiliser(prev => ({
-                                  ...prev,
-                                  datesParClasse: { ...(prev.datesParClasse || {}), [cl]: val }
-                                }));
-                              }} 
-                              style={{ ...styles.inputStyle, padding: '8px 12px' }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer & Réutiliser</button>
@@ -2151,12 +1986,35 @@ export default function EnseignantDashboard() {
                   {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
                     const progExiste = programmesClasses && !!programmesClasses[cl];
                     return (
-                      <div key={cl} onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={styles.carteClasseItem}>
-                        <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>🏫 {cl}</span>
-                        <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
-                          {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) au programme` : 'Cliquez pour initialiser'}
-                        </p>
-                        <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
+                      <div key={cl} style={styles.carteClasseItem}>
+                        <div onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={{ cursor: 'pointer' }}>
+                          <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>🏫 {cl}</span>
+                          <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
+                            {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) au programme` : 'Cliquez pour initialiser'}
+                          </p>
+                          <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
+                        </div>
+
+                        {/* BOUTON SUPPRESSION CLASSE SÉCURISÉ PAR MODALE */}
+                        {modeSansAffiliation && (
+                          <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setModalConfirmation({
+                                  ouvert: true,
+                                  titre: '⚠️ Supprimer cette classe ?',
+                                  message: `Voulez-vous vraiment supprimer la classe "${cl}" ? Cette action est irréversible.`,
+                                  actionCallback: () => supprimerClasseLibre(cl)
+                                });
+                              }} 
+                              className="bouton bouton-danger"
+                              style={{ padding: '6px 10px', fontSize: '11px' }}
+                            >
+                              🗑️ Supprimer
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2171,10 +2029,9 @@ export default function EnseignantDashboard() {
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses?.[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
-                      📥 Télécharger PDF
+                      📥 Télécharger Programme PDF
                     </button>
-                    {/* BOUTON CRÉER LE PROGRAMME ANNUEL AU DESIGN HAUT DE GAMME */}
-                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'programme_annuel', titreProgramme: `Prog. ${classeSelectionneeVue}`, cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }], classesCiblesCycle: [classeSelectionneeVue] })} style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: '#ffffff', border: 'none', padding: '10px 18px', borderRadius: '12px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(124,58,237,0.3)', transition: 'transform 0.2s' }}>
+                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'programme_annuel', titreProgramme: `Prog. ${classeSelectionneeVue}`, cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }], classesCiblesCycle: [classeSelectionneeVue] })} className="bouton" style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: '#ffffff' }}>
                       📊 Créer le programme annuel
                     </button>
                     <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })} className="bouton bouton-principal">
@@ -2183,7 +2040,6 @@ export default function EnseignantDashboard() {
                   </div>
                 </div>
 
-                {/* LISTE DES CYCLES AVEC MENU DÉROULANT HIÉRARCHIQUE */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {programmesClasses?.[classeSelectionneeVue]?.cycles && Array.isArray(programmesClasses[classeSelectionneeVue].cycles) && programmesClasses[classeSelectionneeVue].cycles.map(cycle => {
                     const estCycleOuvert = !!cyclesOuverts[cycle.id];
@@ -2202,6 +2058,7 @@ export default function EnseignantDashboard() {
                           </div>
 
                           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <button onClick={() => telechargerCyclePDF(cycle)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>📥 Cycle PDF</button>
                             <button onClick={() => ouvrirModalEdition('cycle', cycle.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
                             <button onClick={() => setModalDuplicationIntelligente({ ouvert: true, itemSource: cycle, typeSource: 'cycle', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px', color: '#2563eb' }}>⚡ Dupliquer</button>
                             {cycle.statut !== 'Terminé' && (
@@ -2211,7 +2068,6 @@ export default function EnseignantDashboard() {
                           </div>
                         </div>
 
-                        {/* CONTENU DÉROULANT DES LEÇONS DU CYCLE */}
                         {estCycleOuvert && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px', paddingLeft: '10px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2234,6 +2090,7 @@ export default function EnseignantDashboard() {
                                     </div>
 
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <button onClick={() => telechargerLeconPDF(lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Leçon PDF</button>
                                       <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
                                       {lecon.statut !== 'Terminée' && (
                                         <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🏁 Terminer</button>
@@ -2242,7 +2099,6 @@ export default function EnseignantDashboard() {
                                     </div>
                                   </div>
 
-                                  {/* CONTENU DÉROULANT DES SÉANCES DE LA LEÇON */}
                                   {estLeconOuverte && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', borderTop: '1px dashed #cbd5e1', paddingTop: '12px', paddingLeft: '10px' }}>
                                       {Array.isArray(lecon.seances) && lecon.seances.map(seance => (
@@ -2254,23 +2110,16 @@ export default function EnseignantDashboard() {
                                               <span style={{ fontSize: '10px', color: '#64748b', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>📅 {seance.date}</span>
                                               {seance.soumisAuCenseur && <span style={{ fontSize: '9px', backgroundColor: '#dcfce7', color: '#166534', padding: '2px 4px', borderRadius: '4px', fontWeight: '800' }}>✓ Envoyé</span>}
                                             </div>
-                                            <p style={{ fontSize: '11px', color: '#475569', margin: 0 }}>
-                                              {Array.isArray(champsPersonnalises) ? champsPersonnalises.map(champ => (seance.valeursChamps && seance.valeursChamps[champ.id]) ? `${champ.label}: ${seance.valeursChamps[champ.id]} | ` : '').join('') : ''}
-                                            </p>
                                           </div>
                                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                                             <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
-                                            <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 PDF</button>
+                                            <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Séance PDF</button>
                                             
                                             {!modeSansAffiliation && !seance.soumisAuCenseur && (
                                               <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
                                                 🚀 Envoyé
                                               </button>
                                             )}
-
-                                            <button onClick={() => setModalRapport({ ouvert: true, seanceTitre: seance.titre, ecolesCibles: [], classesCibles: [classeSelectionneeVue], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton" style={{ padding: '4px 8px', fontSize: '10px', backgroundColor: '#d97706', color: '#fff' }}>
-                                              📋 Report
-                                            </button>
                                           </div>
                                         </div>
                                       ))}
@@ -2340,13 +2189,6 @@ export default function EnseignantDashboard() {
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button onClick={() => telechargerFicheSeancePDF(b, { titre: b.leconAssociee }, { titre: b.cycleAssocie })} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px' }}>📥 Télécharger</button>
-                      <button onClick={() => setModalConsulterReutiliser({
-                        ouvert: true,
-                        item: b,
-                        donneesModifiees: { nom: b.nom, valeursChamps: b.valeursChamps || {} },
-                        classesSelectionnees: [],
-                        datesParClasse: {}
-                      })} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>👁️ Réutiliser</button>
                     </div>
                   </div>
                 ))
@@ -2361,26 +2203,23 @@ export default function EnseignantDashboard() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📝 Rapports de Séance Transmis</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Historique de vos comptes-rendus et rapports de séance envoyés au censeur.</p>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Historique de vos comptes-rendus envoyés au censeur.</p>
               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {!Array.isArray(rapportsSeances) || rapportsSeances.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucun rapport de séance transmis pour l'instant.</p>
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucun rapport transmis.</p>
               ) : (
                 rapportsSeances.map(r => (
                   <div key={r.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
                         <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
-                          Écoles: {Array.isArray(r.ecolesCibles) ? r.ecolesCibles.join(', ') : 'Global'} | Classes: {Array.isArray(r.classesCibles) ? r.classesCibles.join(', ') : ''}
+                          Classes: {Array.isArray(r.classesCibles) ? r.classesCibles.join(', ') : ''}
                         </span>
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{r.seanceTitre}</strong>
-                        {r.motifReport && <span style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>Report : {r.motifReport}</span>}
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>({r.date})</span>
                       </div>
-                      {r.nouvelleDatePrevue && <p style={{ fontSize: '12px', color: '#2563eb', margin: '2px 0' }}><strong>Nouvelle date :</strong> {r.nouvelleDatePrevue}</p>}
                       <p style={{ fontSize: '13px', color: '#334155', margin: '4px 0' }}><strong>Compte rendu :</strong> {r.contenuRapport}</p>
                     </div>
                   </div>
@@ -2390,13 +2229,13 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {/* ONGLET : ÉCOLES & AFFILIATIONS */}
+        {/* ONGLET : ÉCOLES & BOUTON QUITTER L'ÉTABLISSEMENT */}
         {activeTab === 'affiliation' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>🏫 Gestion de vos Établissements & Affiliations</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Envoyez des demandes d'affiliation ou quittez un établissement.</p>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>🏫 Gestion des Établissements & Demandes de Départ</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Initiez une demande de départ (soumise au visa du censeur) ou demandez une affiliation.</p>
               </div>
               <button onClick={() => setModalAffiliation(true)} className="bouton bouton-succes">
                 + Demander une affiliation
@@ -2405,21 +2244,35 @@ export default function EnseignantDashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
               {!Array.isArray(affiliations) || affiliations.length === 0 ? (
-                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune école affiliée pour le moment (Mode sans affiliation actif).</p>
+                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune école affiliée pour le moment.</p>
               ) : (
-                affiliations.map(aff => (
-                  <div key={aff.id} style={styles.itemRow}>
-                    <div>
-                      <strong style={{ color: '#0f172a', fontSize: '14px' }}>{aff.ecole}</strong> <span style={{ color: '#64748b', fontSize: '12px' }}>({aff.statut})</span><br/>
-                      <small style={{ color: '#64748b', fontSize: '12px' }}>Classes : <strong>{Array.isArray(aff.classes) ? aff.classes.join(', ') : ''}</strong></small>
+                affiliations.map(aff => {
+                  const demandeEnCours = Array.isArray(demandesDepart) ? demandesDepart.find(d => d.ecoleId === aff.id && d.statut.includes('En attente')) : null;
+                  return (
+                    <div key={aff.id} style={styles.itemRow}>
+                      <div>
+                        <strong style={{ color: '#0f172a', fontSize: '14px' }}>{aff.ecole}</strong> <span style={{ color: '#64748b', fontSize: '12px' }}>({aff.statut})</span><br/>
+                        <small style={{ color: '#64748b', fontSize: '12px' }}>Classes : <strong>{Array.isArray(aff.classes) ? aff.classes.join(', ') : ''}</strong></small>
+                        {demandeEnCours && (
+                          <div style={{ marginTop: '4px' }}>
+                            <span style={{ fontSize: '11px', backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>
+                              ⏳ Demande de départ en cours (Visa censeur requis)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        {!demandeEnCours ? (
+                          <button onClick={() => setModalDepart({ ouvert: true, ecoleId: aff.id, ecoleNom: aff.ecole, motif: '' })} className="bouton bouton-danger" style={{ padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}>
+                            🚪 Quitter l'établissement
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>En attente de visa...</span>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <button onClick={() => quitterEcole(aff.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>
-                        Quitter cette école
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -2430,32 +2283,29 @@ export default function EnseignantDashboard() {
 }
 
 const styles = {
-  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
-  mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
-  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
-  grilleClasses: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginTop: '16px' },
-  carteClasseItem: { backgroundColor: '#ffffff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', cursor: 'pointer', transition: 'transform 0.2s ease' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
+  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },
+  mainContentBody: { padding: '20px 12px', maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' },
+  cardWide: { backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' },
+  grilleClasses: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginTop: '16px', width: '100%', boxSizing: 'border-box' },
+  carteClasseItem: { backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', boxSizing: 'border-box' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap', boxSizing: 'border-box' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
-  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
+  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px', boxSizing: 'border-box', width: '100%', flexWrap: 'wrap' },
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
-  inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
-  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
+  inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
+  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' },
+  avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },
   navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  navbarTeacherName: { fontSize: '12px', fontWeight: '800', color: '#ffffff' },
-  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8', fontWeight: '600' },
-  notificationDropdown: { position: 'absolute', top: '50px', left: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '320px', zIndex: 100, padding: '12px' },
-  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
-  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
-  notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9', cursor: 'pointer' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFactor: 'blur(4px)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', zIndex: '1000', padding: '16px' },
-  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
-  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
-  burgerDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '240px', zIndex: 120, padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }
+  notificationDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 110, padding: '10px', boxSizing: 'border-box' },
+  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '8px', fontSize: '11px', marginBottom: '4px', border: '1px solid #f1f5f9', cursor: 'pointer' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', position: 'relative' },
+  fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: '1000', padding: '12px', boxSizing: 'border-box' },
+  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '1px 4px', borderRadius: '999px', fontSize: '9px', fontWeight: '800', position: 'absolute', top: '-4px', right: '-4px' },
+  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
+  burgerDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '220px', maxWidth: '85vw', zIndex: 120, padding: '10px', display: 'flex', flexDirection: 'column', gap: '4px', boxSizing: 'border-box' }
 };

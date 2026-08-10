@@ -46,6 +46,14 @@ export default function CenseurDashboard() {
   const menuBurgerCenseurRef = useRef(null);
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
+  // --- MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES ---
+  const [modalConfirmation, setModalConfirmation] = useState({
+    ouvert: false,
+    titre: '',
+    message: '',
+    actionCallback: null
+  });
+
   const ecoleConfigGlobale = useMemo(() => {
     return safeGetObject('app_chef_ecole_config', {
       nomEcole: infosCenseur.etablissement, typeEtablissement: 'Public', codeEtablissement: 'LYM-01', situationGeo: 'Abidjan', anneeScolaire: '2025-2026', nombreEleves: '850', nombreEnseignants: '32', dateCreation: '2010-09-15', anneeOuverte: true
@@ -99,7 +107,6 @@ export default function CenseurDashboard() {
   
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
 
-  // États pour la sélection multiple des rappels manuels
   const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]);
 
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
@@ -201,7 +208,7 @@ export default function CenseurDashboard() {
   };
 
   // =========================================================================
-  // 6. CALCUL DES VARIABLES DÉRIVÉES (MEMOS SÉCURISÉS)
+  // 6. CALCUL DES VARIABLES DÉRIVÉES
   // =========================================================================
   const nombreClassesAutomatique = useMemo(() => Object.keys(programmesClasses || {}).length || 0, [programmesClasses]);
 
@@ -239,71 +246,63 @@ export default function CenseurDashboard() {
     <div style={styles.container}>
       {/* HEADER & NAVBAR */}
       <header style={styles.darkNavbar}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           
-          {/* SECTION PROFIL ÉPURÉE (HARMONISÉE AVEC LE DASHBOARD ENSEIGNANT) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ position: 'relative' }} ref={profilCenseurRef}>
-              <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
-                <div style={styles.avatarNavbarContainer}>
-                  {infosCenseur.photoProfil ? (
-                    <img src={infosCenseur.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
-                  ) : (
-                    <div style={styles.avatarNavbarPlaceholder}>👤</div>
-                  )}
-                </div>
-                <div style={styles.navbarTeacherInfo}>
-                  <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>
-                    {infosCenseur.civilite} {infosCenseur.nom}
-                  </span>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                    Espace Censeur
-                  </span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>{profilCenseurOuvert ? '▲' : '▼'}</span>
-              </button>
+          {/* SECTION PROFIL ÉPURÉE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilCenseurRef}>
+            <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
+              <div style={styles.avatarNavbarContainer}>
+                {infosCenseur.photoProfil ? (
+                  <img src={infosCenseur.photoProfil} alt="Profil" style={styles.avatarNavbarImg} />
+                ) : (
+                  <div style={styles.avatarNavbarPlaceholder}>👤</div>
+                )}
+              </div>
+              <div style={styles.navbarTeacherInfo}>
+                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                  {infosCenseur.civilite} {infosCenseur.nom}
+                </span>
+                <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase' }}>
+                  Censeur
+                </span>
+              </div>
+              <span style={{ fontSize: '9px', color: '#94a3b8', marginLeft: '2px' }}>{profilCenseurOuvert ? '▲' : '▼'}</span>
+            </button>
 
-              {profilCenseurOuvert && (
-                <div style={styles.notificationDropdown}>
-                  <div style={styles.dropdownHeader}>Mon Compte Censeur</div>
-                  <div style={{ padding: '10px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px', background: '#f8fafc', borderRadius: '8px' }}>
-                    <strong>{infosCenseur.civilite} {infosCenseur.nom} {infosCenseur.prenoms}</strong><br />
-                    <span style={{ color: '#64748b', fontSize: '11px' }}>
-                      {infosCenseur.etablissement}<br />
-                      <em>{infosCenseur.role}</em>
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setFormProfilCenseur({ ...infosCenseur });
-                      setModalProfilCenseurOuvert(true);
-                      setProfilCenseurOuvert(false);
-                    }} 
-                    style={styles.optionMenu}
-                  >
-                    ⚙️ Modifier mon profil
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setModalSecurite(true);
-                      setProfilCenseurOuvert(false);
-                    }} 
-                    style={styles.optionMenu}
-                  >
-                    🔒 Changer mon mot de passe
-                  </button>
+            {profilCenseurOuvert && (
+              <div style={{ ...styles.notificationDropdown, left: 0, right: 'auto' }}>
+                <div style={styles.dropdownHeader}>Mon Compte Censeur</div>
+                <div style={{ padding: '10px', fontSize: '12px', color: '#334155', borderBottom: '1px solid #e2e8f0', marginBottom: '6px', background: '#f8fafc', borderRadius: '8px' }}>
+                  <strong>{infosCenseur.civilite} {infosCenseur.nom} {infosCenseur.prenoms}</strong><br />
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>
+                    {infosCenseur.etablissement}<br />
+                    <em>{infosCenseur.role}</em>
+                  </span>
                 </div>
-              )}
-            </div>
+                <button onClick={() => { setFormProfilCenseur({ ...infosCenseur }); setModalProfilCenseurOuvert(true); setProfilCenseurOuvert(false); }} className="bouton-option">
+                  ⚙️ Modifier mon profil
+                </button>
+                <button onClick={() => { setModalSecurite(true); setProfilCenseurOuvert(false); }} className="bouton-option">
+                  🔒 Changer mon mot de passe
+                </button>
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }}>
+          {/* LOGO CENTRAL (E-cahier ! 📖) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+            <span style={{ fontSize: '12px' }}>📖</span>
+          </div>
+
+          {/* NOTIFICATIONS & MENU BURGER (S'OUVRENT DANS LE BON SENS) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ position: 'relative' }} ref={notifCenseurRef}>
               <button onClick={() => setNotifCenseurOuvert(!notifCenseurOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>{(notificationsCenseur || []).filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{(notificationsCenseur || []).filter(n => !n.lu).length}</span>}
               </button>
               {notifCenseurOuvert && (
-                <div style={styles.notificationDropdown}>
+                <div style={{ ...styles.notificationDropdown, right: 0, left: 'auto' }}>
                   <div style={styles.dropdownHeader}>Notifications</div>
                   {(notificationsCenseur || []).map(n => (
                     <div key={n.id} onClick={() => { setActiveTab('visa'); setNotifCenseurOuvert(false); }} style={styles.notifItem}>
@@ -317,18 +316,18 @@ export default function CenseurDashboard() {
             <div style={{ position: 'relative' }} ref={menuBurgerCenseurRef}>
               <button onClick={() => setMenuBurgerCenseurOuvert(!menuBurgerCenseurOuvert)} style={styles.burgerBtn}>☰</button>
               {menuBurgerCenseurOuvert && (
-                <div style={styles.burgerDropdown} className="anim-apparition">
+                <div style={{ ...styles.burgerDropdown, right: 0, left: 'auto' }} className="anim-apparition">
                   <div style={styles.dropdownHeader}>Menu Censeur</div>
-                  <button onClick={() => { setActiveTab('visa'); setMenuBurgerCenseurOuvert(false); }} style={{...styles.optionMenu, color: '#2563eb', fontWeight: '800'}}>✍️ Visa & File d'Attente</button>
-                  <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerCenseurOuvert(false); }} style={styles.optionMenu}>📚 Archives Pédagogiques</button>
-                  <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} style={styles.optionMenu}>👨‍🏫 Annuaire Personnel</button>
-                  <button onClick={() => { setActiveTab('suivi'); setMenuBurgerCenseurOuvert(false); }} style={styles.optionMenu}>⏰ Suivi & Rappels</button>
-                  <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerCenseurOuvert(false); }} style={styles.optionMenu}>🏛️ Profil Établissement</button>
+                  <button onClick={() => { setActiveTab('visa'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option" style={{color: '#2563eb', fontWeight: '800'}}>✍️ Visa & File d'Attente</button>
+                  <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📚 Archives Pédagogiques</button>
+                  <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
+                  <button onClick={() => { setActiveTab('suivi'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">⏰ Suivi & Rappels</button>
+                  <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏛️ Profil Établissement</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', margin: '6px 0', paddingTop: '6px' }}>
-                    <button onClick={() => { setActiveTab('evolution'); setMenuBurgerCenseurOuvert(false); }} style={{ ...styles.optionMenu, color: '#8b5cf6', fontWeight: '800' }}>🎓 Évolution de carrière</button>
+                    <button onClick={() => { setActiveTab('evolution'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option" style={{ color: '#8b5cf6', fontWeight: '800' }}>🎓 Évolution de carrière</button>
                   </div>
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '6px' }}>
-                    <button onClick={() => { setModalDeconnexion(true); setMenuBurgerCenseurOuvert(false); }} style={{ ...styles.optionMenu, color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
+                    <button onClick={() => { setModalDeconnexion(true); setMenuBurgerCenseurOuvert(false); }} className="bouton-option" style={{ color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
                 </div>
               )}
@@ -337,10 +336,84 @@ export default function CenseurDashboard() {
         </div>
       </header>
 
+      {/* --- STYLE UNIVERSEL DES BOUTONS HARMONIEUX ET MODERNES --- */}
+      <style>{`
+        .bouton {
+          padding: 8px 16px;
+          border-radius: 12px;
+          font-weight: 800;
+          font-size: 13px;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+        .bouton:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .bouton-principal {
+          background-color: #2563eb;
+          color: #ffffff;
+        }
+        .bouton-secondaire {
+          background-color: #f1f5f9;
+          color: #334155;
+          border: 1px solid #cbd5e1;
+        }
+        .bouton-succes {
+          background-color: #16a34a;
+          color: #ffffff;
+        }
+        .bouton-danger {
+          background-color: #ef4444;
+          color: #ffffff;
+        }
+        .bouton-option {
+          width: 100%;
+          text-align: left;
+          padding: 9px 12px;
+          background: transparent;
+          border: none;
+          color: #334155;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          border-radius: 8px;
+          margin-bottom: 2px;
+          transition: background 0.15s ease;
+        }
+        .bouton-option:hover {
+          background-color: #f1f5f9;
+        }
+      `}</style>
+
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALE DE CONFIRMATION DE DÉCONNEXION */}
+        {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
+        {modalConfirmation.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>{modalConfirmation.titre}</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+                {modalConfirmation.message}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmation({ ouvert: false, titre: '', message: '', actionCallback: null })} className="bouton bouton-secondaire">Annuler</button>
+                <button onClick={() => {
+                  if (modalConfirmation.actionCallback) modalConfirmation.actionCallback();
+                  setModalConfirmation({ ouvert: false, titre: '', message: '', actionCallback: null });
+                }} className="bouton bouton-danger">Confirmer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalDeconnexion && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
@@ -354,7 +427,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* MODALE DE SÉCURITÉ (CHANGEMENT DE MOT DE PASSE) */}
         {modalSecurite && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
@@ -391,7 +463,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* MODALE DE MODIFICATION DU PROFIL CENSEUR HARMONISÉE */}
         {modalProfilCenseurOuvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -527,8 +598,8 @@ export default function CenseurDashboard() {
                                         <span style={{ fontSize: '11px', color: '#64748b' }}>📅 Date : {sc.date}</span>
                                       </div>
                                       <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => setModalConsultation({ ouvert: true, element: sc })} className="bouton bouton-secondaire" style={{ padding: '6px 12px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: '#fff', cursor: 'pointer', fontWeight: '700', color: '#334155' }}>👁️ Consulter</button>
-                                        <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>✍️ Viser & Archiver</button>
+                                        <button onClick={() => setModalConsultation({ ouvert: true, element: sc })} className="bouton bouton-secondaire" style={{ padding: '6px 12px', fontSize: '12px' }}>👁️ Consulter</button>
+                                        <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser & Archiver</button>
                                       </div>
                                     </div>
                                   ))}
@@ -575,7 +646,7 @@ export default function CenseurDashboard() {
                       <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong> | Archivé le : {fiche.dateValidation}</p>
                     </div>
                     <div>
-                      <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>📥 Télécharger (PDF)</button>
+                      <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a' }}>📥 Télécharger (PDF)</button>
                     </div>
                   </div>
                 ))}
@@ -605,7 +676,7 @@ export default function CenseurDashboard() {
                 </select>
                 <input type="text" placeholder="Matricule" value={nouveauAdminMatricule} onChange={(e) => setNouveauAdminMatricule(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} required />
                 <input type="text" placeholder="Contact" value={nouveauAdminContact} onChange={(e) => setNouveauAdminContact(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0, backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', padding: '0 16px' }}>Ajouter</button>
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0, backgroundColor: '#0f172a', padding: '0 16px' }}>Ajouter</button>
               </form>
 
               {personnelAdministratifManuel.length > 0 && (
@@ -614,7 +685,18 @@ export default function CenseurDashboard() {
                   {personnelAdministratifManuel.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
                       <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | MAT : <strong>{p.matricule}</strong> | Contact : {p.contact}</span>
-                      <button onClick={() => supprimerPersonnelAdministratif(p.id)} className="bouton bouton-danger" style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Retirer</button>
+                      <button 
+                        onClick={() => setModalConfirmation({
+                          ouvert: true,
+                          titre: '⚠️ Retirer ce membre ?',
+                          message: `Voulez-vous vraiment retirer "${p.nomComplet}" de l'annuaire administratif ?`,
+                          actionCallback: () => supprimerPersonnelAdministratif(p.id)
+                        })} 
+                        className="bouton bouton-danger" 
+                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                      >
+                        Retirer
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -652,7 +734,6 @@ export default function CenseurDashboard() {
               <button 
                 onClick={envoyerRappelMultipleManuel} 
                 className="bouton bouton-succes"
-                style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '800', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' }}
                 disabled={profsSelectionnesRappel.length === 0}
               >
                 ✉️ Envoyer le rappel aux sélectionnés ({profsSelectionnesRappel.length})
@@ -684,7 +765,6 @@ export default function CenseurDashboard() {
                           showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
                         }} 
                         className="bouton bouton-secondaire" 
-                        style={{ padding: '6px 12px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: '#fff', cursor: 'pointer', fontWeight: '700', color: '#334155' }}
                       >
                         Envoyer un rappel individuel
                       </button>
@@ -697,7 +777,7 @@ export default function CenseurDashboard() {
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 5 : PROFIL ÉCOLE (CONSULTATION OFFICIELLE) */}
+        {/* ONGLET 5 : PROFIL ÉCOLE */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
@@ -757,7 +837,7 @@ export default function CenseurDashboard() {
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="submit" className="bouton bouton-principal" style={{ padding: '10px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>Soumettre la demande officielle</button>
+                    <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }}>Soumettre la demande officielle</button>
                   </div>
                 </div>
               </form>
@@ -774,31 +854,28 @@ export default function CenseurDashboard() {
 // 8. STYLES SÉCURISÉS ET HARMONISÉS
 // =========================================================================
 const styles = {
-  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px' },
-  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '16px 24px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 30 },
-  mainContentBody: { padding: '30px 20px', maxWidth: '1200px', margin: '0 auto' },
-  cardWide: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
-  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' },
-  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px' },
+  container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
+  darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },
+  mainContentBody: { padding: '20px 12px', maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' },
+  cardWide: { backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' },
+  bibliothequeFilterBox: { display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap', boxSizing: 'border-box' },
+  itemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '12px', boxSizing: 'border-box', width: '100%', flexWrap: 'wrap' },
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
-  inputStyle: { width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
+  inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   pInfo: { margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#0f172a' },
-  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '14px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '12px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left' },
-  avatarNavbarContainer: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
+  toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' },
+  avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarNavbarPlaceholder: { fontSize: '16px', color: '#94a3b8' },
+  avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },
   navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
-  navbarTeacherName: { fontSize: '12px', fontWeight: '800', color: '#ffffff' },
-  navbarTeacherDetails: { fontSize: '10px', color: '#94a3b8', fontWeight: '600' },
-  notificationDropdown: { position: 'absolute', top: '50px', left: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '320px', zIndex: 100, padding: '12px' },
-  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' },
-  optionMenu: { width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#334155', fontSize: '13px', fontWeight: '700', cursor: 'pointer', borderRadius: '8px', marginBottom: '4px' },
-  notifItem: { backgroundColor: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '6px', border: '1px solid #f1f5f9', cursor: 'pointer' },
-  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' },
-  fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', zIndex: '1000', padding: '16px' },
-  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' },
-  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '8px 12px', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
-  burgerDropdown: { position: 'absolute', top: '50px', right: 0, backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', width: '280px', zIndex: 120, padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }
+  notificationDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 110, padding: '10px', boxSizing: 'border-box' },
+  dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' },
+  notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '8px', fontSize: '11px', marginBottom: '4px', border: '1px solid #f1f5f9', cursor: 'pointer' },
+  navDarkBtn: { backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', padding: '6px 10px', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', position: 'relative' },
+  fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: '1000', padding: '12px', boxSizing: 'border-box' },
+  pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '1px 4px', borderRadius: '999px', fontSize: '9px', fontWeight: '800', position: 'absolute', top: '-4px', right: '-4px' },
+  burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
+  burgerDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '220px', maxWidth: '85vw', zIndex: 120, padding: '10px', display: 'flex', flexDirection: 'column', gap: '4px', boxSizing: 'border-box' }
 };

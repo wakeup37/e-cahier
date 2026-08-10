@@ -1,4 +1,4 @@
-require('dotenv').config(); // 👈 INDISPENSABLE : Charge le fichier .env
+require('dotenv').config({ path: __dirname + '/.env' });
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js'); // 👈 Importe Supabase

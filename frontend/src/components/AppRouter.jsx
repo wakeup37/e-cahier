@@ -15,11 +15,9 @@ export default function AppRouter() {
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
   
-  // États de visibilité des mots de passe (partout)
   const [afficherMdp, setAfficherMdp] = useState(false);
   const [afficherMdpEtablissement, setAfficherMdpEtablissement] = useState(false);
   
-  // États de configuration et liaison d'établissement pour le Chef
   const [etapeChoixEtablissement, setEtapeChoixEtablissement] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix');
   const [nomEcoleSaisi, setNomEcoleSaisi] = useState('');
@@ -32,7 +30,6 @@ export default function AppRouter() {
   const [modeAuth, setModeAuth] = useState('connexion'); 
   const [modeMdpOublieAuth, setModeMdpOublieAuth] = useState(false);
   
-  // Civilités complètes requises
   const [genreSaisi, setGenreSaisi] = useState('M.');
   const [nomSaisi, setNomSaisi] = useState('');
   const [prenomsSaisi, setPrenomsSaisi] = useState('');
@@ -391,7 +388,6 @@ export default function AppRouter() {
     );
   }
 
-  // Étape de choix / connexion à l'établissement pour le Chef (avec bouton de retour ergonomique et sécurisé)
   if (userRole === 'chef' && etapeChoixEtablissement) {
     return (
       <div style={styles.ecranAuth}>
@@ -499,18 +495,18 @@ export default function AppRouter() {
 
 const styles = {
   boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
-  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '30px 20px', backgroundColor: '#f8fafc' },
-  carteAuth: { background: '#ffffff', padding: '36px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center' },
+  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '20px', backgroundColor: '#f8fafc', boxSizing: 'border-box' },
+  carteAuth: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center', boxSizing: 'border-box' },
   enteteLogo: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' },
   iconeCahier: { backgroundColor: '#2563eb', borderRadius: '10px', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' },
   titreLogo: { fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '0' },
-  boutonBase: { color: '#ffffff', border: 'none', padding: '14px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '15px', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-  boutonPrincipal: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%' },
-  boutonInscription: { backgroundColor: '#16a34a', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%' },
-  champSaisie: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#f8fafc', outline: 'none', marginTop: '4px' },
-  conteneurMotDePasse: { display: 'flex', alignItems: 'center', width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: '#f8fafc', marginTop: '4px', overflow: 'hidden' },
-  champMdpInterne: { flex: 1, padding: '10px 14px', border: 'none', fontSize: '13px', backgroundColor: 'transparent', outline: 'none' },
+  boutonBase: { color: '#ffffff', border: 'none', padding: '14px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '15px', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxSizing: 'border-box' },
+  boutonPrincipal: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' },
+  boutonInscription: { backgroundColor: '#16a34a', color: '#ffffff', border: 'none', padding: '12px 20px', borderRadius: '8px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' },
+  champSaisie: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#f8fafc', outline: 'none', marginTop: '4px', boxSizing: 'border-box' },
+  conteneurMotDePasse: { display: 'flex', alignItems: 'center', width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: '#f8fafc', marginTop: '4px', overflow: 'hidden', boxSizing: 'border-box' },
+  champMdpInterne: { flex: 1, padding: '10px 14px', border: 'none', fontSize: '13px', backgroundColor: 'transparent', outline: 'none', width: '100%', boxSizing: 'border-box' },
   boutonOeil: { padding: '0 12px', cursor: 'pointer', fontSize: '16px', userSelect: 'none' },
-  libelle: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '6px' },
+  libelle: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '6px', textAlign: 'left' },
   conteneurNotification: { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, backgroundColor: '#1e293b', color: '#f8fafc', padding: '14px 22px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }
 };

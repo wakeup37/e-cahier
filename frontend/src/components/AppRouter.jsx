@@ -5,7 +5,7 @@ import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 
-// Initialisation de Supabase
+// Initialisation de Supabase[span_0](start_span)[span_0](end_span)
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';
 export const supabase = createClient(supabaseUrl, supabaseKey);
@@ -46,6 +46,21 @@ export default function AppRouter() {
   const [enseignantsSansFiche] = useState([
     { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
   ]);
+
+  // Fonction unifiée de déconnexion globale propre[span_1](start_span)[span_1](end_span)
+  const gererDeconnexionGlobale = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Erreur lors de la déconnexion Supabase", err);
+    }
+    setUserRole('');
+    setSessionUser(null);
+    setProfilUtilisateur(null);
+    setEtapeAuth(null);
+    setEtapeChoixEtablissement(false);
+    afficherNotification("🔓 Déconnexion réussie.");
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -145,6 +160,9 @@ export default function AppRouter() {
     const roleActuel = etapeAuth;
 
     try {
+      // Sécurité anti-session fantôme avant toute tentative d'inscription/connexion
+      await supabase.auth.signOut().catch(() => {});
+
       if (modeAuth === 'inscription') {
         const { data, error } = await supabase.auth.signUp({
           email: emailSaisi,
@@ -368,7 +386,6 @@ export default function AppRouter() {
                   </span>
                 </div>
                 
-                {/* Condition ajoutée : seulement en mode connexion */}
                 {modeAuth === 'connexion' && (
                   <div style={{ textAlign: 'right', marginTop: '6px' }}>
                     <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
@@ -410,7 +427,7 @@ export default function AppRouter() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
               <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un établissement</button>
               <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Se connecter à un ancien établissement</button>
-              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '10px' }} onClick={async () => { await supabase.auth.signOut(); setUserRole(''); }}>⬅️ Se déconnecter / Retour</button>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '10px' }} onClick={gererDeconnexionGlobale}>⬅️ Se déconnecter / Retour</button>
             </div>
           )}
 

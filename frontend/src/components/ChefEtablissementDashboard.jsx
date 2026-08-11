@@ -1,19 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from './AppRouter';
 
-// =========================================================================
-// CORRECTIONS APPLIQUÉES DANS CETTE VERSION :
-//   1. Import corrigé : from './AppRouter' (votre vrai chemin, le client
-//      Supabase est exporté directement depuis ce fichier chez vous).
-//   2. Bug d'ordre des hooks corrigé : les useMemo/useEffect qui étaient
-//      placés APRÈS le "if (chargementInitial) return (...)" ont été
-//      déplacés AVANT. React exige que tous les hooks s'exécutent dans le
-//      même ordre à chaque rendu — en les laissant après un retour
-//      conditionnel, ils ne s'exécutaient pas pendant le premier rendu
-//      (chargement) mais s'exécutaient ensuite, ce qui casse cette règle
-//      et provoque l'écran blanc (React error #310).
-// =========================================================================
-
 const safeGetArray = (key, defaultArr = []) => {
   try {
     const item = localStorage.getItem(key);
@@ -93,9 +80,6 @@ export default function ChefEtablissementDashboard() {
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
 
-  // Modale de confirmation générique — réutilisée pour toute action
-  // sensible (refus, retrait, régénération de code) ; motif optionnel
-  // demandé selon le cas.
   const [modalConfirmationGenerique, setModalConfirmationGenerique] = useState({
     ouvert: false, titre: '', message: '', necessiteMotif: false, motif: '', onConfirmer: null,
   });
@@ -149,7 +133,6 @@ export default function ChefEtablissementDashboard() {
         setFormEcoleEdition(affiliation.etablissements);
         setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
 
-        // Demandes d'affiliation en attente pour cet établissement (§ approbation)
         const { data: demandes } = await supabase
           .from('demandes_affiliation')
           .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
@@ -158,8 +141,6 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: true });
         setDemandesAffiliationRecues(demandes || []);
 
-        // Demandes de départ en attente (enseignants ET censeurs — les RLS
-        // filtrent déjà correctement selon le rôle du demandeur)
         const { data: departs } = await supabase
           .from('demandes_depart')
           .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils(nom, prenom)')
@@ -168,7 +149,6 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: true });
         setDemandesDepartRecues(departs || []);
 
-        // Invitations déjà envoyées (pour éviter d'en renvoyer une en double)
         const { data: invitationsEnvoyeesData } = await supabase
           .from('invitations')
           .select('id, email, role_propose, statut, created_at')
@@ -176,8 +156,6 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: false });
         setInvitationsEnvoyees(invitationsEnvoyeesData || []);
 
-        // Année scolaire active (s'il y en a une — un établissement peut
-        // rester sans année active entre une fermeture et une ouverture)
         const { data: anneeActiveData } = await supabase
           .from('annees_scolaires')
           .select('*')
@@ -186,8 +164,6 @@ export default function ChefEtablissementDashboard() {
           .maybeSingle();
         setAnneeActive(anneeActiveData || null);
 
-        // Classes réelles de l'établissement (remplace l'ancien comptage
-        // factice basé sur le localStorage de l'enseignant)
         const { data: classesData } = await supabase
           .from('classes')
           .select('id')
@@ -195,7 +171,6 @@ export default function ChefEtablissementDashboard() {
           .is('deleted_at', null);
         setNombreClassesReel((classesData || []).length);
 
-        // Enseignants réellement affiliés + leurs classes/matières attribuées
         const { data: affiliationsEnseignants } = await supabase
           .from('affiliations_etablissement')
           .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
@@ -221,7 +196,6 @@ export default function ChefEtablissementDashboard() {
         });
         setListeProfesseursEtablissementBrute(profsAvecClasses);
 
-        // Personnel administratif manuel (table "personnel")
         const { data: personnelData } = await supabase
           .from('personnel')
           .select('*')
@@ -231,7 +205,6 @@ export default function ChefEtablissementDashboard() {
           matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
         })));
 
-        // Censeurs actifs (pour le total réel de membres du réseau)
         const { data: censeursActifsData } = await supabase
           .from('affiliations_etablissement')
           .select('id')
@@ -255,8 +228,6 @@ export default function ChefEtablissementDashboard() {
     if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
 
-    // Id généré côté client pour éviter le piège "RETURNING soumis à la
-    // policy SELECT" (qui exige une affiliation qu'on n'a pas encore créée).
     const nouvelEtablissementId = crypto.randomUUID();
 
     const { error: erreurEtab } = await supabase
@@ -313,8 +284,6 @@ export default function ChefEtablissementDashboard() {
       return;
     }
 
-    // On relit l'établissement maintenant que l'affiliation existe (la policy
-    // de lecture exige une affiliation active, qui vient d'être créée).
     const { data: etabRelu } = await supabase
       .from('etablissements').select('*').eq('id', nouvelEtablissementId).single();
 
@@ -419,8 +388,7 @@ export default function ChefEtablissementDashboard() {
   };
 
   // =========================================================================
-  // TOUS LES AUTRES HOOKS (memos + effect) — DOIVENT être avant tout return
-  // conditionnel. C'était le bug : ils étaient après.
+  // HOOKS (MEMOS + EFFETS)
   // =========================================================================
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
@@ -452,7 +420,6 @@ export default function ChefEtablissementDashboard() {
 
   const statistiquesReseau = useMemo(() => ({
     totalClasses: nombreClassesReel,
-    // 1 (le chef lui-même) + censeurs actifs + enseignants affiliés + personnel administratif
     totalPersonnesConnectees: 1 + nombreCenseursActifs + listeProfesseursEtablissement.length + personnelAdministratifManuel.length,
   }), [nombreClassesReel, nombreCenseursActifs, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
 
@@ -466,24 +433,22 @@ export default function ChefEtablissementDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- "En ligne maintenant" : écoute le même canal de présence temps réel
-  // qu'AppRouter.jsx alimente (chaque utilisateur connecté "track" sa
-  // présence tant que son onglet est ouvert). Se met à jour tout seul,
-  // sans recharger la page, dès que quelqu'un se connecte ou se déconnecte.
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
   useEffect(() => {
     if (!ecoleConfig?.id) return;
     const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
-    canal.on('presence', { event: 'sync' }, () => {
-      const etat = canal.presenceState();
-      const liste = Object.values(etat).flat();
-      setPersonnesEnLigne(liste);
-    });
-    canal.subscribe();
+    
+    canal
+      .on('presence', { event: 'sync' }, () => {
+        const etat = canal.presenceState();
+        const liste = Object.values(etat).flat();
+        setPersonnesEnLigne(liste);
+      })
+      .subscribe();
+
     return () => { supabase.removeChannel(canal); };
   }, [ecoleConfig?.id]);
 
-  // --- Écran de chargement — maintenant APRÈS tous les hooks ci-dessus ---
   if (chargementInitial) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
@@ -552,9 +517,6 @@ export default function ChefEtablissementDashboard() {
         showToast("⚠️ Merci d'indiquer l'intitulé de la nouvelle année (ex. 2026-2027).");
         return;
       }
-      // S'il y a une année active en cours, on la ferme d'abord — ceci
-      // déclenche automatiquement le bilan de fermeture côté base
-      // (fiches non traitées/non produites, rapports censeur/chef).
       if (anneeActive?.id) {
         const { error: erreurFermeture } = await supabase
           .from('annees_scolaires')
@@ -598,7 +560,6 @@ export default function ChefEtablissementDashboard() {
     setModalConfirmationActionAnnee({ ouvert: false, actionType: null });
   };
 
-
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
     if (!nouveauAdminNom.trim() || !affiliationChef?.etablissement_id) return;
@@ -641,9 +602,6 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // --- Retrait d'un enseignant de l'établissement (chef uniquement) ---
-  // Confirmation + motif obligatoires ; le trigger AFFILIATION_TERMINEE
-  // (déjà en base) notifie automatiquement la personne retirée.
   const retirerEnseignant = (affiliationId, nomComplet) => {
     demanderConfirmation({
       titre: `Retirer ${nomComplet} de l'établissement ?`,
@@ -662,7 +620,6 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // --- Régénérer le code établissement ---
   const regenererCodeEtablissement = () => {
     demanderConfirmation({
       titre: 'Régénérer le code établissement ?',
@@ -684,7 +641,6 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // --- Changer l'email de connexion ---
   const handleChangerEmailConnexion = async (e) => {
     e.preventDefault();
     if (!emailSaisiChangement.trim()) return;
@@ -703,7 +659,6 @@ export default function ChefEtablissementDashboard() {
     showToast("📎 Fichier stocké avec succès !");
   };
 
-  // --- Approuver une demande d'affiliation reçue : crée la vraie affiliation ---
   const approuverDemande = async (demande) => {
     if (!affiliationChef) return;
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
@@ -721,7 +676,7 @@ export default function ChefEtablissementDashboard() {
       .eq('id', demande.id);
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
-      return; // on ne retire pas la carte de la liste : elle refléterait un état faux
+      return;
     }
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -738,7 +693,6 @@ export default function ChefEtablissementDashboard() {
     showToast("❌ Demande refusée.");
   };
 
-  // --- Traiter une demande de départ (enseignant OU censeur) ---
   const approuverDemandeDepart = async (demande) => {
     const { error } = await supabase
       .from('demandes_depart')
@@ -767,7 +721,6 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // --- Inviter quelqu'un par email (censeur ou enseignant) ---
   const genererTokenInvitation = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
   const envoyerInvitation = async (e) => {
@@ -782,7 +735,7 @@ export default function ChefEtablissementDashboard() {
         email: nouvelleInvitationEmail.trim().toLowerCase(),
         role_propose: nouvelleInvitationRole,
         token: genererTokenInvitation(),
-        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 jours
+        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       })
       .select().single();
 

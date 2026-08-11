@@ -778,7 +778,7 @@ export default function EnseignantDashboard() {
     if (!nouvelleEcoleSaisie.trim() || !userId) return;
 
     const { data: etablissementCible, error: erreurRecherche } = await supabase
-      .from('etablissements').select('id, nom').ilike('nom', nouvelleEcoleSaisie.trim()).maybeSingle();
+      .from('etablissements').select('id, nom').eq('code', nouvelleEcoleSaisie.trim()).maybeSingle();
 
     if (erreurRecherche || !etablissementCible) {
       showToast("⚠️ Établissement introuvable. Vérifiez le nom exact (idéalement demandez le code établissement).");
@@ -1525,8 +1525,8 @@ export default function EnseignantDashboard() {
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Demande d'Affiliation à une École</h3>
               <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
-                  <label style={styles.label}>Nom de l'établissement</label>
-                  <input type="text" placeholder="Ex: Lycée Moderne..." value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} style={styles.inputStyle} required />
+                  <label style={styles.label}>Code de l'établissement</label>
+                  <input type="text" placeholder="Ex: LYCMOD-A1B2" value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} style={styles.inputStyle} required />
                 </div>
                 <div>
                   <label style={styles.label}>Classes concernées (séparées par des virgules)</label>

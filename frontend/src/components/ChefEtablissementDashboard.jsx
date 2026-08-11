@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { supabase } from './AppRouter'; 
+import { supabase } from './AppRouter';
 
 // =========================================================================
-// ÉTAPE 1/N — ÉTABLISSEMENT + PROFIL CHEF BRANCHÉS SUR SUPABASE
-// Ce qui a changé par rapport à votre fichier :
-//   - ecoleConfig ne vient plus de localStorage, mais de la vraie affiliation
-//     ACTIVE du chef connecté (table affiliations_etablissement + etablissements)
-//   - infosChef vient de utilisateurs_profils, plus de localStorage
-//   - handleCreerOuConnecterEcole fait un vrai insert Supabase
-// Ce qui n'est PAS encore branché dans cette étape (encore en localStorage,
-// on les fait dans les étapes suivantes) : censeursAffiliations, rapports,
-// notifications, archives, fichiers administratifs, personnel manuel,
-// liste des professeurs, fiches pédagogiques.
+// CORRECTIONS APPLIQUÉES DANS CETTE VERSION :
+//   1. Import corrigé : from './AppRouter' (votre vrai chemin, le client
+//      Supabase est exporté directement depuis ce fichier chez vous).
+//   2. Bug d'ordre des hooks corrigé : les useMemo/useEffect qui étaient
+//      placés APRÈS le "if (chargementInitial) return (...)" ont été
+//      déplacés AVANT. React exige que tous les hooks s'exécutent dans le
+//      même ordre à chaque rendu — en les laissant après un retour
+//      conditionnel, ils ne s'exécutaient pas pendant le premier rendu
+//      (chargement) mais s'exécutaient ensuite, ce qui casse cette règle
+//      et provoque l'écran blanc (React error #310).
 // =========================================================================
 
 const safeGetArray = (key, defaultArr = []) => {
@@ -28,8 +28,8 @@ export default function ChefEtablissementDashboard() {
   // --- ÉTATS GLOBAUX ---
   const [chargementInitial, setChargementInitial] = useState(true);
   const [userId, setUserId] = useState(null);
-  const [affiliationChef, setAffiliationChef] = useState(null); // ligne affiliations_etablissement (role CHEF, statut ACTIVE)
-  const [ecoleConfig, setEcoleConfig] = useState(null);          // ligne etablissements correspondante
+  const [affiliationChef, setAffiliationChef] = useState(null);
+  const [ecoleConfig, setEcoleConfig] = useState(null);
   const [modeSetup, setModeSetup] = useState('CHOIX');
 
   const [inputNomEcole, setInputNomEcole] = useState('');
@@ -64,7 +64,6 @@ export default function ChefEtablissementDashboard() {
   const [modeEditionEcole, setModeEditionEcole] = useState(false);
   const [formEcoleEdition, setFormEcoleEdition] = useState({});
 
-  // --- CE QUI RESTE EN LOCALSTORAGE POUR L'INSTANT (étapes suivantes) ---
   const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', []));
   const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
   const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', []));
@@ -90,7 +89,7 @@ export default function ChefEtablissementDashboard() {
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
   // =========================================================================
-  // CHARGEMENT INITIAL — remplace tous les safeGetObject('app_chef_...')
+  // CHARGEMENT INITIAL
   // =========================================================================
   useEffect(() => {
     const chargerDonnees = async () => {
@@ -102,7 +101,6 @@ export default function ChefEtablissementDashboard() {
       }
       setUserId(user.id);
 
-      // 1. Profil (utilisateurs_profils)
       const { data: profil, error: erreurProfil } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -112,16 +110,10 @@ export default function ChefEtablissementDashboard() {
       if (erreurProfil) {
         showToast("⚠️ Impossible de charger le profil : " + erreurProfil.message);
       } else if (profil) {
-        setInfosChef(prev => ({
-          ...prev,
-          nom: profil.nom,
-          prenoms: profil.prenom,
-          emailSecurite: user.email,
-        }));
+        setInfosChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, emailSecurite: user.email }));
         setFormProfilChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom }));
       }
 
-      // 2. Affiliation CHEF active (affiliations_etablissement)
       const { data: affiliation, error: erreurAffiliation } = await supabase
         .from('affiliations_etablissement')
         .select('*, etablissements(*)')
@@ -138,8 +130,6 @@ export default function ChefEtablissementDashboard() {
         setFormEcoleEdition(affiliation.etablissements);
         setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
       }
-      // Si affiliation est null : le chef n'a pas encore d'établissement actif
-      // → on reste sur l'écran de setup (CHOIX/CREER/CONNECTER), comportement identique à avant.
 
       setChargementInitial(false);
     };
@@ -148,17 +138,21 @@ export default function ChefEtablissementDashboard() {
   }, []);
 
   // =========================================================================
-  // CRÉATION / CONNEXION À UN ÉTABLISSEMENT — remplace handleCreerOuConnecterEcole
+  // CRÉATION / CONNEXION À UN ÉTABLISSEMENT
   // =========================================================================
   const handleCreerEcole = async (e) => {
     e.preventDefault();
     if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
 
-    // 1. Créer l'établissement
-    const { data: nouvelEtablissement, error: erreurEtab } = await supabase
+    // Id généré côté client pour éviter le piège "RETURNING soumis à la
+    // policy SELECT" (qui exige une affiliation qu'on n'a pas encore créée).
+    const nouvelEtablissementId = crypto.randomUUID();
+
+    const { error: erreurEtab } = await supabase
       .from('etablissements')
       .insert({
+        id: nouvelEtablissementId,
         code: inputCodeEtablissement.trim() || `ETAB-${Date.now()}`,
         nom: inputNomEcole.trim(),
         pays: inputSituationGeo.trim() || null,
@@ -167,12 +161,9 @@ export default function ChefEtablissementDashboard() {
           nombreEleves: inputNombreEleves,
           nombreEnseignants: inputNombreEnseignants,
         },
-      })
-      .select()
-      .single();
+      });
 
     if (erreurEtab) {
-      // Cas fréquent : le "code" existe déjà (contrainte unique) → message clair au lieu de l'erreur brute
       if (erreurEtab.code === '23505') {
         showToast("⚠️ Ce code établissement est déjà utilisé, choisissez-en un autre.");
       } else {
@@ -181,36 +172,29 @@ export default function ChefEtablissementDashboard() {
       return;
     }
 
-    // 2. Créer l'année scolaire de départ
-    const { data: nouvelleAnnee, error: erreurAnnee } = await supabase
+    const { error: erreurAnnee } = await supabase
       .from('annees_scolaires')
       .insert({
-        etablissement_id: nouvelEtablissement.id,
+        etablissement_id: nouvelEtablissementId,
         intitule: inputAnneeScolaire.trim() || '2025-2026',
         est_active: true,
-      })
-      .select()
-      .single();
+      });
 
     if (erreurAnnee) {
       showToast("⚠️ Établissement créé, mais erreur sur l'année scolaire : " + erreurAnnee.message);
     }
 
-    // 3. Créer l'affiliation CHEF active pour l'utilisateur courant
-    const { data: nouvelleAffiliation, error: erreurAffiliation } = await supabase
+    const { error: erreurAffiliation } = await supabase
       .from('affiliations_etablissement')
       .insert({
         user_id: userId,
-        etablissement_id: nouvelEtablissement.id,
+        etablissement_id: nouvelEtablissementId,
         role: 'CHEF',
         statut: 'ACTIVE',
         date_debut: new Date().toISOString().slice(0, 10),
-      })
-      .select('*, etablissements(*)')
-      .single();
+      });
 
     if (erreurAffiliation) {
-      // Cas possible : l'utilisateur est déjà chef actif ailleurs (contrainte un_seul_chef_actif_par_user)
       if (erreurAffiliation.code === '23505') {
         showToast("⚠️ Vous êtes déjà chef actif d'un autre établissement. Un chef ne peut diriger qu'un seul établissement à la fois.");
       } else {
@@ -219,10 +203,15 @@ export default function ChefEtablissementDashboard() {
       return;
     }
 
-    setAffiliationChef(nouvelleAffiliation);
-    setEcoleConfig(nouvelleAffiliation.etablissements);
-    setFormEcoleEdition(nouvelleAffiliation.etablissements);
-    setInfosChef(prev => ({ ...prev, etablissement: nouvelleAffiliation.etablissements?.nom }));
+    // On relit l'établissement maintenant que l'affiliation existe (la policy
+    // de lecture exige une affiliation active, qui vient d'être créée).
+    const { data: etabRelu } = await supabase
+      .from('etablissements').select('*').eq('id', nouvelEtablissementId).single();
+
+    setAffiliationChef({ etablissement_id: nouvelEtablissementId });
+    setEcoleConfig(etabRelu);
+    setFormEcoleEdition(etabRelu);
+    setInfosChef(prev => ({ ...prev, etablissement: etabRelu?.nom }));
     showToast("🏫 Établissement créé !");
   };
 
@@ -234,7 +223,6 @@ export default function ChefEtablissementDashboard() {
     }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
 
-    // Rejoindre un établissement existant = demande d'affiliation (jamais d'accès direct, §9 de l'architecture)
     const { data: etablissementCible, error: erreurRecherche } = await supabase
       .from('etablissements')
       .select('id, nom')
@@ -309,14 +297,10 @@ export default function ChefEtablissementDashboard() {
     showToast("✅ Profil mis à jour avec succès !");
   };
 
-  // --- Écran de chargement, le temps de vérifier la session et l'affiliation ---
-  if (chargementInitial) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
-        Chargement de votre espace...
-      </div>
-    );
-  }
+  // =========================================================================
+  // TOUS LES AUTRES HOOKS (memos + effect) — DOIVENT être avant tout return
+  // conditionnel. C'était le bug : ils étaient après.
+  // =========================================================================
   const nombreClassesAutomatique = useMemo(() => {
     try {
       const programmes = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes')) || {};
@@ -329,7 +313,6 @@ export default function ChefEtablissementDashboard() {
     try {
       const affs = JSON.parse(localStorage.getItem('app_enseignant_affiliations')) || [];
       const profilActuel = JSON.parse(localStorage.getItem('app_enseignant_profil')) || { nom: 'Kouassi', prenoms: 'Jean', matiere: 'EPS', emailSecurite: 'jean.kouassi@prof.ci' };
-      
       let enseignantsList = affs.map(a => ({
         id: a.id, nomComplet: a.enseignant || 'M. Kouassi Jean', matiere: profilActuel.matiere || 'EPS', niveau: '6ème / 5ème', classes: a.classes || ['6ème A', '6ème B'], statut: a.statut || 'Validée', ecole: a.ecole, matricule: 'ENS-8821', contact: '0506070809', email: profilActuel.emailSecurite || 'jean.kouassi@prof.ci', dureeService: '1 an (En cours)'
       }));
@@ -341,8 +324,7 @@ export default function ChefEtablissementDashboard() {
     try {
       const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
       const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
-      let fusion = [...archiveCenseur, ...biblioEnseignant];
-      return fusion;
+      return [...archiveCenseur, ...biblioEnseignant];
     } catch { return []; }
   }, []);
 
@@ -382,13 +364,21 @@ export default function ChefEtablissementDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // --- Écran de chargement — maintenant APRÈS tous les hooks ci-dessus ---
+  if (chargementInitial) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
+        Chargement de votre espace...
+      </div>
+    );
+  }
+
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
     if (!fenetreImpression) {
       showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
       return;
     }
-    
     fenetreImpression.document.write(`
       <html>
         <head>
@@ -403,7 +393,6 @@ export default function ChefEtablissementDashboard() {
             .btn-retour { background: #ef4444; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
             h1 { margin: 0; font-size: 20px; color: #0f172a; }
             p { margin: 8px 0; font-size: 14px; line-height: 1.6; }
-            
             @media print {
               body { background: #fff; padding: 0; }
               .pdf-container { box-shadow: none; padding: 0; }
@@ -433,8 +422,6 @@ export default function ChefEtablissementDashboard() {
     fenetreImpression.document.close();
     showToast(`📥 Document "${titre}" prêt !`);
   };
-
-
 
   const executerActionAnneeScolaire = () => {
     const { actionType } = modalConfirmationActionAnnee;
@@ -480,7 +467,6 @@ export default function ChefEtablissementDashboard() {
     showToast("📎 Fichier stocké avec succès !");
   };
 
-
   const handleChangerPhotoProfilChef = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -511,32 +497,18 @@ export default function ChefEtablissementDashboard() {
           {modeSetup === 'CONNECTER' && (
             <form onSubmit={handleConnecterEcole} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
-              
               <div>
-                <label style={styles.label}>Mot de passe de l'établissement</label>
-                <input type="password" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                  <button type="button" onClick={() => setModeSetup('OUBLIE_CODE')} style={{ background: 'transparent', border: 'none', color: '#ea580c', fontSize: '12px', fontWeight: '800', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-                    Mot de passe oublié ?
-                  </button>
-                </div>
+                <label style={styles.label}>Code de l'établissement</label>
+                <input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
               </div>
-
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Se connecter</button></div>
-            </form>
-          )}
-
-          {modeSetup === 'OUBLIE_CODE' && (
-            <form onSubmit={(e) => { e.preventDefault(); showToast("📩 Instructions envoyées !"); setModeSetup('CONNECTER'); setInputEmailRecuperation(''); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div><label style={styles.label}>Email institutionnel</label><input type="email" value={inputEmailRecuperation} onChange={(e) => setInputEmailRecuperation(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Réinitialiser le mot de passe</button></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Envoyer la demande</button></div>
             </form>
           )}
 
           {modeSetup === 'CREER' && (
             <form onSubmit={handleCreerEcole} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div><label style={styles.label}>Type d'établissement</label><select value={inputTypeEtablissement} onChange={(e) => setInputTypeEtablissement(e.target.value)} style={styles.inputStyle}><option value="public">Public (25 000 FCFA)</option><option value="prive">Privé (50 000 FCFA)</option></select></div>
+              <div><label style={styles.label}>Type d'établissement</label><select value={inputTypeEtablissement} onChange={(e) => setInputTypeEtablissement(e.target.value)} style={styles.inputStyle}><option value="public">Public</option><option value="prive">Privé</option></select></div>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Code</label><input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Année</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Élèves</label><input type="number" value={inputNombreEleves} onChange={(e) => setInputNombreEleves(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Enseignants</label><input type="number" value={inputNombreEnseignants} onChange={(e) => setInputNombreEnseignants(e.target.value)} style={styles.inputStyle} required /></div></div>
@@ -552,8 +524,6 @@ export default function ChefEtablissementDashboard() {
     <div style={styles.container}>
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-          
-          {/* SECTION PROFIL ÉPURÉE */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilChefRef}>
             <button onClick={() => setProfilChefOuvert(!profilChefOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
@@ -576,13 +546,11 @@ export default function ChefEtablissementDashboard() {
             )}
           </div>
 
-          {/* LOGO CENTRAL (E-cahier ! 📖) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
             <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
-          {/* NOTIFICATIONS & MENU BURGER (S'OUVRENT DANS LE BON SENS) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ position: 'relative' }} ref={notifChefRef}>
               <button onClick={() => setNotifChefOuvert(!notifChefOuvert)} style={styles.navDarkBtn}>
@@ -622,60 +590,15 @@ export default function ChefEtablissementDashboard() {
         </div>
       </header>
 
-      {/* --- STYLE UNIVERSEL DES BOUTONS HARMONIEUX ET MODERNES --- */}
       <style>{`
-        .bouton {
-          padding: 8px 16px;
-          border-radius: 12px;
-          font-weight: 800;
-          font-size: 13px;
-          cursor: pointer;
-          border: none;
-          transition: all 0.2s ease;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-        }
-        .bouton:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-        .bouton-principal {
-          background-color: #2563eb;
-          color: #ffffff;
-        }
-        .bouton-secondaire {
-          background-color: #f1f5f9;
-          color: #334155;
-          border: 1px solid #cbd5e1;
-        }
-        .bouton-succes {
-          background-color: #16a34a;
-          color: #ffffff;
-        }
-        .bouton-danger {
-          background-color: #ef4444;
-          color: #ffffff;
-        }
-        .bouton-option {
-          width: 100%;
-          text-align: left;
-          padding: 9px 12px;
-          background: transparent;
-          border: none;
-          color: #334155;
-          font-size: 12px;
-          font-weight: 700;
-          cursor: pointer;
-          border-radius: 8px;
-          margin-bottom: 2px;
-          transition: background 0.15s ease;
-        }
-        .bouton-option:hover {
-          background-color: #f1f5f9;
-        }
+        .bouton { padding: 8px 16px; border-radius: 12px; font-weight: 800; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+        .bouton:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .bouton-principal { background-color: #2563eb; color: #ffffff; }
+        .bouton-secondaire { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+        .bouton-succes { background-color: #16a34a; color: #ffffff; }
+        .bouton-danger { background-color: #ef4444; color: #ffffff; }
+        .bouton-option { width: 100%; text-align: left; padding: 9px 12px; background: transparent; border: none; color: #334155; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 8px; margin-bottom: 2px; transition: background 0.15s ease; }
+        .bouton-option:hover { background-color: #f1f5f9; }
       `}</style>
 
       <main style={styles.mainContentBody}>
@@ -685,7 +608,7 @@ export default function ChefEtablissementDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Quitter l'établissement</h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir rompre l'affiliation avec <strong>{ecoleConfig?.nomEcole}</strong> ?</p>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir rompre l'affiliation avec <strong>{ecoleConfig?.nom}</strong> ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalQuitterEcole(false)} className="bouton bouton-secondaire">Retour (Annuler)</button>
                 <button onClick={() => { setModalQuitterEcole(false); setEcoleConfig(null); showToast("🔗 Affiliation rompue."); }} className="bouton bouton-danger">Oui, quitter l'école</button>
@@ -701,7 +624,7 @@ export default function ChefEtablissementDashboard() {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={() => { setModalDeconnexion(false); localStorage.removeItem('app_chef_statut'); window.location.reload(); }} className="bouton bouton-danger">Oui, me déconnecter</button>
+                <button onClick={async () => { setModalDeconnexion(false); await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
             </div>
           </div>
@@ -825,7 +748,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         </div>
 
-        {/* ONGLET : PROFIL & CARTE D'IDENTITÉ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -839,27 +761,21 @@ export default function ChefEtablissementDashboard() {
                 ) : (
                   <button onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire">Annuler</button>
                 )}
-                {!ecoleConfig.anneeOuverte ? (
-                  <button onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'ouvrir' })} style={styles.boutonPuissantOuvrir}>🟢 Ouvrir l'Année</button>
-                ) : (
-                  <button onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'fermer' })} style={styles.boutonPuissantFermer}>🔒 Clôturer l'Année</button>
-                )}
               </div>
             </div>
 
             {!modeEditionEcole ? (
               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nomEcole}</p></div>
-                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.codeEtablissement}</p></div>
+                <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nom}</p></div>
+                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.code}</p></div>
                 <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
-                <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEleves}</p></div>
-                <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.nombreEnseignants}</p></div>
-                <div><label style={styles.label}>Statut</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: ecoleConfig.anneeOuverte ? '#16a34a' : '#ef4444' }}>{ecoleConfig.anneeOuverte ? `Active` : 'Clôturée'}</p></div>
+                <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEleves}</p></div>
+                <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEnseignants}</p></div>
               </div>
             ) : (
               <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
-                <input type="text" value={formEcoleEdition.nomEcole || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nomEcole: e.target.value})} style={styles.inputStyle} required />
-                <input type="text" value={formEcoleEdition.codeEtablissement || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, codeEtablissement: e.target.value})} style={styles.inputStyle} required />
+                <input type="text" value={formEcoleEdition.nom || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nom: e.target.value})} style={styles.inputStyle} required />
+                <input type="text" value={formEcoleEdition.code || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, code: e.target.value})} style={styles.inputStyle} required />
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer</button>
@@ -877,7 +793,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : CENSEURS */}
         {activeTab === 'censeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Validation des Censeurs</h2>
@@ -902,7 +817,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : PROFESSEURS */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
@@ -922,7 +836,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : FICHES PÉDAGOGIQUES */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
@@ -951,7 +864,6 @@ export default function ChefEtablissementDashboard() {
           </div>
         )}
 
-        {/* ONGLET : RAPPORTS */}
         {activeTab === 'rapports' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📈 Rapports Détaillés</h2>

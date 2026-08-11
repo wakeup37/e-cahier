@@ -186,6 +186,13 @@ export default function AppRouter() {
         if (error) throw error;
 
         if (data?.user) {
+          // Conversion automatique de JJ/MM/AAAA en AAAA-MM-JJ pour Supabase
+          let datePartita = dateNaissanceSaisie.trim().split('/');
+          let dateFormatee = dateNaissanceSaisie.trim();
+          if (datePartita.length === 3) {
+            dateFormatee = `${datePartita[2]}-${datePartita[1]}-${datePartita[0]}`;
+          }
+
           const { error: profileError } = await supabase.from('utilisateurs_profils').insert([
             { 
               user_id: data.user.id, 
@@ -194,7 +201,7 @@ export default function AppRouter() {
               genre: genreSaisi,
               nom: nomSaisi.trim(),
               prenoms: prenomsSaisi.trim(),
-              date_naissance: dateNaissanceSaisie.trim(),
+              date_naissance: dateFormatee,
               matiere: roleActuel === 'enseignant' ? matiereSaisie.trim() : null
             }
           ]);
@@ -395,7 +402,7 @@ export default function AppRouter() {
                   {etapeAuth === 'enseignant' && (
                     <div>
                       <label style={styles.libelle}>Matière enseignée</label>
-                      <input type="text" placeholder="Ex: Mathématiques, Histoire-Géo..." value={matiereSaisie} onChange={e => setMatiereSaisie(e.target.value)} style={styles.champSaisie} required />
+                      <input type="text" placeholder="Ex: Mathématiques, Histoire-Géo..." value={matiereSaisi} onChange={e => setMatiereSaisie(e.target.value)} style={styles.champSaisie} required />
                     </div>
                   )}
                 </>

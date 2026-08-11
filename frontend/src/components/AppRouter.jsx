@@ -5,7 +5,7 @@ import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 
-// Initialisation de Supabase[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)
+// Initialisation de Supabase[span_0](start_span)[span_0](end_span)
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';
 export const supabase = createClient(supabaseUrl, supabaseKey);
@@ -94,11 +94,16 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      const { data: profil } = await supabase
+      // Utilisation de maybeSingle() pour éviter les erreurs 406/422 si le profil est introuvable
+      const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
+
+      if (profilError) {
+        console.warn("Avis chargement profil:", profilError.message);
+      }
 
       if (profil) {
         setProfilUtilisateur(profil);

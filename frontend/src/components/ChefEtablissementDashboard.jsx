@@ -65,6 +65,10 @@ export default function ChefEtablissementDashboard() {
   const [formEcoleEdition, setFormEcoleEdition] = useState({});
 
   const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', []));
+  const [demandesAffiliationRecues, setDemandesAffiliationRecues] = useState([]);
+  const [invitationsEnvoyees, setInvitationsEnvoyees] = useState([]);
+  const [nouvelleInvitationEmail, setNouvelleInvitationEmail] = useState('');
+  const [nouvelleInvitationRole, setNouvelleInvitationRole] = useState('CENSEUR');
   const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
   const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', []));
   const [notifChefOuvert, setNotifChefOuvert] = useState(false);
@@ -129,6 +133,23 @@ export default function ChefEtablissementDashboard() {
         setEcoleConfig(affiliation.etablissements);
         setFormEcoleEdition(affiliation.etablissements);
         setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
+
+        // Demandes d'affiliation en attente pour cet établissement (§ approbation)
+        const { data: demandes } = await supabase
+          .from('demandes_affiliation')
+          .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('statut', 'EN_ATTENTE')
+          .order('created_at', { ascending: true });
+        setDemandesAffiliationRecues(demandes || []);
+
+        // Invitations déjà envoyées (pour éviter d'en renvoyer une en double)
+        const { data: invitationsEnvoyeesData } = await supabase
+          .from('invitations')
+          .select('id, email, role_propose, statut, created_at')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .order('created_at', { ascending: false });
+        setInvitationsEnvoyees(invitationsEnvoyeesData || []);
       }
 
       setChargementInitial(false);
@@ -467,6 +488,67 @@ export default function ChefEtablissementDashboard() {
     showToast("📎 Fichier stocké avec succès !");
   };
 
+  // --- Approuver une demande d'affiliation reçue : crée la vraie affiliation ---
+  const approuverDemande = async (demande) => {
+    if (!affiliationChef) return;
+    const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
+      user_id: demande.user_id,
+      etablissement_id: affiliationChef.etablissement_id,
+      role: demande.role_demande,
+      statut: 'ACTIVE',
+      date_debut: new Date().toISOString().slice(0, 10),
+    });
+    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
+
+    const { error: erreurMaj } = await supabase
+      .from('demandes_affiliation')
+      .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
+      .eq('id', demande.id);
+    if (erreurMaj) {
+      showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
+      return; // on ne retire pas la carte de la liste : elle refléterait un état faux
+    }
+
+    setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
+    showToast("✅ Demande approuvée, la personne a maintenant accès à l'établissement !");
+  };
+
+  const refuserDemande = async (demande) => {
+    const { error } = await supabase
+      .from('demandes_affiliation')
+      .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
+      .eq('id', demande.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
+    showToast("❌ Demande refusée.");
+  };
+
+  // --- Inviter quelqu'un par email (censeur ou enseignant) ---
+  const genererTokenInvitation = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+
+  const envoyerInvitation = async (e) => {
+    e.preventDefault();
+    if (!nouvelleInvitationEmail.trim() || !affiliationChef) return;
+
+    const { data: nouvelleInvitation, error } = await supabase
+      .from('invitations')
+      .insert({
+        etablissement_id: affiliationChef.etablissement_id,
+        invite_par_user_id: userId,
+        email: nouvelleInvitationEmail.trim().toLowerCase(),
+        role_propose: nouvelleInvitationRole,
+        token: genererTokenInvitation(),
+        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 jours
+      })
+      .select().single();
+
+    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); return; }
+
+    setInvitationsEnvoyees(prev => [nouvelleInvitation, ...prev]);
+    setNouvelleInvitationEmail('');
+    showToast(`📨 Invitation envoyée à ${nouvelleInvitation.email} (rôle : ${nouvelleInvitationRole}) !`);
+  };
+
   const handleChangerPhotoProfilChef = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -576,7 +658,7 @@ export default function ChefEtablissementDashboard() {
                 <div style={{ ...styles.notificationDropdown, right: 0, left: 'auto', width: '240px' }} className="anim-apparition">
                   <div style={styles.dropdownHeader}>Menu Direction</div>
                   <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerChefOuvert(false); }} className="bouton-option">🏛️ Profil & Carte d'Identité</button>
-                  <button onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} className="bouton-option">👥 Validation Censeurs</button>
+                  <button onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} className="bouton-option">👥 Invitations & Demandes</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
                   <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} className="bouton-option">📚 Fiches Pédagogiques</button>
                   <button onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} className="bouton-option">📈 Rapports Détaillés</button>
@@ -795,20 +877,47 @@ export default function ChefEtablissementDashboard() {
 
         {activeTab === 'censeurs' && (
           <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Validation des Censeurs</h2>
-            {censeursAffiliations.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande.</p>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>📨 Inviter quelqu'un à rejoindre l'établissement</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>La personne recevra l'invitation à l'adresse indiquée et pourra l'accepter en se connectant.</p>
+            <form onSubmit={envoyerInvitation} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '28px' }}>
+              <input type="email" placeholder="email@exemple.com" value={nouvelleInvitationEmail} onChange={(e) => setNouvelleInvitationEmail(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 220px', margin: 0 }} required />
+              <select value={nouvelleInvitationRole} onChange={(e) => setNouvelleInvitationRole(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }}>
+                <option value="CENSEUR">Censeur</option>
+                <option value="ENSEIGNANT">Enseignant</option>
+              </select>
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Envoyer l'invitation</button>
+            </form>
+
+            {invitationsEnvoyees.length > 0 && (
+              <div style={{ marginBottom: '28px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>Invitations envoyées</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {invitationsEnvoyees.map(inv => (
+                    <div key={inv.id} style={styles.itemRow}>
+                      <span style={{ fontSize: '13px' }}>{inv.email} — <strong>{inv.role_propose}</strong></span>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: inv.statut === 'ACCEPTEE' ? '#16a34a' : inv.statut === 'EN_ATTENTE' ? '#d97706' : '#ef4444' }}>{inv.statut}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Demandes d'affiliation reçues</h2>
+            {demandesAffiliationRecues.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande en attente.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {censeursAffiliations.map(censeur => (
-                  <div key={censeur.id} style={styles.itemRow}>
+                {demandesAffiliationRecues.map(demande => (
+                  <div key={demande.id} style={styles.itemRow}>
                     <div>
-                      <strong style={{ color: '#0f172a', fontSize: '14px' }}>{censeur.nomComplet}</strong>
-                      <br /><small>Statut : <span style={{ color: censeur.statut === 'Validé' ? '#16a34a' : '#d97706' }}>{censeur.statut}</span></small>
+                      <strong style={{ color: '#0f172a', fontSize: '14px' }}>
+                        {demande.utilisateurs_profils?.prenom} {demande.utilisateurs_profils?.nom}
+                      </strong>
+                      <br /><small>Souhaite rejoindre en tant que : <strong>{demande.role_demande}</strong></small>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      {censeur.statut !== 'Validé' && <button onClick={() => validerCenseur(censeur.id)} className="bouton bouton-succes">Valider</button>}
-                      <button onClick={() => rejeterCenseur(censeur.id)} className="bouton bouton-danger">Rejeter</button>
+                      <button onClick={() => approuverDemande(demande)} className="bouton bouton-succes">Approuver</button>
+                      <button onClick={() => refuserDemande(demande)} className="bouton bouton-danger">Refuser</button>
                     </div>
                   </div>
                 ))}

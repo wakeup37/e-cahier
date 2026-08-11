@@ -433,29 +433,37 @@ export default function ChefEtablissementDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
   useEffect(() => {
     if (!ecoleConfig?.id) return;
-    const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
-    
-    canal
-      .on('presence', { event: 'sync' }, () => {
-        const etat = canal.presenceState();
-        const liste = Object.values(etat).flat();
-        setPersonnesEnLigne(liste);
-      })
-      .subscribe();
+    try {
+      const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
+      
+      canal
+        .on('presence', { event: 'sync' }, () => {
+          try {
+            const etat = canal.presenceState();
+            const liste = Object.values(etat).flat();
+            setPersonnesEnLigne(liste);
+          } catch (err) {
+            console.warn("Erreur de synchronisation de présence", err);
+          }
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            // Optionnel : tracker la présence de l'utilisateur connecté
+            canal.track({ id: userId, nom: infosChef.nom || 'Directeur' });
+          }
+        });
 
-    return () => { supabase.removeChannel(canal); };
-  }, [ecoleConfig?.id]);
+      return () => { 
+        try { supabase.removeChannel(canal); } catch (e) {} 
+      };
+    } catch (e) {
+      console.warn("Realtime non disponible", e);
+    }
+  }, [ecoleConfig?.id, userId, infosChef.nom]);
 
-  if (chargementInitial) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
-        Chargement de votre espace...
-      </div>
-    );
-  }
 
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');

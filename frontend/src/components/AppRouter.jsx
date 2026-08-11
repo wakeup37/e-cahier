@@ -61,6 +61,7 @@ export default function AppRouter() {
   const [userRole, setUserRole] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
+  const [etablissementActifId, setEtablissementActifId] = useState(null);
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
@@ -132,6 +133,32 @@ export default function AppRouter() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // --- Présence en temps réel : signale "je suis en ligne" tant que cet
+  // onglet est ouvert et connecté à un établissement actif. Utilisé par le
+  // dashboard chef pour afficher "X personnes en ligne maintenant", séparé
+  // du total de membres affiliés (qui lui vient d'une requête classique).
+  useEffect(() => {
+    if (!sessionUser?.id || !etablissementActifId) return;
+
+    const canal = supabase.channel(`presence-etablissement-${etablissementActifId}`, {
+      config: { presence: { key: sessionUser.id } },
+    });
+
+    canal.on('presence', { event: 'sync' }, () => {}); // le dashboard chef écoute lui-même la synchro
+
+    canal.subscribe(async (statut) => {
+      if (statut === 'SUBSCRIBED') {
+        await canal.track({
+          nom: `${profilUtilisateur?.prenom || ''} ${profilUtilisateur?.nom || ''}`.trim(),
+          role: userRole,
+          en_ligne_depuis: new Date().toISOString(),
+        });
+      }
+    });
+
+    return () => { supabase.removeChannel(canal); };
+  }, [sessionUser?.id, etablissementActifId, userRole, profilUtilisateur?.prenom, profilUtilisateur?.nom]);
+
   // --- Détermine le rôle réel de l'utilisateur à partir de ses affiliations
   // (plus fiable que de stocker un "role" sur le profil, qui n'existe pas
   // dans le schéma) : priorité CHEF > CENSEUR > ENSEIGNANT si plusieurs.
@@ -148,7 +175,7 @@ export default function AppRouter() {
 
       const { data: affiliationsActives } = await supabase
         .from('affiliations_etablissement')
-        .select('role')
+        .select('role, etablissement_id')
         .eq('user_id', userId)
         .eq('statut', 'ACTIVE');
 
@@ -158,6 +185,14 @@ export default function AppRouter() {
       else if (roles.includes('CENSEUR')) roleDetecte = 'censeur';
       else if (roles.includes('ENSEIGNANT')) roleDetecte = 'enseignant';
       else roleDetecte = profil?.preferences_json?.role_signup || '';
+
+      // Établissement retenu pour le suivi de présence en temps réel :
+      // celui de l'affiliation qui a déterminé le rôle affiché (pour un
+      // enseignant multi-établissements, c'est le premier trouvé — limite
+      // acceptée pour cette passe, à affiner si besoin réel plus tard).
+      const roleVersRole = { chef: 'CHEF', censeur: 'CENSEUR', enseignant: 'ENSEIGNANT' };
+      const affiliationRetenue = (affiliationsActives || []).find(a => a.role === roleVersRole[roleDetecte]);
+      setEtablissementActifId(affiliationRetenue?.etablissement_id || null);
 
       if (roleDetecte) {
         setUserRole(roleDetecte);

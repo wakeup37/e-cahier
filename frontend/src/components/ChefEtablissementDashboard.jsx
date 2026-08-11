@@ -281,6 +281,17 @@ export default function ChefEtablissementDashboard() {
       .update({
         nom: formEcoleEdition.nom,
         code: formEcoleEdition.code,
+        adresse: formEcoleEdition.adresse || null,
+        ville: formEcoleEdition.ville || null,
+        pays: formEcoleEdition.pays || null,
+        visibilite: formEcoleEdition.visibilite || 'PRIVE',
+        logo_url: formEcoleEdition.logo_url || null,
+        parametres_json: {
+          ...(formEcoleEdition.parametres_json || {}),
+          nombreEleves: formEcoleEdition.parametres_json?.nombreEleves || '',
+          nombreEnseignants: formEcoleEdition.parametres_json?.nombreEnseignants || '',
+          anneeCreation: formEcoleEdition.parametres_json?.anneeCreation || '',
+        },
       })
       .eq('id', ecoleConfig.id)
       .select()
@@ -384,6 +395,23 @@ export default function ChefEtablissementDashboard() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // --- "En ligne maintenant" : écoute le même canal de présence temps réel
+  // qu'AppRouter.jsx alimente (chaque utilisateur connecté "track" sa
+  // présence tant que son onglet est ouvert). Se met à jour tout seul,
+  // sans recharger la page, dès que quelqu'un se connecte ou se déconnecte.
+  const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+  useEffect(() => {
+    if (!ecoleConfig?.id) return;
+    const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
+    canal.on('presence', { event: 'sync' }, () => {
+      const etat = canal.presenceState();
+      const liste = Object.values(etat).flat();
+      setPersonnesEnLigne(liste);
+    });
+    canal.subscribe();
+    return () => { supabase.removeChannel(canal); };
+  }, [ecoleConfig?.id]);
 
   // --- Écran de chargement — maintenant APRÈS tous les hooks ci-dessus ---
   if (chargementInitial) {
@@ -825,8 +853,18 @@ export default function ChefEtablissementDashboard() {
           </div>
           <div style={styles.statCard}>
             <div style={{ fontSize: '28px', marginBottom: '10px' }}>👥</div>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Personnes Connectées au Réseau</h4>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Membres du Réseau (total)</h4>
             <p style={{ fontSize: '30px', fontWeight: '900', color: '#16a34a', margin: 0 }}>{statistiquesReseau.totalPersonnesConnectees}</p>
+          </div>
+          <div style={styles.statCard}>
+            <div style={{ fontSize: '28px', marginBottom: '10px' }}>🟢</div>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>En Ligne Maintenant</h4>
+            <p style={{ fontSize: '30px', fontWeight: '900', color: '#059669', margin: 0 }}>{personnesEnLigne.length}</p>
+            {personnesEnLigne.length > 0 && (
+              <p style={{ fontSize: '11px', color: '#64748b', margin: '6px 0 0 0' }}>
+                {personnesEnLigne.map(p => p.nom || 'Anonyme').join(', ')}
+              </p>
+            )}
           </div>
         </div>
 
@@ -850,15 +888,64 @@ export default function ChefEtablissementDashboard() {
               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                 <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nom}</p></div>
                 <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.code}</p></div>
+                <div><label style={styles.label}>Type</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.visibilite === 'PRIVE' ? 'Privé' : 'Public'}</p></div>
+                <div><label style={styles.label}>Adresse</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.adresse || '—'}</p></div>
+                <div><label style={styles.label}>Ville</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.ville || '—'}</p></div>
+                <div><label style={styles.label}>Pays</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.pays || '—'}</p></div>
+                <div><label style={styles.label}>Année de création</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.parametres_json?.anneeCreation || '—'}</p></div>
                 <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
-                <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEleves}</p></div>
-                <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEnseignants}</p></div>
+                <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEleves || '—'}</p></div>
+                <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEnseignants || '—'}</p></div>
+                {ecoleConfig.logo_url && (
+                  <div><label style={styles.label}>Logo</label><br /><img src={ecoleConfig.logo_url} alt="Logo établissement" style={{ maxWidth: '80px', maxHeight: '80px', marginTop: '6px', borderRadius: '8px' }} /></div>
+                )}
               </div>
             ) : (
-              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gap: '14px' }}>
-                <input type="text" value={formEcoleEdition.nom || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nom: e.target.value})} style={styles.inputStyle} required />
-                <input type="text" value={formEcoleEdition.code || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, code: e.target.value})} style={styles.inputStyle} required />
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <form onSubmit={handleEnregistrerCarteEcole} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #2563eb', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Nom Officiel</label>
+                  <input type="text" value={formEcoleEdition.nom || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, nom: e.target.value})} style={styles.inputStyle} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Code établissement</label>
+                  <input type="text" value={formEcoleEdition.code || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, code: e.target.value})} style={styles.inputStyle} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Type</label>
+                  <select value={formEcoleEdition.visibilite || 'PRIVE'} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, visibilite: e.target.value})} style={styles.inputStyle}>
+                    <option value="PRIVE">Privé</option>
+                    <option value="PUBLIC">Public</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.label}>Adresse</label>
+                  <input type="text" value={formEcoleEdition.adresse || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, adresse: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Ville</label>
+                  <input type="text" value={formEcoleEdition.ville || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, ville: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Pays</label>
+                  <input type="text" value={formEcoleEdition.pays || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, pays: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Logo (URL)</label>
+                  <input type="text" placeholder="https://..." value={formEcoleEdition.logo_url || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, logo_url: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Année de création</label>
+                  <input type="text" placeholder="ex. 1998" value={formEcoleEdition.parametres_json?.anneeCreation || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, parametres_json: {...formEcoleEdition.parametres_json, anneeCreation: e.target.value}})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Nombre d'élèves</label>
+                  <input type="number" min="0" value={formEcoleEdition.parametres_json?.nombreEleves || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, parametres_json: {...formEcoleEdition.parametres_json, nombreEleves: e.target.value}})} style={styles.inputStyle} />
+                </div>
+                <div>
+                  <label style={styles.label}>Nombre d'enseignants</label>
+                  <input type="number" min="0" value={formEcoleEdition.parametres_json?.nombreEnseignants || ''} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, parametres_json: {...formEcoleEdition.parametres_json, nombreEnseignants: e.target.value}})} style={styles.inputStyle} />
+                </div>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
                   <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
                   <button type="submit" className="bouton bouton-principal">Enregistrer</button>
                 </div>

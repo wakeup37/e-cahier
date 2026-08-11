@@ -61,6 +61,7 @@ export default function AppRouter() {
   const [userRole, setUserRole] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
+  const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
 
@@ -164,6 +165,18 @@ export default function AppRouter() {
           // Rôle choisi à l'inscription mais pas encore d'établissement créé/rejoint
           setEtapeChoixEtablissement(true);
         }
+      }
+
+      // Invitations en attente adressées à cet email (chef ou censeur qui a invité)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) {
+        const { data: invitations } = await supabase
+          .from('invitations')
+          .select('id, etablissement_id, role_propose, expire_at, etablissements(nom)')
+          .eq('email', user.email.toLowerCase())
+          .eq('statut', 'EN_ATTENTE')
+          .gt('expire_at', new Date().toISOString());
+        setInvitationsRecues(invitations || []);
       }
     } catch (err) {
       console.error("Erreur lors du chargement du profil Supabase", err);
@@ -570,9 +583,59 @@ export default function AppRouter() {
     );
   }
 
+  const accepterInvitation = async (invitation) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
+      user_id: user.id,
+      etablissement_id: invitation.etablissement_id,
+      role: invitation.role_propose,
+      statut: 'ACTIVE',
+      date_debut: new Date().toISOString().slice(0, 10),
+    });
+
+    if (erreurAff) {
+      if (erreurAff.code === '23505') {
+        afficherNotification("⚠️ Vous avez déjà une affiliation active incompatible avec ce rôle ailleurs.");
+      } else {
+        afficherNotification("❌ Erreur : " + erreurAff.message);
+      }
+      return;
+    }
+
+    await supabase.from('invitations').update({ statut: 'ACCEPTEE' }).eq('id', invitation.id);
+    setInvitationsRecues(prev => prev.filter(i => i.id !== invitation.id));
+    afficherNotification(`✅ Vous avez rejoint ${invitation.etablissements?.nom} !`);
+    // On recharge pour que le rôle/l'affiliation fraîchement créée soit pris en compte partout
+    setTimeout(() => window.location.reload(), 1200);
+  };
+
+  const refuserInvitation = async (invitation) => {
+    await supabase.from('invitations').update({ statut: 'REFUSEE' }).eq('id', invitation.id);
+    setInvitationsRecues(prev => prev.filter(i => i.id !== invitation.id));
+    afficherNotification("Invitation refusée.");
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       {notification && <div style={styles.conteneurNotification}>{notification}</div>}
+
+      {invitationsRecues.length > 0 && (
+        <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', margin: '12px', padding: '14px 18px', borderRadius: '12px' }}>
+          {invitationsRecues.map(inv => (
+            <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', padding: '6px 0' }}>
+              <span style={{ fontSize: '13px', color: '#78350f' }}>
+                📨 Vous avez été invité(e) à rejoindre <strong>{inv.etablissements?.nom}</strong> en tant que <strong>{inv.role_propose}</strong>
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => accepterInvitation(inv)} style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>Accepter</button>
+                <button onClick={() => refuserInvitation(inv)} style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>Refuser</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {userRole === 'enseignant' && (
         <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} />

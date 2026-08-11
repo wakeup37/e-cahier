@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { supabase } from './AppRouter'; 
+import { supabase } from '../lib/supabaseClient'; // ⚠️ adaptez ce chemin si besoin
 
 // =========================================================================
 // DASHBOARD CENSEUR — BRANCHÉ SUR SUPABASE
@@ -142,7 +142,6 @@ export default function CenseurDashboard() {
       .maybeSingle();
 
     if (erreurAffiliation || !affiliation) {
-      showToast("⚠️ Aucun établissement actif trouvé pour ce compte censeur.");
       setChargementInitial(false);
       return;
     }
@@ -343,6 +342,60 @@ export default function CenseurDashboard() {
     reader.readAsDataURL(file);
   };
 
+  const [inputCodeEtablissementCenseur, setInputCodeEtablissementCenseur] = useState('');
+  const [nouvelleInvitationEnseignantEmail, setNouvelleInvitationEnseignantEmail] = useState('');
+
+  const genererTokenInvitation = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+
+  const envoyerInvitationEnseignant = async (e) => {
+    e.preventDefault();
+    if (!nouvelleInvitationEnseignantEmail.trim() || !affiliationCenseur) return;
+
+    const { error } = await supabase
+      .from('invitations')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        invite_par_user_id: userId,
+        email: nouvelleInvitationEnseignantEmail.trim().toLowerCase(),
+        role_propose: 'ENSEIGNANT',
+        token: genererTokenInvitation(),
+        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+
+    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); return; }
+
+    setNouvelleInvitationEnseignantEmail('');
+    showToast(`📨 Invitation envoyée !`);
+  };
+
+  const soumettreDemandeRejoindre = async (e) => {
+    e.preventDefault();
+    if (!inputCodeEtablissementCenseur.trim() || !userId) return;
+
+    const { data: etablissementCible, error: erreurRecherche } = await supabase
+      .from('etablissements').select('id, nom').eq('code', inputCodeEtablissementCenseur.trim()).maybeSingle();
+
+    if (erreurRecherche || !etablissementCible) {
+      showToast("⚠️ Aucun établissement trouvé avec ce code.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('demandes_affiliation')
+      .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CENSEUR' });
+
+    if (error) {
+      if (error.code === '23505') {
+        showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      } else {
+        showToast("⚠️ Erreur : " + error.message);
+      }
+      return;
+    }
+
+    showToast(`📨 Demande envoyée pour "${etablissementCible.nom}". En attente d'approbation du chef.`);
+  };
+
   const envoyerDemandePromotion = async (e) => {
     e.preventDefault();
     if (!userId || !affiliationCenseur) return;
@@ -500,6 +553,27 @@ export default function CenseurDashboard() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
         Chargement de votre espace...
+      </div>
+    );
+  }
+
+  if (!affiliationCenseur) {
+    return (
+      <div style={{ backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', boxSizing: 'border-box' }}>
+        <div style={{ backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', boxSizing: 'border-box' }}>
+          <h2 style={{ color: '#0f172a', marginBottom: '8px', textAlign: 'center', fontSize: '22px', fontWeight: '800' }}>Espace Censeur</h2>
+          <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginBottom: '24px', lineHeight: '1.5' }}>
+            Entrez le code de l'établissement que vous souhaitez rejoindre. Votre demande sera soumise au chef d'établissement pour approbation.
+          </p>
+          {message && <div style={{ ...styles.toastSuccess, marginBottom: '16px' }}>{message}</div>}
+          <form onSubmit={soumettreDemandeRejoindre} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label style={styles.label}>Code de l'établissement</label>
+              <input type="text" placeholder="Ex: LYCMOD-A1B2" value={inputCodeEtablissementCenseur} onChange={(e) => setInputCodeEtablissementCenseur(e.target.value)} style={styles.inputStyle} required />
+            </div>
+            <button type="submit" className="bouton bouton-principal" style={{ marginTop: '6px' }}>Envoyer la demande</button>
+          </form>
+        </div>
       </div>
     );
   }
@@ -927,6 +1001,14 @@ export default function CenseurDashboard() {
                 <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Gérez le corps professoral et ajoutez manuellement le personnel d'encadrement.</p>
               </div>
+            </div>
+
+            <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '12px' }}>📨 Inviter un enseignant par email</h3>
+              <form onSubmit={envoyerInvitationEnseignant} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="email" placeholder="email@exemple.com" value={nouvelleInvitationEnseignantEmail} onChange={(e) => setNouvelleInvitationEnseignantEmail(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 220px', margin: 0 }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Envoyer l'invitation</button>
+              </form>
             </div>
 
             <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>

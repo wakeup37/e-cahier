@@ -47,10 +47,9 @@ export default function AppRouter() {
     { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
   ]);
 
-  // Fonction de formatage automatique pour la date (JJ/MM/AAAA)
   const gererSaisieDateNaissance = (e) => {
-    let valeur = e.target.value.replace(/\D/g, ''); // Garder uniquement les chiffres
-    if (valeur.length > 8) valeur = valeur.slice(0, 8); // Max 8 chiffres
+    let valeur = e.target.value.replace(/\D/g, '');
+    if (valeur.length > 8) valeur = valeur.slice(0, 8);
 
     if (valeur.length > 4) {
       valeur = `${valeur.slice(0, 2)}/${valeur.slice(2, 4)}/${valeur.slice(4)}`;
@@ -182,7 +181,7 @@ export default function AppRouter() {
         if (error) throw error;
 
         if (data?.user) {
-          const { error: profileError } = await supabase.from('utilisateurs_profils'].insert([
+          const { error: profileError } = await supabase.from('utilisateurs_profils').insert([
             { 
               user_id: data.user.id, 
               email: emailSaisi.trim(), 

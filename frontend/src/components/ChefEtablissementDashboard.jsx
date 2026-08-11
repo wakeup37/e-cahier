@@ -64,18 +64,22 @@ export default function ChefEtablissementDashboard() {
   const [modeEditionEcole, setModeEditionEcole] = useState(false);
   const [formEcoleEdition, setFormEcoleEdition] = useState({});
 
-  const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', []));
   const [demandesAffiliationRecues, setDemandesAffiliationRecues] = useState([]);
+  const [demandesDepartRecues, setDemandesDepartRecues] = useState([]);
   const [invitationsEnvoyees, setInvitationsEnvoyees] = useState([]);
+  const [anneeActive, setAnneeActive] = useState(null);
+  const [inputNouvelleAnneeIntitule, setInputNouvelleAnneeIntitule] = useState('');
   const [nouvelleInvitationEmail, setNouvelleInvitationEmail] = useState('');
   const [nouvelleInvitationRole, setNouvelleInvitationRole] = useState('CENSEUR');
   const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
   const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', []));
   const [notifChefOuvert, setNotifChefOuvert] = useState(false);
   const notifChefRef = useRef(null);
-  const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
   const [fichiersAdministratifsUploads, setFichiersAdministratifsUploads] = useState(() => safeGetArray('app_chef_fichiers_admin', []));
-  const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
+  const [nombreClassesReel, setNombreClassesReel] = useState(0);
+  const [nombreCenseursActifs, setNombreCenseursActifs] = useState(0);
+  const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
+  const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState([]);
   const [nouveauAdminNom, setNouveauAdminNom] = useState('');
   const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
   const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
@@ -88,6 +92,17 @@ export default function ChefEtablissementDashboard() {
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
+
+  // Modale de confirmation générique — réutilisée pour toute action
+  // sensible (refus, retrait, régénération de code) ; motif optionnel
+  // demandé selon le cas.
+  const [modalConfirmationGenerique, setModalConfirmationGenerique] = useState({
+    ouvert: false, titre: '', message: '', necessiteMotif: false, motif: '', onConfirmer: null,
+  });
+  const demanderConfirmation = ({ titre, message, necessiteMotif = false, onConfirmer }) => {
+    setModalConfirmationGenerique({ ouvert: true, titre, message, necessiteMotif, motif: '', onConfirmer });
+  };
+  const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
 
   const [message, setMessage] = useState('');
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
@@ -143,6 +158,16 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: true });
         setDemandesAffiliationRecues(demandes || []);
 
+        // Demandes de départ en attente (enseignants ET censeurs — les RLS
+        // filtrent déjà correctement selon le rôle du demandeur)
+        const { data: departs } = await supabase
+          .from('demandes_depart')
+          .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils(nom, prenom)')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('statut', 'EN_ATTENTE')
+          .order('created_at', { ascending: true });
+        setDemandesDepartRecues(departs || []);
+
         // Invitations déjà envoyées (pour éviter d'en renvoyer une en double)
         const { data: invitationsEnvoyeesData } = await supabase
           .from('invitations')
@@ -150,6 +175,70 @@ export default function ChefEtablissementDashboard() {
           .eq('etablissement_id', affiliation.etablissement_id)
           .order('created_at', { ascending: false });
         setInvitationsEnvoyees(invitationsEnvoyeesData || []);
+
+        // Année scolaire active (s'il y en a une — un établissement peut
+        // rester sans année active entre une fermeture et une ouverture)
+        const { data: anneeActiveData } = await supabase
+          .from('annees_scolaires')
+          .select('*')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('est_active', true)
+          .maybeSingle();
+        setAnneeActive(anneeActiveData || null);
+
+        // Classes réelles de l'établissement (remplace l'ancien comptage
+        // factice basé sur le localStorage de l'enseignant)
+        const { data: classesData } = await supabase
+          .from('classes')
+          .select('id')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .is('deleted_at', null);
+        setNombreClassesReel((classesData || []).length);
+
+        // Enseignants réellement affiliés + leurs classes/matières attribuées
+        const { data: affiliationsEnseignants } = await supabase
+          .from('affiliations_etablissement')
+          .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('role', 'ENSEIGNANT')
+          .eq('statut', 'ACTIVE');
+
+        const { data: attributionsData } = await supabase
+          .from('attributions_classes')
+          .select('enseignant_id, matieres(nom), classes(nom)')
+          .eq('etablissement_id', affiliation.etablissement_id);
+
+        const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
+          const attrsDeCetEnseignant = (attributionsData || []).filter(at => at.enseignant_id === a.user_id);
+          return {
+            affiliationId: a.id,
+            userId: a.user_id,
+            nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim() || 'Enseignant',
+            matiere: attrsDeCetEnseignant[0]?.matieres?.nom || 'Non définie',
+            classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
+            contact: a.utilisateurs_profils?.telephone || 'Non défini',
+          };
+        });
+        setListeProfesseursEtablissementBrute(profsAvecClasses);
+
+        // Personnel administratif manuel (table "personnel")
+        const { data: personnelData } = await supabase
+          .from('personnel')
+          .select('*')
+          .eq('etablissement_id', affiliation.etablissement_id);
+        setPersonnelAdministratifManuel((personnelData || []).map(p => ({
+          id: p.id, nomComplet: `${p.prenom} ${p.nom}`.trim(), role: p.fonction,
+          matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
+        })));
+
+        // Censeurs actifs (pour le total réel de membres du réseau)
+        const { data: censeursActifsData } = await supabase
+          .from('affiliations_etablissement')
+          .select('id')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('role', 'CENSEUR')
+          .eq('statut', 'ACTIVE');
+        setNombreCenseursActifs((censeursActifsData || []).length);
       }
 
       setChargementInitial(false);
@@ -333,24 +422,7 @@ export default function ChefEtablissementDashboard() {
   // TOUS LES AUTRES HOOKS (memos + effect) — DOIVENT être avant tout return
   // conditionnel. C'était le bug : ils étaient après.
   // =========================================================================
-  const nombreClassesAutomatique = useMemo(() => {
-    try {
-      const programmes = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes')) || {};
-      const count = Object.keys(programmes).length;
-      return count > 0 ? count : 1;
-    } catch { return 1; }
-  }, []);
-
-  const listeProfesseursEtablissement = useMemo(() => {
-    try {
-      const affs = JSON.parse(localStorage.getItem('app_enseignant_affiliations')) || [];
-      const profilActuel = JSON.parse(localStorage.getItem('app_enseignant_profil')) || { nom: 'Kouassi', prenoms: 'Jean', matiere: 'EPS', emailSecurite: 'jean.kouassi@prof.ci' };
-      let enseignantsList = affs.map(a => ({
-        id: a.id, nomComplet: a.enseignant || 'M. Kouassi Jean', matiere: profilActuel.matiere || 'EPS', niveau: '6ème / 5ème', classes: a.classes || ['6ème A', '6ème B'], statut: a.statut || 'Validée', ecole: a.ecole, matricule: 'ENS-8821', contact: '0506070809', email: profilActuel.emailSecurite || 'jean.kouassi@prof.ci', dureeService: '1 an (En cours)'
-      }));
-      return enseignantsList.filter(item => item.ecole === ecoleConfig?.nomEcole);
-    } catch { return []; }
-  }, [ecoleConfig]);
+  const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
   const fichesPedagogiquesEcole = useMemo(() => {
     try {
@@ -363,7 +435,7 @@ export default function ChefEtablissementDashboard() {
   const professeursFiltres = useMemo(() => {
     return listeProfesseursEtablissement.filter(prof => {
       const matchMat = filtreProfMatiere === 'TOUTES' || prof.matiere === filtreProfMatiere;
-      const matchNiv = filtreProfNiveau === 'TOUS' || prof.niveau.includes(filtreProfNiveau);
+      const matchNiv = filtreProfNiveau === 'TOUS' || (prof.niveau && prof.niveau.includes(filtreProfNiveau));
       const matchCl = filtreProfClasse === 'TOUTES' || (prof.classes && prof.classes.includes(filtreProfClasse));
       return matchMat && matchNiv && matchCl;
     });
@@ -378,13 +450,11 @@ export default function ChefEtablissementDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
 
-  const statistiquesReseau = useMemo(() => {
-    const censeursValidesCount = Array.isArray(censeursAffiliations) ? censeursAffiliations.filter(c => c.statut === 'Validé').length + 1 : 1;
-    return {
-      totalClasses: nombreClassesAutomatique,
-      totalPersonnesConnectees: censeursValidesCount + listeProfesseursEtablissement.length + personnelAdministratifManuel.length
-    };
-  }, [censeursAffiliations, nombreClassesAutomatique, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
+  const statistiquesReseau = useMemo(() => ({
+    totalClasses: nombreClassesReel,
+    // 1 (le chef lui-même) + censeurs actifs + enseignants affiliés + personnel administratif
+    totalPersonnesConnectees: 1 + nombreCenseursActifs + listeProfesseursEtablissement.length + personnelAdministratifManuel.length,
+  }), [nombreClassesReel, nombreCenseursActifs, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -472,40 +542,157 @@ export default function ChefEtablissementDashboard() {
     showToast(`📥 Document "${titre}" prêt !`);
   };
 
-  const executerActionAnneeScolaire = () => {
+  const executerActionAnneeScolaire = async () => {
     const { actionType } = modalConfirmationActionAnnee;
+    if (!affiliationChef?.etablissement_id) return;
+    const etablissementId = affiliationChef.etablissement_id;
+
     if (actionType === 'ouvrir') {
-      setEcoleConfig(prev => ({ ...prev, anneeOuverte: true }));
-      showToast("🚀 Nouvelle année scolaire ouverte !");
+      if (!inputNouvelleAnneeIntitule.trim()) {
+        showToast("⚠️ Merci d'indiquer l'intitulé de la nouvelle année (ex. 2026-2027).");
+        return;
+      }
+      // S'il y a une année active en cours, on la ferme d'abord — ceci
+      // déclenche automatiquement le bilan de fermeture côté base
+      // (fiches non traitées/non produites, rapports censeur/chef).
+      if (anneeActive?.id) {
+        const { error: erreurFermeture } = await supabase
+          .from('annees_scolaires')
+          .update({ est_active: false })
+          .eq('id', anneeActive.id);
+        if (erreurFermeture) {
+          showToast("⚠️ Erreur lors de la clôture de l'année précédente : " + erreurFermeture.message);
+          return;
+        }
+      }
+
+      const { data: nouvelleAnnee, error: erreurOuverture } = await supabase
+        .from('annees_scolaires')
+        .insert({ etablissement_id: etablissementId, intitule: inputNouvelleAnneeIntitule.trim(), est_active: true })
+        .select()
+        .single();
+
+      if (erreurOuverture) {
+        showToast("⚠️ Erreur à l'ouverture : " + erreurOuverture.message);
+        return;
+      }
+
+      setAnneeActive(nouvelleAnnee);
+      setInputNouvelleAnneeIntitule('');
+      showToast(`🚀 Année "${nouvelleAnnee.intitule}" ouverte !`);
+
     } else if (actionType === 'fermer') {
-      try {
-        const archiveSession = {
-          annee: ecoleConfig.anneeScolaire,
-          dateCloture: new Date().toLocaleDateString(),
-          stats: statistiquesReseau,
-          personnelAdministratif: personnelAdministratifManuel,
-          personnelEnseignant: listeProfesseursEtablissement
-        };
-        setArchivesHistoriques(prev => [...prev, archiveSession]);
-      } catch {}
-      setEcoleConfig(prev => ({ ...prev, anneeOuverte: false }));
-      showToast("🔒 Année scolaire terminée avec succès.");
+      if (!anneeActive?.id) return;
+      const { error } = await supabase
+        .from('annees_scolaires')
+        .update({ est_active: false })
+        .eq('id', anneeActive.id);
+
+      if (error) {
+        showToast("⚠️ Erreur lors de la clôture : " + error.message);
+        return;
+      }
+      setAnneeActive(null);
+      showToast("🔒 Année scolaire clôturée. Le bilan a été généré automatiquement.");
     }
     setModalConfirmationActionAnnee({ ouvert: false, actionType: null });
   };
 
-  const validerCenseur = (id) => { setCenseursAffiliations(prev => prev.map(c => c.id === id ? { ...c, statut: 'Validé' } : c)); showToast("✅ Censeur validé !"); };
-  const rejeterCenseur = (id) => { setCenseursAffiliations(prev => prev.filter(c => c.id !== id)); showToast("❌ Demande rejetée."); };
 
-  const ajouterPersonnelAdministratif = (e) => {
+  const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
-    if (!nouveauAdminNom.trim()) return;
-    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'MAT-000', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
-    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
+    if (!nouveauAdminNom.trim() || !affiliationChef?.etablissement_id) return;
+
+    const [prenom, ...resteNom] = nouveauAdminNom.trim().split(' ');
+    const nom = resteNom.join(' ') || prenom;
+
+    const { data: nouveau, error } = await supabase
+      .from('personnel')
+      .insert({
+        etablissement_id: affiliationChef.etablissement_id,
+        prenom, nom, fonction: nouveauAdminRole,
+        email: nouveauAdminEmail.trim() || null,
+        telephone: nouveauAdminContact.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    setPersonnelAdministratifManuel(prev => [...prev, {
+      id: nouveau.id, nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole,
+      matricule: nouveauAdminMatricule.trim() || 'N/A', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A',
+    }]);
     setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
     showToast("✅ Personnel administratif ajouté !");
   };
-  const supprimerPersonnelAdministratif = (id) => { setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id)); showToast("🗑️ Membre retiré."); };
+
+  const supprimerPersonnelAdministratif = (id, nomComplet) => {
+    demanderConfirmation({
+      titre: 'Retirer ce membre du personnel ?',
+      message: `Êtes-vous sûr de vouloir retirer ${nomComplet} du personnel administratif ?`,
+      necessiteMotif: false,
+      onConfirmer: async () => {
+        const { error } = await supabase.from('personnel').delete().eq('id', id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id));
+        showToast("🗑️ Membre retiré.");
+      },
+    });
+  };
+
+  // --- Retrait d'un enseignant de l'établissement (chef uniquement) ---
+  // Confirmation + motif obligatoires ; le trigger AFFILIATION_TERMINEE
+  // (déjà en base) notifie automatiquement la personne retirée.
+  const retirerEnseignant = (affiliationId, nomComplet) => {
+    demanderConfirmation({
+      titre: `Retirer ${nomComplet} de l'établissement ?`,
+      message: "Cette action met fin à son affiliation active. Elle recevra une notification. Merci d'indiquer le motif.",
+      necessiteMotif: true,
+      onConfirmer: async (motif) => {
+        if (!motif || !motif.trim()) { showToast("⚠️ Le motif est obligatoire pour un retrait."); return; }
+        const { error } = await supabase
+          .from('affiliations_etablissement')
+          .update({ statut: 'TERMINEE', date_fin: new Date().toISOString().slice(0, 10), permissions_override_json: { motif_retrait: motif.trim() } })
+          .eq('id', affiliationId);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setListeProfesseursEtablissementBrute(prev => prev.filter(p => p.affiliationId !== affiliationId));
+        showToast(`🗑️ ${nomComplet} a été retiré(e) de l'établissement. Notification envoyée.`);
+      },
+    });
+  };
+
+  // --- Régénérer le code établissement ---
+  const regenererCodeEtablissement = () => {
+    demanderConfirmation({
+      titre: 'Régénérer le code établissement ?',
+      message: "L'ancien code ne fonctionnera plus pour rejoindre l'établissement. Toute personne avec l'ancien code devra recevoir le nouveau.",
+      necessiteMotif: false,
+      onConfirmer: async () => {
+        const nouveauCode = 'ECH-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+        const { data: etabMaj, error } = await supabase
+          .from('etablissements')
+          .update({ code: nouveauCode })
+          .eq('id', ecoleConfig.id)
+          .select()
+          .single();
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setEcoleConfig(etabMaj);
+        setFormEcoleEdition(prev => ({ ...prev, code: nouveauCode }));
+        showToast(`✅ Nouveau code établissement : ${nouveauCode}`);
+      },
+    });
+  };
+
+  // --- Changer l'email de connexion ---
+  const handleChangerEmailConnexion = async (e) => {
+    e.preventDefault();
+    if (!emailSaisiChangement.trim()) return;
+    const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    showToast("📧 Vérifiez votre boîte mail : un lien de confirmation a été envoyé au nouvel email.");
+    setEmailSaisiChangement('');
+  };
 
   const uploaderFichierAdministratifreel = (e) => {
     e.preventDefault();
@@ -549,6 +736,35 @@ export default function ChefEtablissementDashboard() {
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
     showToast("❌ Demande refusée.");
+  };
+
+  // --- Traiter une demande de départ (enseignant OU censeur) ---
+  const approuverDemandeDepart = async (demande) => {
+    const { error } = await supabase
+      .from('demandes_depart')
+      .update({ statut: 'APPROUVEE', traite_par_user_id: userId })
+      .eq('id', demande.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));
+    setListeProfesseursEtablissementBrute(prev => prev.filter(p => p.userId !== demande.user_id));
+    showToast("✅ Départ approuvé. La personne a été notifiée.");
+  };
+
+  const refuserDemandeDepart = (demande, nomComplet) => {
+    demanderConfirmation({
+      titre: 'Refuser ce départ ?',
+      message: `${nomComplet} restera affilié(e) à l'établissement.`,
+      necessiteMotif: false,
+      onConfirmer: async () => {
+        const { error } = await supabase
+          .from('demandes_depart')
+          .update({ statut: 'REFUSEE', traite_par_user_id: userId })
+          .eq('id', demande.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));
+        showToast("❌ Demande de départ refusée.");
+      },
+    });
   };
 
   // --- Inviter quelqu'un par email (censeur ou enseignant) ---
@@ -744,21 +960,30 @@ export default function ChefEtablissementDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
-              <form onSubmit={(e) => {
+
+              <form onSubmit={handleChangerEmailConnexion} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid #e2e8f0' }}>
+                <label style={styles.label}>Changer l'email de connexion</label>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 4px 0' }}>Actuel : {infosChef.emailSecurite || '—'}</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={{ ...styles.inputStyle, flex: 1 }} required />
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Changer</button>
+                </div>
+              </form>
+
+              <form onSubmit={async (e) => {
                 e.preventDefault();
-                if (!ancienMdp || !nouveauMdp) { showToast("⚠️ Veuillez remplir tous les champs."); return; }
+                if (!nouveauMdp) { showToast("⚠️ Veuillez saisir un nouveau mot de passe."); return; }
+                const { error } = await supabase.auth.updateUser({ password: nouveauMdp });
+                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
                 showToast("🔒 Mot de passe modifié avec succès !");
                 setModalSecurite(false);
                 setAncienMdp('');
                 setNouveauMdp('');
               }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Ancien mot de passe</label>
-                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
-                </div>
+                <label style={styles.label}>Changer mon mot de passe</label>
                 <div>
                   <label style={styles.label}>Nouveau mot de passe sécurisé</label>
                   <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
@@ -829,9 +1054,15 @@ export default function ChefEtablissementDashboard() {
               </h3>
               <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px', lineHeight: '1.5' }}>
                 {modalConfirmationActionAnnee.actionType === 'fermer' 
-                  ? 'Êtes-vous sûr de vouloir terminer l’année scolaire ? Les statistiques courantes et le personnel actif seront archivés à vie, et l’année sera réinitialisée.' 
-                  : 'Êtes-vous sûr de vouloir ouvrir et démarrer les activités pour cette nouvelle année scolaire ?'}
+                  ? 'Êtes-vous sûr de vouloir terminer l’année scolaire ? Un bilan (fiches non traitées / non produites) sera généré automatiquement pour le censeur et le chef, et l’année sera clôturée.' 
+                  : 'Êtes-vous sûr de vouloir ouvrir et démarrer les activités pour cette nouvelle année scolaire ? Si une année est encore active, elle sera clôturée automatiquement au passage.'}
               </p>
+              {modalConfirmationActionAnnee.actionType === 'ouvrir' && (
+                <div style={{ marginBottom: '16px', textAlign: 'left' }}>
+                  <label style={styles.label}>Intitulé de la nouvelle année</label>
+                  <input type="text" placeholder="ex. 2026-2027" value={inputNouvelleAnneeIntitule} onChange={(e) => setInputNouvelleAnneeIntitule(e.target.value)} style={styles.inputStyle} required />
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalConfirmationActionAnnee({ ouvert: false, actionType: null })} className="bouton bouton-secondaire">Annuler</button>
                 <button 
@@ -839,6 +1070,44 @@ export default function ChefEtablissementDashboard() {
                   className={`bouton ${modalConfirmationActionAnnee.actionType === 'fermer' ? 'bouton-danger' : 'bouton-succes'}`}
                 >
                   {modalConfirmationActionAnnee.actionType === 'fermer' ? 'Oui, fermer l’année' : 'Oui, ouvrir l’année'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modalConfirmationGenerique.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b', fontSize: '18px', fontWeight: '800' }}>
+                {modalConfirmationGenerique.titre}
+              </h3>
+              <p style={{ fontSize: '13px', color: '#475569', marginBottom: '16px', lineHeight: '1.5' }}>
+                {modalConfirmationGenerique.message}
+              </p>
+              {modalConfirmationGenerique.necessiteMotif && (
+                <div style={{ marginBottom: '16px', textAlign: 'left' }}>
+                  <label style={styles.label}>Motif (obligatoire)</label>
+                  <textarea
+                    value={modalConfirmationGenerique.motif}
+                    onChange={(e) => setModalConfirmationGenerique(prev => ({ ...prev, motif: e.target.value }))}
+                    style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }}
+                    required
+                  />
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                <button onClick={() => setModalConfirmationGenerique({ ouvert: false, titre: '', message: '', necessiteMotif: false, motif: '', onConfirmer: null })} className="bouton bouton-secondaire">Annuler</button>
+                <button
+                  onClick={() => {
+                    const callback = modalConfirmationGenerique.onConfirmer;
+                    const motif = modalConfirmationGenerique.motif;
+                    setModalConfirmationGenerique({ ouvert: false, titre: '', message: '', necessiteMotif: false, motif: '', onConfirmer: null });
+                    if (callback) callback(motif);
+                  }}
+                  className="bouton bouton-danger"
+                >
+                  Oui, confirmer
                 </button>
               </div>
             </div>
@@ -884,16 +1153,34 @@ export default function ChefEtablissementDashboard() {
               </div>
             </div>
 
+            <div style={{ backgroundColor: anneeActive ? '#f0fdf4' : '#fef2f2', padding: '18px 20px', borderRadius: '16px', border: `1px solid ${anneeActive ? '#bbf7d0' : '#fecaca'}`, marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <label style={styles.label}>Année scolaire</label>
+                <p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>
+                  {anneeActive ? `${anneeActive.intitule} — en cours` : 'Aucune année active'}
+                </p>
+              </div>
+              {anneeActive ? (
+                <button style={styles.boutonPuissantFermer} onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'fermer' })}>🔒 Clôturer l'année</button>
+              ) : (
+                <button style={styles.boutonPuissantOuvrir} onClick={() => setModalConfirmationActionAnnee({ ouvert: true, actionType: 'ouvrir' })}>🟢 Ouvrir une année</button>
+              )}
+            </div>
+
             {!modeEditionEcole ? (
               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                 <div><label style={styles.label}>Nom Officiel</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.nom}</p></div>
-                <div><label style={styles.label}>Code</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.code}</p></div>
+                <div>
+                  <label style={styles.label}>Code</label>
+                  <p style={{ margin: '4px 0 4px 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.code}</p>
+                  <button onClick={regenererCodeEtablissement} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '4px 8px' }}>🔄 Régénérer le code</button>
+                </div>
                 <div><label style={styles.label}>Type</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.visibilite === 'PRIVE' ? 'Privé' : 'Public'}</p></div>
                 <div><label style={styles.label}>Adresse</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.adresse || '—'}</p></div>
                 <div><label style={styles.label}>Ville</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.ville || '—'}</p></div>
                 <div><label style={styles.label}>Pays</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.pays || '—'}</p></div>
                 <div><label style={styles.label}>Année de création</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.parametres_json?.anneeCreation || '—'}</p></div>
-                <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesAutomatique}</p></div>
+                <div><label style={styles.label}>Classes (Auto)</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{nombreClassesReel}</p></div>
                 <div><label style={styles.label}>Élèves</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEleves || '—'}</p></div>
                 <div><label style={styles.label}>Enseignants</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#16a34a' }}>{ecoleConfig.parametres_json?.nombreEnseignants || '—'}</p></div>
                 {ecoleConfig.logo_url && (
@@ -1004,10 +1291,42 @@ export default function ChefEtablissementDashboard() {
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button onClick={() => approuverDemande(demande)} className="bouton bouton-succes">Approuver</button>
-                      <button onClick={() => refuserDemande(demande)} className="bouton bouton-danger">Refuser</button>
+                      <button
+                        onClick={() => demanderConfirmation({
+                          titre: 'Refuser cette demande ?',
+                          message: `Êtes-vous sûr de vouloir refuser la demande de ${demande.utilisateurs_profils?.prenom} ${demande.utilisateurs_profils?.nom} ?`,
+                          necessiteMotif: false,
+                          onConfirmer: () => refuserDemande(demande),
+                        })}
+                        className="bouton bouton-danger"
+                      >Refuser</button>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '28px 0 16px 0' }}>🚪 Demandes de départ</h2>
+            {demandesDepartRecues.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande de départ en attente.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {demandesDepartRecues.map(demande => {
+                  const nomComplet = `${demande.utilisateurs_profils?.prenom || ''} ${demande.utilisateurs_profils?.nom || ''}`.trim() || 'Personne inconnue';
+                  return (
+                    <div key={demande.id} style={styles.itemRow}>
+                      <div>
+                        <strong style={{ color: '#0f172a', fontSize: '14px' }}>{nomComplet}</strong>
+                        <br /><small>Souhaite quitter en tant que : <strong>{demande.role_demandeur === 'CENSEUR' ? 'Censeur' : 'Enseignant'}</strong></small>
+                        {demande.motif && <p style={{ fontSize: '12px', color: '#475569', margin: '4px 0 0 0', fontStyle: 'italic' }}>« {demande.motif} »</p>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => approuverDemandeDepart(demande)} className="bouton bouton-succes">Approuver</button>
+                        <button onClick={() => refuserDemandeDepart(demande, nomComplet)} className="bouton bouton-danger">Refuser</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1015,17 +1334,45 @@ export default function ChefEtablissementDashboard() {
 
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire Détaillé du Personnel</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {professeursFiltres.map(prof => (
-                <div key={prof.id} style={styles.itemRow}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire des Enseignants</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '28px' }}>
+              {professeursFiltres.length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun enseignant affilié pour l'instant.</p>
+              ) : professeursFiltres.map(prof => (
+                <div key={prof.affiliationId} style={styles.itemRow}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
                       <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{prof.matiere}</span>
                       <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
                     </div>
-                    <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Classes : <strong>{prof.classes ? prof.classes.join(', ') : 'N/A'}</strong></p>
+                    <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Classes : <strong>{prof.classes && prof.classes.length ? prof.classes.join(', ') : 'Aucune classe attribuée'}</strong></p>
                   </div>
+                  <button
+                    onClick={() => retirerEnseignant(prof.affiliationId, prof.nomComplet)}
+                    className="bouton bouton-danger"
+                    style={{ flexShrink: 0 }}
+                  >🗑️ Retirer</button>
+                </div>
+              ))}
+            </div>
+
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>🧑‍💼 Personnel Administratif</h2>
+            <form onSubmit={ajouterPersonnelAdministratif} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              <input type="text" placeholder="Nom complet" value={nouveauAdminNom} onChange={(e) => setNouveauAdminNom(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 180px', margin: 0 }} required />
+              <input type="text" placeholder="Fonction" value={nouveauAdminRole} onChange={(e) => setNouveauAdminRole(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
+              <input type="text" placeholder="Contact" value={nouveauAdminContact} onChange={(e) => setNouveauAdminContact(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
+              <input type="email" placeholder="Email" value={nouveauAdminEmail} onChange={(e) => setNouveauAdminEmail(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} />
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Ajouter</button>
+            </form>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {personnelAdministratifManuel.length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun membre du personnel enregistré.</p>
+              ) : personnelAdministratifManuel.map(p => (
+                <div key={p.id} style={styles.itemRow}>
+                  <div>
+                    <strong style={{ fontSize: '13px' }}>{p.nomComplet}</strong> — <span style={{ fontSize: '12px', color: '#475569' }}>{p.role}</span>
+                  </div>
+                  <button onClick={() => supprimerPersonnelAdministratif(p.id, p.nomComplet)} className="bouton bouton-danger" style={{ flexShrink: 0 }}>🗑️</button>
                 </div>
               ))}
             </div>

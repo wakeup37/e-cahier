@@ -47,11 +47,7 @@ export default function EnseignantDashboard() {
   // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS & DEMANDES DE DÉPART ---
   const [affiliations, setAffiliations] = useState([]);
 
-  const [demandesDepart, setDemandesDepart] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_demandes_depart')) || []; }
-    catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_demandes_depart', JSON.stringify(demandesDepart)); }, [demandesDepart]);
+  const [demandesDepart, setDemandesDepart] = useState([]);
 
   const [modalDepart, setModalDepart] = useState({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
 
@@ -256,6 +252,18 @@ export default function EnseignantDashboard() {
     }));
     setAffiliations(affiliationsFormatees);
 
+    // Demandes de départ déjà soumises (pour ne pas en permettre une deuxième
+    // pendant que la première est encore en attente)
+    const { data: demandesDepartData } = await supabase
+      .from('demandes_depart')
+      .select('id, affiliation_id, motif, statut, created_at')
+      .eq('user_id', user.id)
+      .eq('statut', 'EN_ATTENTE');
+    setDemandesDepart((demandesDepartData || []).map(d => ({
+      id: d.id, ecoleId: d.affiliation_id, motif: d.motif,
+      dateDemande: new Date(d.created_at).toLocaleDateString(), statut: 'En attente de validation',
+    })));
+
     if (profil) {
       const premiereEcole = affiliationsFormatees.find(a => a.statut === 'Validée')?.ecole || '';
       setInfosEnseignant(prev => ({
@@ -418,16 +426,42 @@ export default function EnseignantDashboard() {
     showToast("🚀 Demande d'évolution vers le poste de Censeur envoyée au chef d'établissement !");
   };
 
-  const soumettreDemandeDepart = (e) => {
+  const soumettreDemandeDepart = async (e) => {
     e.preventDefault();
-    if (!modalDepart.ecoleId) return;
+    if (!modalDepart.ecoleId || !userId) return;
+
+    // On retrouve l'établissement réel de cette affiliation (le formatage
+    // local ne garde que le nom de l'école, pas son id).
+    const { data: aff } = await supabase
+      .from('affiliations_etablissement')
+      .select('etablissement_id, role')
+      .eq('id', modalDepart.ecoleId)
+      .single();
+
+    if (!aff) { showToast("⚠️ Affiliation introuvable."); return; }
+
+    const { error } = await supabase
+      .from('demandes_depart')
+      .insert({
+        user_id: userId,
+        etablissement_id: aff.etablissement_id,
+        affiliation_id: modalDepart.ecoleId,
+        role_demandeur: 'ENSEIGNANT',
+        motif: modalDepart.motif || null,
+      });
+
+    if (error) {
+      showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+
     const nouvelleDemande = {
-      id: Date.now(), ecoleId: modalDepart.ecoleId, ecoleNom: modalDepart.ecoleNom, motif: modalDepart.motif,
-      dateDemande: new Date().toLocaleDateString(), statut: 'En attente du visa du censeur'
+      id: modalDepart.ecoleId, ecoleId: modalDepart.ecoleId, ecoleNom: modalDepart.ecoleNom, motif: modalDepart.motif,
+      dateDemande: new Date().toLocaleDateString(), statut: 'En attente du visa du censeur ou du chef'
     };
     setDemandesDepart(prev => [nouvelleDemande, ...prev]);
     setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
-    showToast("📤 Demande de départ transmise au censeur pour visa officiel !");
+    showToast("📤 Demande de départ transmise pour validation !");
   };
 
   const supprimerClasseLibre = (classeNom) => {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { supabase } from './AppRouter'; 
+import { supabase } from './AppRouter';
 
 // =========================================================================
 // DASHBOARD CENSEUR — BRANCHÉ SUR SUPABASE
@@ -76,6 +76,10 @@ export default function CenseurDashboard() {
   const [archiveEcole, setArchiveEcole] = useState([]);
   const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState([]);
   const [demandePromotion, setDemandePromotion] = useState(null);
+  const [demandesAffiliationEnseignants, setDemandesAffiliationEnseignants] = useState([]);
+  const [demandeDepartCenseurEnCours, setDemandeDepartCenseurEnCours] = useState(false);
+  const [modalDepartCenseurOuvert, setModalDepartCenseurOuvert] = useState(false);
+  const [motifDepartCenseur, setMotifDepartCenseur] = useState('');
 
   // =========================================================================
   // ÉTATS INTERNES ET FILTRES (inchangés, purement UI)
@@ -168,6 +172,27 @@ export default function CenseurDashboard() {
       .eq('est_active', true)
       .maybeSingle();
     setAnneeActiveId(annee?.id || null);
+
+    // 3bis. Demandes d'affiliation d'enseignants en attente (le censeur ne
+    // peut approuver/refuser QUE les demandes de rôle ENSEIGNANT — devenir
+    // CHEF ou CENSEUR reste réservé au chef d'établissement).
+    const { data: demandesEnseignants } = await supabase
+      .from('demandes_affiliation')
+      .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
+      .eq('etablissement_id', etablissementId)
+      .eq('role_demande', 'ENSEIGNANT')
+      .eq('statut', 'EN_ATTENTE')
+      .order('created_at', { ascending: true });
+    setDemandesAffiliationEnseignants(demandesEnseignants || []);
+
+    // Demande de départ déjà en cours pour ce censeur ?
+    const { data: demandeDepartExistante } = await supabase
+      .from('demandes_depart')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('statut', 'EN_ATTENTE')
+      .maybeSingle();
+    setDemandeDepartCenseurEnCours(!!demandeDepartExistante);
 
     setEcoleConfigGlobale({
       nomEcole: etab?.nom || '',
@@ -368,6 +393,65 @@ export default function CenseurDashboard() {
     showToast(`📨 Invitation envoyée !`);
   };
 
+  // --- Approuver / refuser une demande d'affiliation d'ENSEIGNANT reçue ---
+  // (rôle CENSEUR ou CHEF uniquement restent réservés au chef d'établissement)
+  const approuverDemandeAffiliationEnseignant = async (demande) => {
+    if (!affiliationCenseur) return;
+    const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
+      user_id: demande.user_id,
+      etablissement_id: affiliationCenseur.etablissement_id,
+      role: 'ENSEIGNANT',
+      statut: 'ACTIVE',
+      date_debut: new Date().toISOString().slice(0, 10),
+    });
+    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
+
+    const { error: erreurMaj } = await supabase
+      .from('demandes_affiliation')
+      .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
+      .eq('id', demande.id);
+    if (erreurMaj) {
+      showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
+      return;
+    }
+
+    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
+    showToast("✅ Demande approuvée, l'enseignant a maintenant accès à l'établissement !");
+  };
+
+  const refuserDemandeAffiliationEnseignant = async (demande) => {
+    const { error } = await supabase
+      .from('demandes_affiliation')
+      .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
+      .eq('id', demande.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
+    showToast("❌ Demande refusée.");
+  };
+
+  // --- Demande de départ du censeur — validée uniquement par le chef ---
+  const soumettreDemandeDepartCenseur = async (e) => {
+    e.preventDefault();
+    if (!userId || !affiliationCenseur) return;
+
+    const { error } = await supabase
+      .from('demandes_depart')
+      .insert({
+        user_id: userId,
+        etablissement_id: affiliationCenseur.etablissement_id,
+        affiliation_id: affiliationCenseur.id,
+        role_demandeur: 'CENSEUR',
+        motif: motifDepartCenseur.trim() || null,
+      });
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    setDemandeDepartCenseurEnCours(true);
+    setModalDepartCenseurOuvert(false);
+    setMotifDepartCenseur('');
+    showToast("📤 Demande de départ transmise au chef d'établissement pour validation !");
+  };
+
   const soumettreDemandeRejoindre = async (e) => {
     e.preventDefault();
     if (!inputCodeEtablissementCenseur.trim() || !userId) return;
@@ -503,7 +587,7 @@ export default function CenseurDashboard() {
       .insert({
         etablissement_id: affiliationCenseur.etablissement_id,
         annee_scolaire_id: anneeActiveId,
-        origin_session_id: seanceAViser.id,
+        seance_origine_id: seanceAViser.id,
         auteur_user_id: userId, // ⚠️ idéalement l'auteur réel de la séance, pas le censeur — à corriger si programmes_annuels expose proprietaire_user_id ici
         titre: seanceAViser.titre,
         contenu_snapshot_json: { matiere: prog.matiere, classe: classeKey, ...seanceAViser },
@@ -746,6 +830,28 @@ export default function CenseurDashboard() {
                   setModalConfirmation({ ouvert: false, titre: '', message: '', actionCallback: null });
                 }} className="bouton bouton-danger">Confirmer</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {modalDepartCenseurOuvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '420px' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#991b1b', fontSize: '18px', fontWeight: '800' }}>Motif de départ</h3>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '14px' }}>Ce motif sera visible par le chef d'établissement qui traitera votre demande.</p>
+              <form onSubmit={soumettreDemandeDepartCenseur}>
+                <textarea
+                  value={motifDepartCenseur}
+                  onChange={(e) => setMotifDepartCenseur(e.target.value)}
+                  style={{ ...styles.inputStyle, minHeight: '80px', resize: 'vertical', marginBottom: '14px' }}
+                  placeholder="Expliquez brièvement la raison de votre départ..."
+                  required
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" onClick={() => { setModalDepartCenseurOuvert(false); setMotifDepartCenseur(''); }} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-danger">Envoyer la demande</button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -1011,6 +1117,36 @@ export default function CenseurDashboard() {
               </form>
             </div>
 
+            {demandesAffiliationEnseignants.length > 0 && (
+              <div style={{ backgroundColor: '#fefce8', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a', marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#854d0e', marginBottom: '12px' }}>👥 Demandes d'affiliation d'enseignants en attente</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {demandesAffiliationEnseignants.map(demande => (
+                    <div key={demande.id} style={styles.itemRow}>
+                      <div>
+                        <strong style={{ color: '#0f172a', fontSize: '14px' }}>
+                          {demande.utilisateurs_profils?.prenom} {demande.utilisateurs_profils?.nom}
+                        </strong>
+                        <br /><small>Souhaite rejoindre en tant qu'enseignant</small>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => approuverDemandeAffiliationEnseignant(demande)} className="bouton bouton-succes">Approuver</button>
+                        <button
+                          onClick={() => setModalConfirmation({
+                            ouvert: true,
+                            titre: '⚠️ Refuser cette demande ?',
+                            message: `Voulez-vous vraiment refuser la demande de ${demande.utilisateurs_profils?.prenom} ${demande.utilisateurs_profils?.nom} ?`,
+                            actionCallback: () => refuserDemandeAffiliationEnseignant(demande),
+                          })}
+                          className="bouton bouton-danger"
+                        >Refuser</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Ajouter un membre du personnel administratif</h3>
               <form onSubmit={ajouterPersonnelAdministratif} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -1137,6 +1273,24 @@ export default function CenseurDashboard() {
               <div><label style={styles.label}>Situation Géographique</label><p style={styles.pInfo}>{ecoleConfigGlobale.situationGeo}</p></div>
               <div><label style={styles.label}>Effectif Élèves</label><p style={{...styles.pInfo, color: '#16a34a'}}>{ecoleConfigGlobale.nombreEleves} élèves</p></div>
               <div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
+            </div>
+
+            <div style={{ backgroundColor: '#fef2f2', padding: '20px', borderRadius: '16px', border: '1px solid #fecaca' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#991b1b', marginBottom: '8px' }}>🚪 Quitter cet établissement</h3>
+              <p style={{ fontSize: '12px', color: '#7f1d1d', marginBottom: '12px' }}>Cette demande doit être validée par le chef d'établissement avant de prendre effet. Vous restez actif tant qu'elle n'est pas traitée.</p>
+              {demandeDepartCenseurEnCours ? (
+                <p style={{ fontSize: '12px', fontWeight: '800', color: '#991b1b' }}>⏳ Demande déjà envoyée, en attente de validation du chef.</p>
+              ) : (
+                <button
+                  onClick={() => setModalConfirmation({
+                    ouvert: true,
+                    titre: '⚠️ Quitter cet établissement ?',
+                    message: "Votre demande sera transmise au chef d'établissement pour validation. Voulez-vous continuer ?",
+                    actionCallback: () => setModalDepartCenseurOuvert(true),
+                  })}
+                  className="bouton bouton-danger"
+                >Demander à quitter l'établissement</button>
+              )}
             </div>
           </div>
         )}

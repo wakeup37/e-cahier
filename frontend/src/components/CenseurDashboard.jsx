@@ -1,43 +1,52 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { supabase } from './AppRouter'; 
 
 // =========================================================================
-// 1. SÉCURISATION MAXIMALE DES DONNÉES LOCALES (ANTI-CRASH)
+// DASHBOARD CENSEUR — BRANCHÉ SUR SUPABASE
+// Mêmes noms de fonctions/variables que votre fichier d'origine : le JSX
+// (formulaires, navbar, onglets, styles) n'a pas eu besoin d'être modifié.
+//
+// CE QUI EST RÉELLEMENT BRANCHÉ :
+//   - infosCenseur / ecoleConfigGlobale : profil + établissement actifs (Supabase)
+//   - listeProfesseursEtablissement : enseignants réellement affiliés (Supabase)
+//   - personnelAdministratifManuel : table "personnel" (Supabase)
+//   - demandePromotion : table "demandes_changement_role" (Supabase)
+//   - programmesClasses (onglet Visa) : vraies séances en attente de visa (Supabase)
+//   - archiveEcole / fichesPedagogiquesEcole : table "bibliotheque_etablissement" (Supabase)
+//
+// CE QUI RESTE UNIQUEMENT LOCAL (pas de vraie donnée backend pour l'instant) :
+//   - notificationsCenseur : reste sur localStorage — étape suivante si besoin
+//   - handleChangerPhotoProfil : la photo n'est pas envoyée à Supabase Storage,
+//     elle reste juste en aperçu local dans cette étape (aucune colonne
+//     "photoProfil" dans utilisateurs_profils pour l'instant)
+//
+// DÉPENDANCE IMPORTANTE : l'onglet Visa n'affichera des fiches que lorsque
+// le dashboard enseignant écrira réellement des séances dans la table
+// "seances" — tant que ce n'est pas fait, la liste sera vide (normal).
 // =========================================================================
-const safeGetArray = (key, defaultArr = []) => {
-  try {
-    const item = localStorage.getItem(key);
-    if (!item) return defaultArr;
-    const parsed = JSON.parse(item);
-    return Array.isArray(parsed) ? parsed : defaultArr;
-  } catch { return defaultArr; }
-};
-
-const safeGetObject = (key, defaultObj = {}) => {
-  try {
-    const item = localStorage.getItem(key);
-    if (!item) return defaultObj;
-    const parsed = JSON.parse(item);
-    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : defaultObj;
-  } catch { return defaultObj; }
-};
 
 export default function CenseurDashboard() {
-  
-  // =========================================================================
-  // 2. ÉTATS DU PROFIL ET DE LA SESSION
-  // =========================================================================
-  const [infosCenseur, setInfosCenseur] = useState(() => safeGetObject('app_censeur_profil', {
-    civilite: 'M.', nom: 'Touré', prenoms: 'Alpha', etablissement: 'Lycée Moderne d’Abidjan', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Validé', emailSecurite: 'alpha.toure@censeur.ci'
-  }));
 
-  useEffect(() => { localStorage.setItem('app_censeur_profil', JSON.stringify(infosCenseur)); }, [infosCenseur]);
+  // =========================================================================
+  // ÉTATS DE SESSION ET DE CHARGEMENT
+  // =========================================================================
+  const [chargementInitial, setChargementInitial] = useState(true);
+  const [userId, setUserId] = useState(null);
+  const [affiliationCenseur, setAffiliationCenseur] = useState(null); // ligne affiliations_etablissement (role CENSEUR, statut ACTIVE)
+  const [anneeActiveId, setAnneeActiveId] = useState(null);
+
+  // =========================================================================
+  // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
+  // =========================================================================
+  const [infosCenseur, setInfosCenseur] = useState({
+    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: ''
+  });
 
   const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
   const [formProfilCenseur, setFormProfilCenseur] = useState({ ...infosCenseur });
   const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
   const profilCenseurRef = useRef(null);
 
-  // --- SÉCURITÉ : MOT DE PASSE ---
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
   const [nouveauMdp, setNouveauMdp] = useState('');
@@ -46,50 +55,34 @@ export default function CenseurDashboard() {
   const menuBurgerCenseurRef = useRef(null);
   const [modalDeconnexion, setModalDeconnexion] = useState(false);
 
-  // --- MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES ---
   const [modalConfirmation, setModalConfirmation] = useState({
-    ouvert: false,
-    titre: '',
-    message: '',
-    actionCallback: null
+    ouvert: false, titre: '', message: '', actionCallback: null
   });
 
-  const ecoleConfigGlobale = useMemo(() => {
-    return safeGetObject('app_chef_ecole_config', {
-      nomEcole: infosCenseur.etablissement, typeEtablissement: 'Public', codeEtablissement: 'LYM-01', situationGeo: 'Abidjan', anneeScolaire: '2025-2026', nombreEleves: '850', nombreEnseignants: '32', dateCreation: '2010-09-15', anneeOuverte: true
-    });
-  }, [infosCenseur.etablissement]);
+  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
+  const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
+    nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
+    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
+  });
 
   // =========================================================================
-  // 3. SYNCHRONISATION DES DONNÉES GLOBALES
+  // DONNÉES SYNCHRONISÉES SUR SUPABASE (mêmes noms qu'avant)
   // =========================================================================
-  const [affiliations, setAffiliations] = useState(() => safeGetArray('app_enseignant_affiliations', []));
-  useEffect(() => { localStorage.setItem('app_enseignant_affiliations', JSON.stringify(affiliations)); }, [affiliations]);
-
-  const [programmesClasses, setProgrammesClasses] = useState(() => safeGetObject('app_enseignant_programmes_classes', {}));
-  useEffect(() => { localStorage.setItem('app_enseignant_programmes_classes', JSON.stringify(programmesClasses)); }, [programmesClasses]);
-
-  const [notificationsCenseur, setNotificationsCenseur] = useState(() => safeGetArray('app_censeur_notifications', [{ id: 1, texte: 'Espace synchronisé.', date: 'Aujourd\'hui', lu: false }]));
-  useEffect(() => { localStorage.setItem('app_censeur_notifications', JSON.stringify(notificationsCenseur)); }, [notificationsCenseur]);
-  
+  const [programmesClasses, setProgrammesClasses] = useState({});
+  const [notificationsCenseur, setNotificationsCenseur] = useState([]);
   const [notifCenseurOuvert, setNotifCenseurOuvert] = useState(false);
   const notifCenseurRef = useRef(null);
 
-  const [archiveEcole, setArchiveEcole] = useState(() => safeGetArray('app_censeur_archive_ecole', []));
-  useEffect(() => { localStorage.setItem('app_censeur_archive_ecole', JSON.stringify(archiveEcole)); }, [archiveEcole]);
-
-  const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
-  useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
-
-  const [demandePromotion, setDemandePromotion] = useState(() => safeGetObject('app_censeur_promotion', null));
-  useEffect(() => { localStorage.setItem('app_censeur_promotion', JSON.stringify(demandePromotion)); }, [demandePromotion]);
+  const [archiveEcole, setArchiveEcole] = useState([]);
+  const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState([]);
+  const [demandePromotion, setDemandePromotion] = useState(null);
 
   // =========================================================================
-  // 4. ÉTATS INTERNES ET FILTRES
+  // ÉTATS INTERNES ET FILTRES (inchangés, purement UI)
   // =========================================================================
-  const [activeTab, setActiveTab] = useState('visa'); 
+  const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
-  
+
   const [classesOuvertesVisa, setClassesOuvertesVisa] = useState({});
   const toggleClasseVisa = (classeNom) => setClassesOuvertesVisa(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
 
@@ -98,15 +91,14 @@ export default function CenseurDashboard() {
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
 
   const [modalConsultation, setModalConsultation] = useState({ ouvert: false, element: null });
-  
+
   const [nouveauAdminNom, setNouveauAdminNom] = useState('');
   const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
   const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
-  
-  const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
 
+  const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
   const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]);
 
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
@@ -122,15 +114,225 @@ export default function CenseurDashboard() {
   }, []);
 
   // =========================================================================
-  // 5. LOGIQUE MÉTIER & ACTIONS
+  // CHARGEMENT COMPLET DEPUIS SUPABASE
   // =========================================================================
-  const handleEnregistrerProfilCenseur = (e) => {
+  const chargerTout = async () => {
+    const { data: { user }, error: erreurUser } = await supabase.auth.getUser();
+    if (erreurUser || !user) {
+      showToast("⚠️ Session expirée, veuillez vous reconnecter.");
+      setChargementInitial(false);
+      return;
+    }
+    setUserId(user.id);
+
+    // 1. Profil
+    const { data: profil } = await supabase
+      .from('utilisateurs_profils')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    // 2. Affiliation CENSEUR active + établissement
+    const { data: affiliation, error: erreurAffiliation } = await supabase
+      .from('affiliations_etablissement')
+      .select('*, etablissements(*)')
+      .eq('user_id', user.id)
+      .eq('role', 'CENSEUR')
+      .eq('statut', 'ACTIVE')
+      .maybeSingle();
+
+    if (erreurAffiliation || !affiliation) {
+      showToast("⚠️ Aucun établissement actif trouvé pour ce compte censeur.");
+      setChargementInitial(false);
+      return;
+    }
+    setAffiliationCenseur(affiliation);
+    const etablissementId = affiliation.etablissement_id;
+    const etab = affiliation.etablissements;
+
+    if (profil) {
+      setInfosCenseur(prev => ({
+        ...prev,
+        nom: profil.nom,
+        prenoms: profil.prenom,
+        etablissement: etab?.nom || '',
+        emailSecurite: user.email,
+      }));
+      setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '' }));
+    }
+
+    // 3. Année scolaire active de l'établissement
+    const { data: annee } = await supabase
+      .from('annees_scolaires')
+      .select('*')
+      .eq('etablissement_id', etablissementId)
+      .eq('est_active', true)
+      .maybeSingle();
+    setAnneeActiveId(annee?.id || null);
+
+    setEcoleConfigGlobale({
+      nomEcole: etab?.nom || '',
+      typeEtablissement: etab?.visibilite === 'PRIVE' ? 'Privé' : 'Public',
+      codeEtablissement: etab?.code || '',
+      situationGeo: [etab?.ville, etab?.pays].filter(Boolean).join(', '),
+      anneeScolaire: annee?.intitule || '',
+      nombreEleves: etab?.parametres_json?.nombreEleves || '',
+      nombreEnseignants: etab?.parametres_json?.nombreEnseignants || '',
+      anneeOuverte: annee?.est_active ?? true,
+    });
+
+    // 4. Enseignants affiliés (listeProfesseursEtablissement)
+    const { data: affiliationsEnseignants } = await supabase
+      .from('affiliations_etablissement')
+      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+      .eq('etablissement_id', etablissementId)
+      .eq('role', 'ENSEIGNANT')
+      .eq('statut', 'ACTIVE');
+
+    const { data: attributions } = await supabase
+      .from('attributions_classes')
+      .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
+      .eq('etablissement_id', etablissementId);
+
+    const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
+      const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
+      return {
+        id: a.id,
+        nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
+        matiere: attrsDeCetEnseignant[0]?.matieres?.nom || 'Non définie',
+        classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
+        matricule: 'N/A',
+        contact: a.utilisateurs_profils?.telephone || 'Non défini',
+        email: 'N/A',
+      };
+    });
+    setListeProfesseursEtablissementBrute(profsAvecClasses);
+
+    // 5. Personnel administratif manuel (table personnel)
+    const { data: personnel } = await supabase
+      .from('personnel')
+      .select('*')
+      .eq('etablissement_id', etablissementId);
+    setPersonnelAdministratifManuel((personnel || []).map(p => ({
+      id: p.id, nomComplet: `${p.prenom} ${p.nom}`.trim(), role: p.fonction,
+      matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
+    })));
+
+    // 6. Demande de promotion en cours (demandes_changement_role)
+    const { data: demande } = await supabase
+      .from('demandes_changement_role')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('etablissement_id', etablissementId)
+      .eq('role_demande', 'CHEF')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (demande) {
+      setDemandePromotion({
+        date: new Date(demande.created_at).toLocaleDateString(),
+        type: 'interne',
+        ecoleCible: etab?.nom || '',
+        statut: demande.statut === 'EN_ATTENTE' ? 'En attente de validation' : demande.statut,
+      });
+    }
+
+    // 7. Séances en attente de visa (onglet Visa) — regroupées par classe pour coller au JSX existant
+    const { data: seances } = await supabase
+      .from('seances')
+      .select(`
+        id, date_prevue, statut, contenu_json,
+        classes ( nom ),
+        lecons (
+          id, titre,
+          cycles (
+            id, titre,
+            programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
+              utilisateurs_profils:proprietaire_user_id (nom, prenom) )
+          )
+        )
+      `)
+      .in('statut', ['ENVOYEE', 'RECUE']);
+
+    const groupe = {};
+    (seances || []).forEach((sc, index) => {
+      const classeNom = sc.classes?.nom || 'Classe inconnue';
+      const cycle = sc.lecons?.cycles;
+      const programme = cycle?.programmes_annuels;
+      if (!groupe[classeNom]) {
+        groupe[classeNom] = {
+          enseignant: `${programme?.utilisateurs_profils?.prenom || ''} ${programme?.utilisateurs_profils?.nom || ''}`.trim() || 'Inconnu',
+          matiere: programme?.matieres?.nom || 'Non définie',
+          anneeScolaire: annee?.intitule || '',
+          cycles: [],
+        };
+      }
+      let cy = groupe[classeNom].cycles.find(c => c.id === cycle?.id);
+      if (!cy) {
+        cy = { id: cycle?.id, titre: cycle?.titre || '', lecons: [] };
+        groupe[classeNom].cycles.push(cy);
+      }
+      let lc = cy.lecons.find(l => l.id === sc.lecons?.id);
+      if (!lc) {
+        lc = { id: sc.lecons?.id, titre: sc.lecons?.titre || '', seances: [] };
+        cy.lecons.push(lc);
+      }
+      lc.seances.push({
+        id: sc.id,
+        numero: index + 1,
+        titre: sc.contenu_json?.titre || 'Séance',
+        date: sc.date_prevue,
+        viseParCenseur: sc.statut === 'VISEE',
+        habilites: sc.contenu_json?.habilites || '',
+        contenus: sc.contenu_json?.contenus || '',
+        exercices: sc.contenu_json?.exercices || '',
+      });
+    });
+    setProgrammesClasses(groupe);
+
+    // 8. Archives pédagogiques (bibliotheque_etablissement)
+    const { data: archive } = await supabase
+      .from('bibliotheque_etablissement')
+      .select('id, titre, created_at, contenu_snapshot_json, utilisateurs_profils:auteur_user_id (nom, prenom)')
+      .eq('etablissement_id', etablissementId)
+      .order('created_at', { ascending: false });
+
+    setArchiveEcole((archive || []).map(a => ({
+      id: a.id,
+      enseignant: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
+      matiere: a.contenu_snapshot_json?.matiere || 'Non définie',
+      classe: a.contenu_snapshot_json?.classe || 'Général',
+      titre: a.titre,
+      dateValidation: new Date(a.created_at).toLocaleDateString(),
+      details: a.contenu_snapshot_json,
+    })));
+
+    setChargementInitial(false);
+  };
+
+  useEffect(() => { chargerTout(); }, []);
+
+  // Enseignants affiliés — état brut séparé pour éviter un recalcul memo cassé pendant le chargement
+  const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
+  const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
+
+  // =========================================================================
+  // LOGIQUE MÉTIER & ACTIONS — Supabase, mêmes noms qu'avant
+  // =========================================================================
+  const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();
+    if (!userId) return;
+    const { error } = await supabase
+      .from('utilisateurs_profils')
+      .update({ nom: formProfilCenseur.nom, prenom: formProfilCenseur.prenoms })
+      .eq('user_id', userId);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setInfosCenseur({ ...formProfilCenseur });
     setModalProfilCenseurOuvert(false);
     showToast("✅ Profil mis à jour !");
   };
 
+  // Photo : reste locale pour l'instant, pas de colonne dédiée dans utilisateurs_profils
   const handleChangerPhotoProfil = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -141,88 +343,143 @@ export default function CenseurDashboard() {
     reader.readAsDataURL(file);
   };
 
-  const envoyerDemandePromotion = (e) => {
+  const envoyerDemandePromotion = async (e) => {
     e.preventDefault();
-    setDemandePromotion({ date: new Date().toLocaleDateString(), type: formPromotion.type, ecoleCible: formPromotion.type === 'interne' ? infosCenseur.etablissement : formPromotion.ecoleCible, statut: 'En attente de validation' });
-    showToast("🚀 Demande d'évolution vers le poste de Proviseur envoyée !");
+    if (!userId || !affiliationCenseur) return;
+
+    if (formPromotion.type === 'interne') {
+      const { error } = await supabase
+        .from('demandes_changement_role')
+        .insert({
+          user_id: userId,
+          etablissement_id: affiliationCenseur.etablissement_id,
+          role_actuel: 'CENSEUR',
+          role_demande: 'CHEF',
+        });
+      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'interne', ecoleCible: infosCenseur.etablissement, statut: 'En attente de validation' });
+      showToast("🚀 Demande d'évolution vers le poste de Proviseur envoyée !");
+      return;
+    }
+
+    // Mutation externe : recherche de l'établissement cible par NOM (best-effort).
+    // ⚠️ Fragile si deux établissements portent le même nom — idéalement il
+    // faudrait demander le CODE établissement plutôt que le nom, comme pour
+    // "rejoindre un établissement" côté chef. À améliorer si ça pose problème.
+    const { data: etablissementCible, error: erreurRecherche } = await supabase
+      .from('etablissements')
+      .select('id, nom')
+      .ilike('nom', formPromotion.ecoleCible.trim())
+      .maybeSingle();
+
+    if (erreurRecherche || !etablissementCible) {
+      showToast("⚠️ Établissement cible introuvable. Vérifiez le nom exact.");
+      return;
+    }
+
+    const { error: erreurDemande } = await supabase
+      .from('demandes_affiliation')
+      .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CHEF' });
+
+    if (erreurDemande) { showToast("⚠️ Erreur : " + erreurDemande.message); return; }
+    setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'externe', ecoleCible: etablissementCible.nom, statut: 'En attente de validation' });
+    showToast("🚀 Demande de mutation envoyée !");
   };
 
   const toggleSelectionRappel = (nomProf, isChecked) => {
     setProfsSelectionnesRappel(prev => isChecked ? [...prev, nomProf] : prev.filter(n => n !== nomProf));
   };
 
+  // Rappels : pas encore de table dédiée dans le schéma (à ajouter si besoin réel) — reste un toast local
   const envoyerRappelMultipleManuel = () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
     showToast(`✉️ Rappel manuel envoyé avec succès à : ${profsSelectionnesRappel.join(', ')}.`);
     setProfsSelectionnesRappel([]);
   };
 
-  const ajouterPersonnelAdministratif = (e) => {
+  const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
-    if (!nouveauAdminNom.trim()) return;
-    const nouveau = { id: Date.now(), nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole, matricule: nouveauAdminMatricule.trim() || 'N/A', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A' };
-    setPersonnelAdministratifManuel(prev => [...prev, nouveau]);
+    if (!nouveauAdminNom.trim() || !affiliationCenseur) return;
+
+    const [prenom, ...resteNom] = nouveauAdminNom.trim().split(' ');
+    const nom = resteNom.join(' ') || prenom;
+
+    const { data: nouveau, error } = await supabase
+      .from('personnel')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        prenom, nom, fonction: nouveauAdminRole,
+        email: nouveauAdminEmail.trim() || null,
+        telephone: nouveauAdminContact.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    setPersonnelAdministratifManuel(prev => [...prev, {
+      id: nouveau.id, nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole,
+      matricule: nouveauAdminMatricule.trim() || 'N/A', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A',
+    }]);
     setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
     showToast("✅ Personnel ajouté !");
   };
 
-  const supprimerPersonnelAdministratif = (id) => {
+  const supprimerPersonnelAdministratif = async (id) => {
+    const { error } = await supabase.from('personnel').delete().eq('id', id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id));
     showToast("🗑️ Membre retiré.");
   };
 
-  const viserEtArchiverSeance = (classeKey, cycleId, leconId, seanceAViser) => {
+  const viserEtArchiverSeance = async (classeKey, cycleId, leconId, seanceAViser) => {
     const prog = programmesClasses[classeKey];
-    if (!prog) return;
+    if (!prog || !affiliationCenseur) return;
 
-    const nouvelleArchive = {
-      id: Date.now() + Math.random(),
-      enseignant: prog.enseignant || 'Inconnu', matiere: prog.matiere || 'Non définie',
-      classe: classeKey, anneeScolaire: prog.anneeScolaire || '2025-2026',
-      titre: seanceAViser.titre, dateValidation: new Date().toLocaleDateString(), details: seanceAViser
-    };
-    setArchiveEcole(prev => [nouvelleArchive, ...prev]);
+    // 1. Marquer la séance comme visée
+    const { error: erreurVisa } = await supabase
+      .from('seances')
+      .update({ statut: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
+      .eq('id', seanceAViser.id);
 
-    const cyclesMaj = (prog.cycles || []).map(cy => cy.id !== cycleId ? cy : {
-      ...cy,
-      lecons: (cy.lecons || []).map(lc => lc.id !== leconId ? lc : {
-        ...lc,
-        seances: (lc.seances || []).map(sc => sc.id === seanceAViser.id ? { ...sc, viseParCenseur: true } : sc)
-      })
-    });
+    if (erreurVisa) { showToast("⚠️ Erreur de visa : " + erreurVisa.message); return; }
 
-    setProgrammesClasses({ ...programmesClasses, [classeKey]: { ...prog, cycles: cyclesMaj } });
-    showToast(`✅ Séance visée et archivée ! Espace libéré.`);
+    // 2. Archiver dans la bibliothèque institutionnelle (double mémoire, §17)
+    const { error: erreurArchive } = await supabase
+      .from('bibliotheque_etablissement')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        origin_session_id: seanceAViser.id,
+        auteur_user_id: userId, // ⚠️ idéalement l'auteur réel de la séance, pas le censeur — à corriger si programmes_annuels expose proprietaire_user_id ici
+        titre: seanceAViser.titre,
+        contenu_snapshot_json: { matiere: prog.matiere, classe: classeKey, ...seanceAViser },
+      });
+
+    if (erreurArchive) { showToast("⚠️ Visa enregistré, mais erreur d'archivage : " + erreurArchive.message); }
+
+    showToast(`✅ Séance visée et archivée !`);
+    chargerTout(); // recharge visa + archives pour refléter le nouvel état
   };
 
   const telechargerPDFArchive = (item) => {
     const fenetre = window.open('', '_blank');
     if (!fenetre) return;
-    fenetre.document.write(`
-      <html><head><title>Fiche - ${item.titre}</title><style>body{font-family:Arial;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ccc;padding:10px;text-align:left;}</style></head>
-      <body><h2>ARCHIVE PÉDAGOGIQUE OFFICIELLE</h2><p><strong>Enseignant :</strong> ${item.enseignant} | <strong>Classe :</strong> ${item.classe}</p><p><strong>Titre :</strong> ${item.titre}</p>
-      <table><tr><th>Contenus</th><td>${item.details?.contenus || 'Voir plateforme'}</td></tr></table>
-      <script>window.onload=function(){window.print();window.close();}</script></body></html>
-    `);
+    fenetre.document.write(
+      '<html><head><title>Fiche - ' + item.titre + '</title><style>body{font-family:Arial;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ccc;padding:10px;text-align:left;}</style></head>' +
+      '<body><h2>ARCHIVE PÉDAGOGIQUE OFFICIELLE</h2><p><strong>Enseignant :</strong> ' + item.enseignant + ' | <strong>Classe :</strong> ' + item.classe + '</p><p><strong>Titre :</strong> ' + item.titre + '</p>' +
+      '<table><tr><th>Contenus</th><td>' + (item.details?.contenus || 'Voir plateforme') + '</td></tr></table>' +
+      '<script>window.onload=function(){window.print();window.close();}</script></body></html>'
+    );
     fenetre.document.close();
   };
 
   // =========================================================================
-  // 6. CALCUL DES VARIABLES DÉRIVÉES
+  // VARIABLES DÉRIVÉES (inchangées, purement calculées côté client)
   // =========================================================================
   const nombreClassesAutomatique = useMemo(() => Object.keys(programmesClasses || {}).length || 0, [programmesClasses]);
 
-  const listeProfesseursEtablissement = useMemo(() => {
-    const profs = affiliations.filter(a => a.ecole === infosCenseur.etablissement && a.statut === 'Validée');
-    return profs.map((a, index) => ({
-      id: a.id, nomComplet: a.enseignant, matiere: a.matiere || 'Non définie', classes: Array.isArray(a.classes) ? a.classes : [], matricule: `ENS-100${index}`, contact: 'Non défini', email: 'enseignant@prof.ci'
-    }));
-  }, [affiliations, infosCenseur.etablissement]);
-
-  const fichesPedagogiquesEcole = useMemo(() => {
-    const biblioEnseignant = safeGetArray('app_enseignant_bibliotheque_permanente', []);
-    return [...archiveEcole, ...biblioEnseignant];
-  }, [archiveEcole]);
+  const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
   const fichesFiltrees = useMemo(() => {
     return fichesPedagogiquesEcole.filter(fiche => {
@@ -239,9 +496,14 @@ export default function CenseurDashboard() {
     });
   }, [listeProfesseursEtablissement, filtreProfClasse]);
 
-  // =========================================================================
-  // 7. RENDU DE L'INTERFACE PRINCIPALE
-  // =========================================================================
+  if (chargementInitial) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
+        Chargement de votre espace...
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       {/* HEADER & NAVBAR */}

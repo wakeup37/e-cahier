@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { supabase } from './AppRouter'; 
 
 // =========================================================================
-// SÉCURISATION DES DONNÉES LOCALES (ANTI-CRASH)
+// ÉTAPE 1/N — ÉTABLISSEMENT + PROFIL CHEF BRANCHÉS SUR SUPABASE
+// Ce qui a changé par rapport à votre fichier :
+//   - ecoleConfig ne vient plus de localStorage, mais de la vraie affiliation
+//     ACTIVE du chef connecté (table affiliations_etablissement + etablissements)
+//   - infosChef vient de utilisateurs_profils, plus de localStorage
+//   - handleCreerOuConnecterEcole fait un vrai insert Supabase
+// Ce qui n'est PAS encore branché dans cette étape (encore en localStorage,
+// on les fait dans les étapes suivantes) : censeursAffiliations, rapports,
+// notifications, archives, fichiers administratifs, personnel manuel,
+// liste des professeurs, fiches pédagogiques.
 // =========================================================================
+
 const safeGetArray = (key, defaultArr = []) => {
   try {
     const item = localStorage.getItem(key);
@@ -12,21 +23,15 @@ const safeGetArray = (key, defaultArr = []) => {
   } catch { return defaultArr; }
 };
 
-const safeGetObject = (key, defaultObj = {}) => {
-  try {
-    const item = localStorage.getItem(key);
-    if (!item) return defaultObj;
-    const parsed = JSON.parse(item);
-    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : defaultObj;
-  } catch { return defaultObj; }
-};
-
 export default function ChefEtablissementDashboard() {
-  
+
   // --- ÉTATS GLOBAUX ---
-  const [ecoleConfig, setEcoleConfig] = useState(() => safeGetObject('app_chef_ecole_config', null));
-  const [modeSetup, setModeSetup] = useState('CHOIX'); 
-  
+  const [chargementInitial, setChargementInitial] = useState(true);
+  const [userId, setUserId] = useState(null);
+  const [affiliationChef, setAffiliationChef] = useState(null); // ligne affiliations_etablissement (role CHEF, statut ACTIVE)
+  const [ecoleConfig, setEcoleConfig] = useState(null);          // ligne etablissements correspondante
+  const [modeSetup, setModeSetup] = useState('CHOIX');
+
   const [inputNomEcole, setInputNomEcole] = useState('');
   const [inputTypeEtablissement, setInputTypeEtablissement] = useState('public');
   const [inputCodeEtablissement, setInputCodeEtablissement] = useState('');
@@ -34,18 +39,11 @@ export default function ChefEtablissementDashboard() {
   const [inputAnneeScolaire, setInputAnneeScolaire] = useState('2025-2026');
   const [inputNombreEleves, setInputNombreEleves] = useState('450');
   const [inputNombreEnseignants, setInputNombreEnseignants] = useState('25');
-  const [inputDateCreation, setInputDateCreation] = useState('2010-09-15');
   const [inputEmailRecuperation, setInputEmailRecuperation] = useState('');
 
-  const [infosChef, setInfosChef] = useState(() => safeGetObject('app_chef_profil', {
-    civilite: 'M.', nom: 'Koffi', prenoms: 'Bernard', etablissement: '', role: 'Chef d’Établissement', photoProfil: '', emailSecurite: 'bernard.koffi@chef.ci'
-  }));
-
-  useEffect(() => { localStorage.setItem('app_chef_profil', JSON.stringify(infosChef)); }, [infosChef]);
-  useEffect(() => { 
-    if (ecoleConfig) localStorage.setItem('app_chef_ecole_config', JSON.stringify(ecoleConfig)); 
-    else localStorage.removeItem('app_chef_ecole_config');
-  }, [ecoleConfig]);
+  const [infosChef, setInfosChef] = useState({
+    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Chef d\u2019Établissement', photoProfil: '', emailSecurite: ''
+  });
 
   const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
   const [formProfilChef, setFormProfilChef] = useState({ ...infosChef });
@@ -64,47 +62,261 @@ export default function ChefEtablissementDashboard() {
 
   const [modalConfirmationActionAnnee, setModalConfirmationActionAnnee] = useState({ ouvert: false, actionType: null });
   const [modeEditionEcole, setModeEditionEcole] = useState(false);
-  const [formEcoleEdition, setFormEcoleEdition] = useState(ecoleConfig || {});
+  const [formEcoleEdition, setFormEcoleEdition] = useState({});
 
-  const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', [
-    { id: 1, nomComplet: 'M. Touré Alpha', email: 'toure.alpha@ecole.ci', niveauCharge: '6ème', statut: 'En attente' }
-  ]));
-  useEffect(() => { localStorage.setItem('app_chef_censeurs_affiliations', JSON.stringify(censeursAffiliations)); }, [censeursAffiliations]);
-
+  // --- CE QUI RESTE EN LOCALSTORAGE POUR L'INSTANT (étapes suivantes) ---
+  const [censeursAffiliations, setCenseursAffiliations] = useState(() => safeGetArray('app_chef_censeurs_affiliations', []));
   const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
-  const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', [
-    { id: 1, texte: 'Bienvenue sur votre tableau de bord du réseau de l’établissement.', date: 'Aujourd’hui', lu: false }
-  ]));
-  useEffect(() => { localStorage.setItem('app_chef_notifications', JSON.stringify(notificationsChef)); }, [notificationsChef]);
-
+  const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', []));
   const [notifChefOuvert, setNotifChefOuvert] = useState(false);
   const notifChefRef = useRef(null);
-
   const [archivesHistoriques, setArchivesHistoriques] = useState(() => safeGetArray('app_chef_archives_historiques', []));
-  useEffect(() => { localStorage.setItem('app_chef_archives_historiques', JSON.stringify(archivesHistoriques)); }, [archivesHistoriques]);
-
   const [fichiersAdministratifsUploads, setFichiersAdministratifsUploads] = useState(() => safeGetArray('app_chef_fichiers_admin', []));
-  useEffect(() => { localStorage.setItem('app_chef_fichiers_admin', JSON.stringify(fichiersAdministratifsUploads)); }, [fichiersAdministratifsUploads]);
-
   const [personnelAdministratifManuel, setPersonnelAdministratifManuel] = useState(() => safeGetArray('app_chef_personnel_admin_manuel', []));
-  useEffect(() => { localStorage.setItem('app_chef_personnel_admin_manuel', JSON.stringify(personnelAdministratifManuel)); }, [personnelAdministratifManuel]);
-
   const [nouveauAdminNom, setNouveauAdminNom] = useState('');
   const [nouveauAdminRole, setNouveauAdminRole] = useState('Éducateur');
   const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
-
   const [nomNouveauFichier, setNomNouveauFichier] = useState('');
   const [anneeFichier, setAnneeFichier] = useState('2025-2026');
   const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
-
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
-  const [anneeArchiveSelectionnee, setAnneeArchiveSelectionnee] = useState('TOUTES');
 
+  const [message, setMessage] = useState('');
+  const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
+
+  // =========================================================================
+  // CHARGEMENT INITIAL — remplace tous les safeGetObject('app_chef_...')
+  // =========================================================================
+  useEffect(() => {
+    const chargerDonnees = async () => {
+      const { data: { user }, error: erreurUser } = await supabase.auth.getUser();
+      if (erreurUser || !user) {
+        showToast("⚠️ Session expirée, veuillez vous reconnecter.");
+        setChargementInitial(false);
+        return;
+      }
+      setUserId(user.id);
+
+      // 1. Profil (utilisateurs_profils)
+      const { data: profil, error: erreurProfil } = await supabase
+        .from('utilisateurs_profils')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (erreurProfil) {
+        showToast("⚠️ Impossible de charger le profil : " + erreurProfil.message);
+      } else if (profil) {
+        setInfosChef(prev => ({
+          ...prev,
+          nom: profil.nom,
+          prenoms: profil.prenom,
+          emailSecurite: user.email,
+        }));
+        setFormProfilChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom }));
+      }
+
+      // 2. Affiliation CHEF active (affiliations_etablissement)
+      const { data: affiliation, error: erreurAffiliation } = await supabase
+        .from('affiliations_etablissement')
+        .select('*, etablissements(*)')
+        .eq('user_id', user.id)
+        .eq('role', 'CHEF')
+        .eq('statut', 'ACTIVE')
+        .maybeSingle();
+
+      if (erreurAffiliation) {
+        showToast("⚠️ Erreur de chargement de l'établissement : " + erreurAffiliation.message);
+      } else if (affiliation) {
+        setAffiliationChef(affiliation);
+        setEcoleConfig(affiliation.etablissements);
+        setFormEcoleEdition(affiliation.etablissements);
+        setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
+      }
+      // Si affiliation est null : le chef n'a pas encore d'établissement actif
+      // → on reste sur l'écran de setup (CHOIX/CREER/CONNECTER), comportement identique à avant.
+
+      setChargementInitial(false);
+    };
+
+    chargerDonnees();
+  }, []);
+
+  // =========================================================================
+  // CRÉATION / CONNEXION À UN ÉTABLISSEMENT — remplace handleCreerOuConnecterEcole
+  // =========================================================================
+  const handleCreerEcole = async (e) => {
+    e.preventDefault();
+    if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
+    if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
+
+    // 1. Créer l'établissement
+    const { data: nouvelEtablissement, error: erreurEtab } = await supabase
+      .from('etablissements')
+      .insert({
+        code: inputCodeEtablissement.trim() || `ETAB-${Date.now()}`,
+        nom: inputNomEcole.trim(),
+        pays: inputSituationGeo.trim() || null,
+        visibilite: inputTypeEtablissement === 'prive' ? 'PRIVE' : 'PUBLIC',
+        parametres_json: {
+          nombreEleves: inputNombreEleves,
+          nombreEnseignants: inputNombreEnseignants,
+        },
+      })
+      .select()
+      .single();
+
+    if (erreurEtab) {
+      // Cas fréquent : le "code" existe déjà (contrainte unique) → message clair au lieu de l'erreur brute
+      if (erreurEtab.code === '23505') {
+        showToast("⚠️ Ce code établissement est déjà utilisé, choisissez-en un autre.");
+      } else {
+        showToast("⚠️ Erreur création établissement : " + erreurEtab.message);
+      }
+      return;
+    }
+
+    // 2. Créer l'année scolaire de départ
+    const { data: nouvelleAnnee, error: erreurAnnee } = await supabase
+      .from('annees_scolaires')
+      .insert({
+        etablissement_id: nouvelEtablissement.id,
+        intitule: inputAnneeScolaire.trim() || '2025-2026',
+        est_active: true,
+      })
+      .select()
+      .single();
+
+    if (erreurAnnee) {
+      showToast("⚠️ Établissement créé, mais erreur sur l'année scolaire : " + erreurAnnee.message);
+    }
+
+    // 3. Créer l'affiliation CHEF active pour l'utilisateur courant
+    const { data: nouvelleAffiliation, error: erreurAffiliation } = await supabase
+      .from('affiliations_etablissement')
+      .insert({
+        user_id: userId,
+        etablissement_id: nouvelEtablissement.id,
+        role: 'CHEF',
+        statut: 'ACTIVE',
+        date_debut: new Date().toISOString().slice(0, 10),
+      })
+      .select('*, etablissements(*)')
+      .single();
+
+    if (erreurAffiliation) {
+      // Cas possible : l'utilisateur est déjà chef actif ailleurs (contrainte un_seul_chef_actif_par_user)
+      if (erreurAffiliation.code === '23505') {
+        showToast("⚠️ Vous êtes déjà chef actif d'un autre établissement. Un chef ne peut diriger qu'un seul établissement à la fois.");
+      } else {
+        showToast("⚠️ Erreur d'affiliation : " + erreurAffiliation.message);
+      }
+      return;
+    }
+
+    setAffiliationChef(nouvelleAffiliation);
+    setEcoleConfig(nouvelleAffiliation.etablissements);
+    setFormEcoleEdition(nouvelleAffiliation.etablissements);
+    setInfosChef(prev => ({ ...prev, etablissement: nouvelleAffiliation.etablissements?.nom }));
+    showToast("🏫 Établissement créé !");
+  };
+
+  const handleConnecterEcole = async (e) => {
+    e.preventDefault();
+    if (!inputNomEcole.trim() || !inputCodeEtablissement.trim()) {
+      showToast("⚠️ Nom et code établissement requis.");
+      return;
+    }
+    if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
+
+    // Rejoindre un établissement existant = demande d'affiliation (jamais d'accès direct, §9 de l'architecture)
+    const { data: etablissementCible, error: erreurRecherche } = await supabase
+      .from('etablissements')
+      .select('id, nom')
+      .eq('code', inputCodeEtablissement.trim())
+      .maybeSingle();
+
+    if (erreurRecherche || !etablissementCible) {
+      showToast("⚠️ Aucun établissement trouvé avec ce code.");
+      return;
+    }
+
+    const { error: erreurDemande } = await supabase
+      .from('demandes_affiliation')
+      .insert({
+        user_id: userId,
+        etablissement_id: etablissementCible.id,
+        role_demande: 'CHEF',
+      });
+
+    if (erreurDemande) {
+      showToast("⚠️ Erreur d'envoi de la demande : " + erreurDemande.message);
+      return;
+    }
+
+    showToast(`📨 Demande envoyée pour "${etablissementCible.nom}". En attente d'approbation.`);
+    setModeSetup('CHOIX');
+  };
+
+  const handleEnregistrerCarteEcole = async (e) => {
+    e.preventDefault();
+    if (!ecoleConfig?.id) return;
+
+    const { data: etablissementMaj, error } = await supabase
+      .from('etablissements')
+      .update({
+        nom: formEcoleEdition.nom,
+        code: formEcoleEdition.code,
+      })
+      .eq('id', ecoleConfig.id)
+      .select()
+      .single();
+
+    if (error) {
+      showToast("⚠️ Erreur de mise à jour : " + error.message);
+      return;
+    }
+
+    setEcoleConfig(etablissementMaj);
+    setModeEditionEcole(false);
+    showToast("✅ Carte d'identité de l'établissement mise à jour !");
+  };
+
+  const handleEnregistrerProfilChef = async (e) => {
+    e.preventDefault();
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('utilisateurs_profils')
+      .update({
+        nom: formProfilChef.nom,
+        prenom: formProfilChef.prenoms,
+      })
+      .eq('user_id', userId);
+
+    if (error) {
+      showToast("⚠️ Erreur de mise à jour du profil : " + error.message);
+      return;
+    }
+
+    setInfosChef({ ...formProfilChef });
+    setModalProfilChefOuvert(false);
+    showToast("✅ Profil mis à jour avec succès !");
+  };
+
+  // --- Écran de chargement, le temps de vérifier la session et l'affiliation ---
+  if (chargementInitial) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
+        Chargement de votre espace...
+      </div>
+    );
+  }
   const nombreClassesAutomatique = useMemo(() => {
     try {
       const programmes = JSON.parse(localStorage.getItem('app_enseignant_programmes_classes')) || {};
@@ -159,9 +371,6 @@ export default function ChefEtablissementDashboard() {
       totalPersonnesConnectees: censeursValidesCount + listeProfesseursEtablissement.length + personnelAdministratifManuel.length
     };
   }, [censeursAffiliations, nombreClassesAutomatique, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
-
-  const [message, setMessage] = useState('');
-  const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -225,25 +434,7 @@ export default function ChefEtablissementDashboard() {
     showToast(`📥 Document "${titre}" prêt !`);
   };
 
-  const handleCreerOuConnecterEcole = (e, type) => {
-    e.preventDefault();
-    if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
-    const fraisCreation = type === 'CREER' ? (inputTypeEtablissement === 'prive' ? '50 000 FCFA' : '25 000 FCFA') : 'Gratuit (Connexion)';
-    const nouvelleConfig = {
-      nomEcole: inputNomEcole.trim(), typeEtablissement: type === 'CREER' ? inputTypeEtablissement : 'inconnu', codeEtablissement: inputCodeEtablissement.trim() || 'ETAB-001', situationGeo: inputSituationGeo.trim() || 'Non renseignée', anneeScolaire: inputAnneeScolaire.trim() || '2025-2026', nombreEleves: inputNombreEleves, nombreEnseignants: inputNombreEnseignants, dateCreation: inputDateCreation, anneeOuverte: true, fraisPayes: fraisCreation
-    };
-    setEcoleConfig(nouvelleConfig);
-    setFormEcoleEdition(nouvelleConfig);
-    setInfosChef(prev => ({ ...prev, etablissement: nouvelleConfig.nomEcole }));
-    showToast(type === 'CREER' ? `🏫 Établissement créé !` : "🔗 Connecté avec succès !");
-  };
 
-  const handleEnregistrerCarteEcole = (e) => {
-    e.preventDefault();
-    setEcoleConfig(formEcoleEdition);
-    setModeEditionEcole(false);
-    showToast("✅ Carte d'identité de l'établissement mise à jour !");
-  };
 
   const executerActionAnneeScolaire = () => {
     const { actionType } = modalConfirmationActionAnnee;
@@ -289,12 +480,6 @@ export default function ChefEtablissementDashboard() {
     showToast("📎 Fichier stocké avec succès !");
   };
 
-  const handleEnregistrerProfilChef = (e) => {
-    e.preventDefault();
-    setInfosChef({ ...formProfilChef });
-    setModalProfilChefOuvert(false);
-    showToast("✅ Profil et photo mis à jour avec succès !");
-  };
 
   const handleChangerPhotoProfilChef = (e) => {
     const file = e.target.files[0];
@@ -324,7 +509,7 @@ export default function ChefEtablissementDashboard() {
           )}
 
           {modeSetup === 'CONNECTER' && (
-            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CONNECTER')} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form onSubmit={handleConnecterEcole} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
               
               <div>
@@ -350,7 +535,7 @@ export default function ChefEtablissementDashboard() {
           )}
 
           {modeSetup === 'CREER' && (
-            <form onSubmit={(e) => handleCreerOuConnecterEcole(e, 'CREER')} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <form onSubmit={handleCreerEcole} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div><label style={styles.label}>Type d'établissement</label><select value={inputTypeEtablissement} onChange={(e) => setInputTypeEtablissement(e.target.value)} style={styles.inputStyle}><option value="public">Public (25 000 FCFA)</option><option value="prive">Privé (50 000 FCFA)</option></select></div>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Code</label><input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Année</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div></div>
@@ -814,6 +999,6 @@ const styles = {
   fondModale: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: '1000', padding: '12px', boxSizing: 'border-box' },
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '1px 4px', borderRadius: '999px', fontSize: '9px', fontWeight: '800', position: 'absolute', top: '-4px', right: '-4px' },
   burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
-  boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '10px 18px', borderRadius: '12px', fontWeight: '900', fontSize: '13px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(22,163,74,0.3)' },
+  boutonPuissantOuvrir: { background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: '#ffffff', border: 'none', padding: '10px 18px', borderRadius: '12px', fontWeight: '900', fontSize: '13px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(220,38,38,0.3)' },
   boutonPuissantFermer: { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#ffffff', border: 'none', padding: '10px 18px', borderRadius: '12px', fontWeight: '900', fontSize: '13px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }
 };

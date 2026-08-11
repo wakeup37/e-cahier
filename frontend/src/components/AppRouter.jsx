@@ -5,31 +5,43 @@ import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 
-// Initialisation de Supabase[span_0](start_span)[span_0](end_span)
+// =========================================================================
+// APPROUTER - NETTOYÉ ET OPTIMISÉ
+// L'authentification et le routage sont gérés ici.
+// Les états locaux obsolètes (seances, bibliotheque...) ont été retirés 
+// car les dashboards sont désormais autonomes et connectés à Supabase.
+// =========================================================================
+
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Génère un code établissement lisible et raisonnablement unique
+const genererCodeEtablissement = (nom) => {
+  const base = nom.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'ETAB';
+  const suffixe = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${base}-${suffixe}`;
+};
+
 export default function AppRouter() {
-  const [userRole, setUserRole] = useState(''); 
+  const [userRole, setUserRole] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
-  
+
   const [afficherMdp, setAfficherMdp] = useState(false);
-  const [afficherMdpEtablissement, setAfficherMdpEtablissement] = useState(false);
-  
+
   const [etapeChoixEtablissement, setEtapeChoixEtablissement] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix');
   const [nomEcoleSaisi, setNomEcoleSaisi] = useState('');
   const [typeEcoleSaisi, setTypeEcoleSaisi] = useState('public');
   const [anneeCreationSaisie, setAnneeCreationSaisie] = useState('');
-  const [emailEtablissementSaisi, setEmailEtablissementSaisi] = useState('');
-  const [mdpEtablissementSaisi, setMdpEtablissementSaisi] = useState('');
-  
-  const [etapeAuth, setEtapeAuth] = useState(null); 
-  const [modeAuth, setModeAuth] = useState('connexion'); 
+  const [codeEtablissementSaisi, setCodeEtablissementSaisi] = useState('');
+
+  const [etapeAuth, setEtapeAuth] = useState(null);
+  const [modeAuth, setModeAuth] = useState('connexion');
   const [modeMdpOublieAuth, setModeMdpOublieAuth] = useState(false);
-  
+
   const [genreSaisi, setGenreSaisi] = useState('M.');
   const [nomSaisi, setNomSaisi] = useState('');
   const [prenomsSaisi, setPrenomsSaisi] = useState('');
@@ -40,17 +52,9 @@ export default function AppRouter() {
 
   const [notification, setNotification] = useState('');
 
-  const [demandesAffiliation, setDemandesAffiliation] = useState([]);
-  const [seances, setSeances] = useState([]);
-  const [bibliotheque, setBibliotheque] = useState([]);
-  const [enseignantsSansFiche] = useState([
-    { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
-  ]);
-
   const gererSaisieDateNaissance = (e) => {
     let valeur = e.target.value.replace(/\D/g, '');
     if (valeur.length > 8) valeur = valeur.slice(0, 8);
-
     if (valeur.length > 4) {
       valeur = `${valeur.slice(0, 2)}/${valeur.slice(2, 4)}/${valeur.slice(4)}`;
     } else if (valeur.length > 2) {
@@ -60,11 +64,8 @@ export default function AppRouter() {
   };
 
   const gererDeconnexionGlobale = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error("Erreur lors de la déconnexion Supabase", err);
-    }
+    try { await supabase.auth.signOut(); }
+    catch (err) { console.error("Erreur lors de la déconnexion Supabase", err); }
     setUserRole('');
     setSessionUser(null);
     setProfilUtilisateur(null);
@@ -100,28 +101,30 @@ export default function AppRouter() {
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (profilError) {
-        console.warn("Avis chargement profil:", profilError.message);
-      }
+      if (profilError) console.warn("Avis chargement profil:", profilError.message);
+      if (profil) setProfilUtilisateur(profil);
 
-      if (profil) {
-        setProfilUtilisateur(profil);
-        setUserRole(profil.role);
-        if (profil.role === 'chef') {
+      const { data: affiliationsActives } = await supabase
+        .from('affiliations_etablissement')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('statut', 'ACTIVE');
+
+      const roles = (affiliationsActives || []).map(a => a.role);
+      let roleDetecte = '';
+      if (roles.includes('CHEF')) roleDetecte = 'chef';
+      else if (roles.includes('CENSEUR')) roleDetecte = 'censeur';
+      else if (roles.includes('ENSEIGNANT')) roleDetecte = 'enseignant';
+      else roleDetecte = profil?.preferences_json?.role_signup || '';
+
+      if (roleDetecte) {
+        setUserRole(roleDetecte);
+        if (roleDetecte === 'chef' && !roles.includes('CHEF')) {
           setEtapeChoixEtablissement(true);
         }
       }
-
-      const { data: resSeances } = await supabase.from('seances').select('*');
-      const { data: resBiblio } = await supabase.from('bibliotheque').select('*');
-      const { data: resDemandes } = await supabase.from('demandes_affiliation').select('*');
-
-      if (resSeances) setSeances(resSeances);
-      if (resBiblio) setBibliotheque(resBiblio);
-      if (resDemandes) setDemandesAffiliation(resDemandes);
-
     } catch (err) {
-      console.error("Erreur lors du chargement des données Supabase", err);
+      console.error("Erreur lors du chargement du profil Supabase", err);
     }
   };
 
@@ -131,17 +134,14 @@ export default function AppRouter() {
   };
 
   const handleLoginRouter = (role) => {
-    setEtapeAuth(role); 
+    setEtapeAuth(role);
     setModeAuth('connexion');
     setModeMdpOublieAuth(false);
   };
 
   const gererMotDePasseOublieAuth = async (e) => {
     e.preventDefault();
-    if (!emailSaisi) {
-      afficherNotification("⚠️ Veuillez entrer votre e-mail.");
-      return;
-    }
+    if (!emailSaisi) { afficherNotification("⚠️ Veuillez entrer votre e-mail."); return; }
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(emailSaisi.trim(), {
         redirectTo: window.location.origin,
@@ -186,25 +186,25 @@ export default function AppRouter() {
         if (error) throw error;
 
         if (data?.user) {
-          // Conversion automatique de JJ/MM/AAAA en AAAA-MM-JJ pour Supabase
           let datePartita = dateNaissanceSaisie.trim().split('/');
           let dateFormatee = dateNaissanceSaisie.trim();
           if (datePartita.length === 3) {
             dateFormatee = `${datePartita[2]}-${datePartita[1]}-${datePartita[0]}`;
           }
 
-          const { error: profileError } = await supabase.from('utilisateurs_profils').insert([
-            { 
-              user_id: data.user.id, 
-              email: emailNettoye, 
-              role: roleActuel,
-              genre: genreSaisi,
+          const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
+            {
+              user_id: data.user.id,
               nom: nomSaisi.trim(),
-              prenoms: prenomsSaisi.trim(),
-              date_naissance: dateFormatee,
-              matiere: roleActuel === 'enseignant' ? matiereSaisie.trim() : null
+              prenom: prenomsSaisi.trim(),
+              preferences_json: {
+                genre: genreSaisi,
+                date_naissance: dateFormatee,
+                matiere: roleActuel === 'enseignant' ? matiereSaisie.trim() : null,
+                role_signup: roleActuel,
+              },
             }
-          ]);
+          ], { onConflict: 'user_id' });
           if (profileError) throw profileError;
         }
 
@@ -223,56 +223,94 @@ export default function AppRouter() {
         if (error) throw error;
         afficherNotification("🔓 Connexion réussie !");
       }
-      
+
       setUserRole(roleActuel);
-      if (roleActuel === 'chef') {
-        setEtapeChoixEtablissement(true);
-      }
       setEtapeAuth(null);
-      
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setSessionUser(session.user);
-        chargerProfilEtDonnees(session.user.id);
+        await chargerProfilEtDonnees(session.user.id);
+        if (roleActuel === 'chef') setEtapeChoixEtablissement(true);
       }
     } catch (err) {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré. Veuillez vous connecter.";
+        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support pour nettoyer ce compte, ou utilisez un autre e-mail.";
       }
       afficherNotification("❌ " + messageErreur);
     }
   };
 
   const gererEtablissementChef = async (action) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { afficherNotification("⚠️ Session invalide, reconnectez-vous."); return; }
+
     if (action === 'creer') {
       if (!nomEcoleSaisi || !anneeCreationSaisie) {
         afficherNotification("⚠️ Veuillez remplir le nom et l'année de création de l'établissement.");
         return;
       }
       try {
-        const { error: etabError } = await supabase.from('etablissements').insert([
-          { 
+        const code = genererCodeEtablissement(nomEcoleSaisi);
+
+        const { data: etab, error: etabError } = await supabase
+          .from('etablissements')
+          .insert([{
+            code,
             nom: nomEcoleSaisi.trim(),
-            type_etablissement: typeEcoleSaisi,
-            annee_creation: anneeCreationSaisie.trim(),
-            email_contact: sessionUser?.email
-          }
-        ]);
+            visibilite: typeEcoleSaisi === 'prive' ? 'PRIVE' : 'PUBLIC',
+            parametres_json: { annee_creation: anneeCreationSaisie.trim() },
+          }])
+          .select().single();
         if (etabError) throw etabError;
-        afficherNotification("🏫 Établissement créé et configuré avec succès !");
+
+        const { error: affError } = await supabase.from('affiliations_etablissement').insert([{
+          user_id: user.id,
+          etablissement_id: etab.id,
+          role: 'CHEF',
+          statut: 'ACTIVE',
+          date_debut: new Date().toISOString().slice(0, 10),
+        }]);
+        if (affError) {
+          if (affError.code === '23505') {
+            afficherNotification("⚠️ Vous êtes déjà chef actif d'un autre établissement (un chef ne peut en diriger qu'un seul à la fois).");
+          } else {
+            afficherNotification("⚠️ Établissement créé, mais erreur d'affiliation : " + affError.message);
+          }
+          return;
+        }
+
+        afficherNotification(`🏫 Établissement créé ! Code : ${code} (notez-le, il sert à inviter votre équipe)`);
         setEtapeChoixEtablissement(false);
+        setUserRole('chef');
+        await chargerProfilEtDonnees(user.id);
       } catch (err) {
         afficherNotification("❌ Erreur : " + err.message);
       }
     } else if (action === 'rejoindre') {
-      if (!emailEtablissementSaisi || !mdpEtablissementSaisi) {
-        afficherNotification("⚠️ Veuillez entrer l'e-mail et le mot de passe de l'établissement.");
+      if (!codeEtablissementSaisi.trim()) {
+        afficherNotification("⚠️ Veuillez entrer le code de l'établissement.");
         return;
       }
       try {
-        afficherNotification("🔗 Connexion à l'établissement réussie !");
+        const { data: etabCible, error: erreurRecherche } = await supabase
+          .from('etablissements').select('id, nom').eq('code', codeEtablissementSaisi.trim()).maybeSingle();
+
+        if (erreurRecherche || !etabCible) {
+          afficherNotification("⚠️ Aucun établissement trouvé avec ce code.");
+          return;
+        }
+
+        const { error: erreurDemande } = await supabase.from('demandes_affiliation').insert([{
+          user_id: user.id,
+          etablissement_id: etabCible.id,
+          role_demande: 'CHEF',
+        }]);
+        if (erreurDemande) throw erreurDemande;
+
+        afficherNotification(`📨 Demande envoyée pour "${etabCible.nom}". En attente d'approbation.`);
         setEtapeChoixEtablissement(false);
       } catch (err) {
         afficherNotification("❌ Erreur : " + err.message);
@@ -287,9 +325,7 @@ export default function AppRouter() {
       <div style={styles.ecranAuth}>
         <div style={styles.carteAuth}>
           <div style={styles.enteteLogo}>
-            <div style={styles.iconeCahier}>
-              <span style={{ fontSize: '24px' }}>📖</span>
-            </div>
+            <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>📖</span></div>
             <h1 style={styles.titreLogo}>E-cahier !</h1>
           </div>
 
@@ -298,27 +334,13 @@ export default function AppRouter() {
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button 
-              type="button" 
-              style={{ ...styles.boutonBase, backgroundColor: '#2563eb' }} 
-              onClick={() => handleLoginRouter('enseignant')}
-            >
+            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#2563eb' }} onClick={() => handleLoginRouter('enseignant')}>
               👨‍🏫 Espace Enseignant
             </button>
-            
-            <button 
-              type="button" 
-              style={{ ...styles.boutonBase, backgroundColor: '#16a34a' }} 
-              onClick={() => handleLoginRouter('censeur')}
-            >
+            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#16a34a' }} onClick={() => handleLoginRouter('censeur')}>
               📋 Espace Censeur
             </button>
-            
-            <button 
-              type="button" 
-              style={{ ...styles.boutonBase, backgroundColor: '#9333ea' }} 
-              onClick={() => handleLoginRouter('chef')}
-            >
+            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#9333ea' }} onClick={() => handleLoginRouter('chef')}>
               🏫 Espace Chef d'Établissement
             </button>
           </div>
@@ -328,30 +350,24 @@ export default function AppRouter() {
   }
 
   if (etapeAuth) {
-    const roleLabels = {
-      enseignant: 'Enseignant',
-      censeur: 'Censeur',
-      chef: "Chef d'Établissement"
-    };
-    
+    const roleLabels = { enseignant: 'Enseignant', censeur: 'Censeur', chef: "Chef d'Établissement" };
+
     return (
       <div style={styles.ecranAuth}>
         {notification && <div style={styles.conteneurNotification}>{notification}</div>}
         <div style={styles.carteAuth}>
-          
+
           <div style={styles.enteteLogo}>
-            <div style={styles.iconeCahier}>
-              <span style={{ fontSize: '24px' }}>📖</span>
-            </div>
+            <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>📖</span></div>
             <h1 style={styles.titreLogo}>E-cahier !</h1>
           </div>
 
           <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#334155', margin: '0 0 16px 0' }}>Espace {roleLabels[etapeAuth]}</h2>
-          
+
           <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', justifyContent: 'center', fontSize: '14px' }}>
-              <span onClick={() => { setModeAuth('connexion'); setModeMdpOublieAuth(false); }} style={{ cursor: 'pointer', fontWeight: modeAuth === 'connexion' && !modeMdpOublieAuth ? '800' : 'normal', color: modeAuth === 'connexion' && !modeMdpOublieAuth ? '#2563eb' : '#94a3b8' }}>Connexion</span>
-              <span style={{ color: '#cbd5e1' }}>|</span>
-              <span onClick={() => { setModeAuth('inscription'); setModeMdpOublieAuth(false); }} style={{ cursor: 'pointer', fontWeight: modeAuth === 'inscription' ? '800' : 'normal', color: modeAuth === 'inscription' ? '#16a34a' : '#94a3b8' }}>Inscription</span>
+            <span onClick={() => { setModeAuth('connexion'); setModeMdpOublieAuth(false); }} style={{ cursor: 'pointer', fontWeight: modeAuth === 'connexion' && !modeMdpOublieAuth ? '800' : 'normal', color: modeAuth === 'connexion' && !modeMdpOublieAuth ? '#2563eb' : '#94a3b8' }}>Connexion</span>
+            <span style={{ color: '#cbd5e1' }}>|</span>
+            <span onClick={() => { setModeAuth('inscription'); setModeMdpOublieAuth(false); }} style={{ cursor: 'pointer', fontWeight: modeAuth === 'inscription' ? '800' : 'normal', color: modeAuth === 'inscription' ? '#16a34a' : '#94a3b8' }}>Inscription</span>
           </div>
 
           {modeMdpOublieAuth ? (
@@ -368,7 +384,7 @@ export default function AppRouter() {
             </form>
           ) : (
             <form onSubmit={validerAuthUtilisateur} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
-              
+
               {modeAuth === 'inscription' && (
                 <>
                   <div>
@@ -388,21 +404,13 @@ export default function AppRouter() {
                   </div>
                   <div>
                     <label style={styles.libelle}>Date de naissance</label>
-                    <input 
-                      type="text" 
-                      placeholder="JJ/MM/AAAA" 
-                      value={dateNaissanceSaisie} 
-                      onChange={gererSaisieDateNaissance} 
-                      maxLength={10}
-                      style={styles.champSaisie} 
-                      required 
-                    />
+                    <input type="text" placeholder="JJ/MM/AAAA" value={dateNaissanceSaisie} onChange={gererSaisieDateNaissance} maxLength={10} style={styles.champSaisie} required />
                   </div>
 
                   {etapeAuth === 'enseignant' && (
                     <div>
                       <label style={styles.libelle}>Matière enseignée</label>
-                      <input type="text" placeholder="Ex: Mathématiques, Histoire-Géo..." value={matiereSaisi} onChange={e => setMatiereSaisie(e.target.value)} style={styles.champSaisie} required />
+                      <input type="text" placeholder="Ex: Mathématiques, Histoire-Géo..." value={matiereSaisie} onChange={e => setMatiereSaisie(e.target.value)} style={styles.champSaisie} required />
                     </div>
                   )}
                 </>
@@ -416,11 +424,9 @@ export default function AppRouter() {
                 <label style={styles.libelle}>Mot de passe</label>
                 <div style={styles.conteneurMotDePasse}>
                   <input type={afficherMdp ? "text" : "password"} placeholder="••••••••" value={mdpSaisi} onChange={e => setMdpSaisi(e.target.value)} style={styles.champMdpInterne} required />
-                  <span onClick={() => setAfficherMdp(!afficherMdp)} style={styles.boutonOeil}>
-                    {afficherMdp ? '👁️‍🗨️' : '👁️'}
-                  </span>
+                  <span onClick={() => setAfficherMdp(!afficherMdp)} style={styles.boutonOeil}>{afficherMdp ? '👁️‍🗨️' : '👁️'}</span>
                 </div>
-                
+
                 {modeAuth === 'connexion' && (
                   <div style={{ textAlign: 'right', marginTop: '6px' }}>
                     <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
@@ -448,20 +454,18 @@ export default function AppRouter() {
       <div style={styles.ecranAuth}>
         {notification && <div style={styles.conteneurNotification}>{notification}</div>}
         <div style={styles.carteAuth}>
-          
+
           <div style={styles.enteteLogo}>
-            <div style={styles.iconeCahier}>
-              <span style={{ fontSize: '24px' }}>📖</span>
-            </div>
+            <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>📖</span></div>
             <h1 style={styles.titreLogo}>E-cahier !</h1>
           </div>
 
           <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#334155', margin: '0 0 16px 0' }}>Gestion de l'Établissement</h2>
-          
+
           {choixModeEcole === 'choix' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
               <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un établissement</button>
-              <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Se connecter à un ancien établissement</button>
+              <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Rejoindre un établissement existant</button>
               <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '10px' }} onClick={gererDeconnexionGlobale}>⬅️ Se déconnecter / Retour</button>
             </div>
           )}
@@ -481,15 +485,7 @@ export default function AppRouter() {
               </div>
               <div>
                 <label style={styles.libelle}>Année de création</label>
-                <input 
-                  type="text" 
-                  placeholder="Ex: 1998" 
-                  maxLength="4" 
-                  value={anneeCreationSaisie} 
-                  onChange={e => setAnneeCreationSaisie(e.target.value)} 
-                  style={styles.champSaisie} 
-                  required 
-                />
+                <input type="text" placeholder="Ex: 1998" maxLength="4" value={anneeCreationSaisie} onChange={e => setAnneeCreationSaisie(e.target.value)} style={styles.champSaisie} required />
               </div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>⬅️ Retour</button>
@@ -500,27 +496,16 @@ export default function AppRouter() {
 
           {choixModeEcole === 'rejoindre' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left', marginTop: '15px' }}>
+              <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                Un établissement n'a pas de mot de passe : rejoindre en tant que chef nécessite le code de l'établissement, et votre demande devra être approuvée.
+              </p>
               <div>
-                <label style={styles.libelle}>Email de l'établissement</label>
-                <input type="email" placeholder="ecole@etablissement.edu" value={emailEtablissementSaisi} onChange={e => setEmailEtablissementSaisi(e.target.value)} style={styles.champSaisie} required />
-              </div>
-              <div>
-                <label style={styles.libelle}>Mot de passe de l'établissement</label>
-                <div style={styles.conteneurMotDePasse}>
-                  <input type={afficherMdpEtablissement ? "text" : "password"} placeholder="••••••••" value={mdpEtablissementSaisi} onChange={e => setMdpEtablissementSaisi(e.target.value)} style={styles.champMdpInterne} required />
-                  <span onClick={() => setAfficherMdpEtablissement(!afficherMdpEtablissement)} style={styles.boutonOeil}>
-                    {afficherMdpEtablissement ? '👁️‍🗨️' : '👁️'}
-                  </span>
-                </div>
-                <div style={{ textAlign: 'right', marginTop: '6px' }}>
-                  <span onClick={() => afficherNotification("📧 Un lien de réinitialisation pour l'établissement a été envoyé.")} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
-                    Mot de passe oublié ?
-                  </span>
-                </div>
+                <label style={styles.libelle}>Code de l'établissement</label>
+                <input type="text" placeholder="Ex: LYCMOD-A1B2" value={codeEtablissementSaisi} onChange={e => setCodeEtablissementSaisi(e.target.value)} style={styles.champSaisie} required />
               </div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>⬅️ Retour</button>
-                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => gererEtablissementChef('rejoindre')}>Se connecter</button>
+                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => gererEtablissementChef('rejoindre')}>Envoyer la demande</button>
               </div>
             </div>
           )}
@@ -529,20 +514,21 @@ export default function AppRouter() {
     );
   }
 
+  // AFFICHAGE DES DASHBOARDS (Nettoyés des props inutiles)
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       {notification && <div style={styles.conteneurNotification}>{notification}</div>}
 
       {userRole === 'enseignant' && (
-        <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} />
+        <EnseignantDashboard />
       )}
-      
+
       {userRole === 'censeur' && (
-        <CenseurDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} bibliotheque={bibliotheque} setBibliotheque={setBibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
+        <CenseurDashboard />
       )}
-      
+
       {userRole === 'chef' && (
-        <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
+        <ChefEtablissementDashboard />
       )}
     </div>
   );

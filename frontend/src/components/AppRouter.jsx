@@ -47,6 +47,19 @@ export default function AppRouter() {
     { id: 201, enseignantNom: 'M. Yao Koffi', matiere: 'Histoire-Géographie', niveau: '2nde', classe: '2nde A', email: 'koffi.yao@prof.edu', derniereFiche: '2026-02-18' }
   ]);
 
+  // Fonction de formatage automatique pour la date (JJ/MM/AAAA)
+  const gererSaisieDateNaissance = (e) => {
+    let valeur = e.target.value.replace(/\D/g, ''); // Garder uniquement les chiffres
+    if (valeur.length > 8) valeur = valeur.slice(0, 8); // Max 8 chiffres
+
+    if (valeur.length > 4) {
+      valeur = `${valeur.slice(0, 2)}/${valeur.slice(2, 4)}/${valeur.slice(4)}`;
+    } else if (valeur.length > 2) {
+      valeur = `${valeur.slice(0, 2)}/${valeur.slice(2)}`;
+    }
+    setDateNaissanceSaisie(valeur);
+  };
+
   const gererDeconnexionGlobale = async () => {
     try {
       await supabase.auth.signOut();
@@ -163,16 +176,16 @@ export default function AppRouter() {
         await supabase.auth.signOut().catch(() => {});
 
         const { data, error } = await supabase.auth.signUp({
-          email: emailSaisi,
+          email: emailSaisi.trim(),
           password: mdpSaisi,
         });
         if (error) throw error;
 
         if (data?.user) {
-          const { error: profileError } = await supabase.from('utilisateurs_profils').insert([
+          const { error: profileError } = await supabase.from('utilisateurs_profils'].insert([
             { 
               user_id: data.user.id, 
-              email: emailSaisi, 
+              email: emailSaisi.trim(), 
               role: roleActuel,
               genre: genreSaisi,
               nom: nomSaisi.trim(),
@@ -185,7 +198,7 @@ export default function AppRouter() {
         }
 
         const { error: loginError } = await supabase.auth.signInWithPassword({
-          email: emailSaisi,
+          email: emailSaisi.trim(),
           password: mdpSaisi,
         });
         if (loginError) throw loginError;
@@ -193,7 +206,7 @@ export default function AppRouter() {
         afficherNotification("✅ Inscription réussie !");
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email: emailSaisi,
+          email: emailSaisi.trim(),
           password: mdpSaisi,
         });
         if (error) throw error;
@@ -358,12 +371,13 @@ export default function AppRouter() {
                     <input type="text" placeholder="Ex: Jean Baptiste" value={prenomsSaisi} onChange={e => setPrenomsSaisi(e.target.value)} style={styles.champSaisie} required />
                   </div>
                   <div>
-                    <label style={styles.libelle}>Date de naissance (Ex: 1996-01-11)</label>
+                    <label style={styles.libelle}>Date de naissance</label>
                     <input 
                       type="text" 
-                      placeholder="AAAA-MM-JJ" 
+                      placeholder="JJ/MM/AAAA" 
                       value={dateNaissanceSaisie} 
-                      onChange={e => setDateNaissanceSaisie(e.target.value)} 
+                      onChange={gererSaisieDateNaissance} 
+                      maxLength={10}
                       style={styles.champSaisie} 
                       required 
                     />

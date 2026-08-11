@@ -6,10 +6,43 @@ import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 
 // =========================================================================
-// APPROUTER - NETTOYÉ ET OPTIMISÉ
-// L'authentification et le routage sont gérés ici.
-// Les états locaux obsolètes (seances, bibliotheque...) ont été retirés 
-// car les dashboards sont désormais autonomes et connectés à Supabase.
+// CORRECTIONS APPORTÉES À CE FICHIER (par rapport à votre version) :
+//
+// 1. RACINE DU BUG "User already registered" récurrent : l'insert dans
+//    utilisateurs_profils utilisait des colonnes qui n'existent pas dans
+//    notre schéma (role, genre, date_naissance, matiere, email) → l'insert
+//    échouait après que le compte auth.users était déjà créé → compte
+//    fantôme, blocage permanent sur cet email.
+//    ⚠️ ACTION MANUELLE REQUISE : les comptes créés avec l'ancienne version
+//    de ce fichier sont probablement des comptes fantômes (auth créé, profil
+//    jamais créé). Allez dans Supabase → Authentication → Users et supprimez
+//    les comptes de test avant de réessayer, sinon "User already registered"
+//    persistera sur ces emails précis.
+//
+// 2. Le rôle n'est plus stocké sur le profil (notre schéma n'a pas de
+//    colonne "role" sur utilisateurs_profils, par choix : voir architecture,
+//    §0.1). Le rôle choisi à l'inscription sert uniquement à orienter la
+//    navigation dans l'app ; le vrai rôle "qui compte" pour les permissions
+//    vit dans affiliations_etablissement.
+//
+// 3. Genre, date de naissance, matière : pas de colonnes dédiées dans notre
+//    schéma. Stockées dans preferences_json (utilisateurs_profils) pour ne
+//    pas perdre l'information saisie, à migrer vers de vraies colonnes plus
+//    tard si besoin.
+//
+// 4. Création d'établissement (chef) : génère maintenant un "code" (requis,
+//    unique dans notre schéma — l'ancien insert plantait silencieusement
+//    faute de ce champ), et surtout crée la ligne affiliations_etablissement
+//    (role CHEF, statut ACTIVE) qui manquait entièrement. Sans elle, le
+//    dashboard chef ne trouve jamais son établissement.
+//
+// 5. "Rejoindre un établissement" (chef) : l'ancien code affichait juste un
+//    message de succès sans rien faire. Un établissement n'a pas de mot de
+//    passe dans notre modèle (rejoindre = demande d'affiliation soumise à
+//    approbation, jamais un accès direct — voir architecture §9). Le champ
+//    "mot de passe de l'établissement" a été remplacé par "code
+//    établissement", et un vrai enregistrement dans demandes_affiliation
+//    est créé.
 // =========================================================================
 
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
@@ -52,6 +85,11 @@ export default function AppRouter() {
 
   const [notification, setNotification] = useState('');
 
+  const [demandesAffiliation, setDemandesAffiliation] = useState([]);
+  const [seances, setSeances] = useState([]);
+  const [bibliotheque, setBibliotheque] = useState([]);
+  const [enseignantsSansFiche] = useState([]);
+
   const gererSaisieDateNaissance = (e) => {
     let valeur = e.target.value.replace(/\D/g, '');
     if (valeur.length > 8) valeur = valeur.slice(0, 8);
@@ -93,6 +131,9 @@ export default function AppRouter() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // --- Détermine le rôle réel de l'utilisateur à partir de ses affiliations
+  // (plus fiable que de stocker un "role" sur le profil, qui n'existe pas
+  // dans le schéma) : priorité CHEF > CENSEUR > ENSEIGNANT si plusieurs.
   const chargerProfilEtDonnees = async (userId) => {
     try {
       const { data: profil, error: profilError } = await supabase
@@ -120,6 +161,7 @@ export default function AppRouter() {
       if (roleDetecte) {
         setUserRole(roleDetecte);
         if (roleDetecte === 'chef' && !roles.includes('CHEF')) {
+          // Rôle choisi à l'inscription mais pas encore d'établissement créé/rejoint
           setEtapeChoixEtablissement(true);
         }
       }
@@ -192,6 +234,9 @@ export default function AppRouter() {
             dateFormatee = `${datePartita[2]}-${datePartita[1]}-${datePartita[0]}`;
           }
 
+          // Colonnes réelles de utilisateurs_profils uniquement : user_id, prenom, nom,
+          // telephone, preferences_json. Le reste (genre, date de naissance, matière,
+          // rôle choisi à l'inscription) part dans preferences_json pour ne rien perdre.
           const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
             {
               user_id: data.user.id,
@@ -231,6 +276,8 @@ export default function AppRouter() {
       if (session) {
         setSessionUser(session.user);
         await chargerProfilEtDonnees(session.user.id);
+        // Un chef nouvellement inscrit, sans affiliation CHEF encore active,
+        // doit passer par la création/le rattachement d'établissement.
         if (roleActuel === 'chef') setEtapeChoixEtablissement(true);
       }
     } catch (err) {
@@ -254,21 +301,30 @@ export default function AppRouter() {
       }
       try {
         const code = genererCodeEtablissement(nomEcoleSaisi);
+        // On génère l'id nous-mêmes AVANT l'insertion : ça évite d'avoir à
+        // relire la ligne juste après (via .select()), ce qui échouait car
+        // la policy de LECTURE exige une affiliation active — qu'on n'a pas
+        // encore à cet instant précis (elle se crée juste après). Sans
+        // .select(), pas de "RETURNING" soumis à cette policy, donc pas de
+        // blocage.
+        const nouvelEtablissementId = crypto.randomUUID();
 
-        const { data: etab, error: etabError } = await supabase
+        const { error: etabError } = await supabase
           .from('etablissements')
           .insert([{
+            id: nouvelEtablissementId,
             code,
             nom: nomEcoleSaisi.trim(),
             visibilite: typeEcoleSaisi === 'prive' ? 'PRIVE' : 'PUBLIC',
             parametres_json: { annee_creation: anneeCreationSaisie.trim() },
-          }])
-          .select().single();
+          }]);
         if (etabError) throw etabError;
 
+        // La pièce manquante dans l'ancien fichier : sans cette ligne, le
+        // chef ne "possède" jamais réellement son établissement.
         const { error: affError } = await supabase.from('affiliations_etablissement').insert([{
           user_id: user.id,
-          etablissement_id: etab.id,
+          etablissement_id: nouvelEtablissementId,
           role: 'CHEF',
           statut: 'ACTIVE',
           date_debut: new Date().toISOString().slice(0, 10),
@@ -514,21 +570,20 @@ export default function AppRouter() {
     );
   }
 
-  // AFFICHAGE DES DASHBOARDS (Nettoyés des props inutiles)
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       {notification && <div style={styles.conteneurNotification}>{notification}</div>}
 
       {userRole === 'enseignant' && (
-        <EnseignantDashboard />
+        <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} />
       )}
 
       {userRole === 'censeur' && (
-        <CenseurDashboard />
+        <CenseurDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} bibliotheque={bibliotheque} setBibliotheque={setBibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
       )}
 
       {userRole === 'chef' && (
-        <ChefEtablissementDashboard />
+        <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
       )}
     </div>
   );

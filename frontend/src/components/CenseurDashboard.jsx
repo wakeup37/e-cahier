@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient'; // ⚠️ adaptez ce chemin si besoin
+import { supabase } from './Approuter'; // ⚠️ adaptez ce chemin si besoin
 
 // =========================================================================
 // DASHBOARD CENSEUR — BRANCHÉ SUR SUPABASE

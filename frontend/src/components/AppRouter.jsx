@@ -94,7 +94,6 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      // Utilisation de maybeSingle() pour éviter les erreurs 406/422 si le profil est introuvable
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -229,7 +228,10 @@ export default function AppRouter() {
         chargerProfilEtDonnees(session.user.id);
       }
     } catch (err) {
-      afficherNotification("❌ Erreur : " + (err.message || "Une erreur est survenue"));
+      console.error("Erreur complète Supabase:", err);
+      // Affichage explicite du message d'erreur technique
+      const messageErreur = err.error_description || err.message || "Une erreur est survenue";
+      afficherNotification("❌ Erreur : " + messageErreur);
     }
   };
 

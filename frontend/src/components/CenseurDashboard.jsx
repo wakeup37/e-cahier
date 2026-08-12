@@ -237,34 +237,50 @@ export default function CenseurDashboard() {
 
     // 4. Enseignants affiliés (listeProfesseursEtablissement)
     const { data: affiliationsEnseignants } = await supabase
-      .from('affiliations_etablissement')
-      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone, matieres_enseignant(matiere_id, matieres(nom)))')
-      .eq('etablissement_id', etablissementId)
-      .eq('role', 'ENSEIGNANT')
-      .eq('statut', 'ACTIVE');
+  .from('affiliations_etablissement')
+  .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+  .eq('etablissement_id', etablissementId)
+  .eq('role', 'ENSEIGNANT')
+  .eq('statut', 'ACTIVE');
 
-    const { data: attributions } = await supabase
-      .from('attributions_classes')
-      .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
-      .eq('etablissement_id', etablissementId);
+// 4. Enseignants affiliés (listeProfesseursEtablissement)
+const { data: affiliationsEnseignants } = await supabase
+  .from('affiliations_etablissement')
+  .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+  .eq('etablissement_id', etablissementId)
+  .eq('role', 'ENSEIGNANT')
+  .eq('statut', 'ACTIVE');
 
-    const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
-      const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
-      const matieresProfil = (a.utilisateurs_profils?.matieres_enseignant || [])
-        .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
-        .filter(m => m.nom);
-      return {
-        id: a.id,
-        userId: a.user_id,
-        nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
-        matiere: attrsDeCetEnseignant[0]?.matieres?.nom || matieresProfil.map(m => m.nom).join(', ') || 'Non définie',
-        matieresProfil,
-        classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
-        matricule: 'N/A',
-        contact: a.utilisateurs_profils?.telephone || 'Non défini',
-        email: 'N/A',
-      };
-    });
+const { data: matieresEnseignants } = await supabase
+  .from('matieres_enseignant')
+  .select('user_id, matiere_id, matieres(nom)')
+  .eq('etablissement_id', etablissementId);
+
+const { data: attributions } = await supabase
+  .from('attributions_classes')
+  .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
+  .eq('etablissement_id', etablissementId);
+
+const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
+  const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
+  const matieresProfil = (matieresEnseignants || [])
+    .filter(m => m.user_id === a.user_id)
+    .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
+    .filter(m => m.nom);
+  return {
+    id: a.id,
+    userId: a.user_id,
+    nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
+    matiere: attrsDeCetEnseignant[0]?.matieres?.nom || matieresProfil.map(m => m.nom).join(', ') || 'Non définie',
+    matieresProfil,
+    classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
+    matricule: 'N/A',
+    contact: a.utilisateurs_profils?.telephone || 'Non défini',
+    email: 'N/A',
+  };
+});
+
+
     const nomsEnseignants = {};
     (affiliationsEnseignants || []).forEach(a => {
       nomsEnseignants[a.user_id] = `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim() || 'Enseignant';

@@ -362,50 +362,76 @@ export default function EnseignantDashboard() {
       setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '', matiereIds: matiereIdsActuels }));
     }
 
-    // Séances de l'enseignant (tous statuts), regroupées par classe pour coller au JSX
-    const { data: seances } = await supabase
-      .from('seances')
-      .select(`
-        id, date_prevue, statut, contenu_json,
-        classes ( nom ),
-        lecons (
-          id, titre, statut,
-          cycles ( id, titre, statut, competence:titre, dateDebut:created_at,
-            programmes_annuels ( id, proprietaire_user_id )
-          )
-        )
-      `)
-      .order('created_at', { ascending: true });
+    // Programme complet de l'enseignant : on part des CYCLES (visibles même
+    // sans aucune leçon/séance encore remplie), puis on descend vers les
+    // leçons, puis les séances — plus aucune dépendance à l'existence d'une
+    // séance pour qu'un cycle ou une leçon reste visible après rechargement.
+    const { data: programmesPossedes } = await supabase
+      .from('programmes_annuels').select('id').eq('proprietaire_user_id', user.id);
+    const idsProgrammes = (programmesPossedes || []).map(p => p.id);
 
     const groupe = {};
-    (seances || []).forEach((sc) => {
-      const cycle = sc.lecons?.cycles;
-      const programme = cycle?.programmes_annuels;
-      if (!programme || programme.proprietaire_user_id !== user.id) return; // sécurité côté client, RLS protège déjà côté serveur
-      const classeNom = sc.classes?.nom || classeSelectionneeVue || 'Sans classe';
-      if (!groupe[classeNom]) groupe[classeNom] = { anneeScolaire: '', cycles: [] };
-      let cy = groupe[classeNom].cycles.find(c => c.id === cycle.id);
-      if (!cy) {
-        cy = { id: cycle.id, titre: cycle.titre, competence: '', dateDebut: '', dateFin: '', statut: cycle.statut === 'TERMINE' ? 'Terminé' : 'En cours', lecons: [] };
-        groupe[classeNom].cycles.push(cy);
-      }
-      let lc = cy.lecons.find(l => l.id === sc.lecons.id);
-      if (!lc) {
-        lc = { id: sc.lecons.id, titre: sc.lecons.titre, nombreSeancesPrevues: 0, statut: sc.lecons.statut === 'TERMINEE' ? 'Terminée' : 'En cours', seances: [] };
-        cy.lecons.push(lc);
-      }
-      lc.seances.push({
-        id: sc.id,
-        numero: lc.seances.length + 1,
-        titre: sc.contenu_json?.titre || 'Séance',
-        date: sc.date_prevue,
-        lieu: sc.contenu_json?.lieu || '',
-        valeursChamps: sc.contenu_json || {},
-        statut: 'En cours',
-        soumisAuCenseur: sc.statut !== 'BROUILLON',
-        fichiersMultimedias: [],
+
+    if (idsProgrammes.length > 0) {
+      const { data: cyclesData } = await supabase
+        .from('cycles')
+        .select('id, titre, statut, competence, date_debut, date_fin, nombre_lecons_prevu, plan_lecons, classe_nom, programme_annuel_id')
+        .in('programme_annuel_id', idsProgrammes)
+        .order('created_at', { ascending: true });
+
+      const idsCycles = (cyclesData || []).map(c => c.id);
+      const { data: leconsData } = idsCycles.length > 0
+        ? await supabase.from('lecons')
+            .select('id, titre, statut, statut_visa, contenu_json, plan_seances, cycle_id')
+            .in('cycle_id', idsCycles)
+            .order('created_at', { ascending: true })
+        : { data: [] };
+
+      const idsLecons = (leconsData || []).map(l => l.id);
+      const { data: seancesData } = idsLecons.length > 0
+        ? await supabase.from('seances')
+            .select('id, date_prevue, statut, contenu_json, lecon_id')
+            .in('lecon_id', idsLecons)
+            .order('created_at', { ascending: true })
+        : { data: [] };
+
+      (cyclesData || []).forEach(cycle => {
+        const classeNom = cycle.classe_nom || 'Sans classe';
+        if (!groupe[classeNom]) groupe[classeNom] = { anneeScolaire: '', cycles: [] };
+
+        const leconsDuCycle = (leconsData || []).filter(l => l.cycle_id === cycle.id).map(lecon => {
+          const seancesDeLaLecon = (seancesData || []).filter(s => s.lecon_id === lecon.id).map((sc, i) => ({
+            id: sc.id,
+            numero: i + 1,
+            titre: sc.contenu_json?.titre || 'Séance',
+            date: sc.date_prevue,
+            lieu: sc.contenu_json?.lieu || '',
+            valeursChamps: sc.contenu_json || {},
+            statut: 'En cours',
+            soumisAuCenseur: sc.statut !== 'BROUILLON',
+            statutReel: sc.statut,
+            fichiersMultimedias: [],
+          }));
+          return {
+            id: lecon.id, titre: lecon.titre, nombreSeancesPrevues: seancesDeLaLecon.length,
+            contenuJson: lecon.contenu_json || {}, planSeances: lecon.plan_seances || [],
+            statut: lecon.statut === 'TERMINEE' ? 'Terminée' : 'En cours',
+            soumisAuCenseur: lecon.statut_visa && lecon.statut_visa !== 'NON_ENVOYEE',
+            seances: seancesDeLaLecon,
+          };
+        });
+
+        groupe[classeNom].cycles.push({
+          id: cycle.id, titre: cycle.titre, competence: cycle.competence || '',
+          dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '',
+          nombreLeconsPrevu: cycle.nombre_lecons_prevu || null, planLecons: cycle.plan_lecons || [],
+          statut: cycle.statut === 'TERMINEE' ? 'Terminé' : 'En cours',
+          soumisAuCenseur: false,
+          lecons: leconsDuCycle,
+        });
       });
-    });
+    }
+
     setProgrammesClasses(groupe);
 
     setChargementInitial(false);
@@ -784,6 +810,7 @@ export default function EnseignantDashboard() {
             date_fin: periode.fin || dateFinCycle || null,
             nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
             plan_lecons: Array.isArray(modalAssistant.planLecons) ? modalAssistant.planLecons : [],
+            classe_nom: classeCible,
           }).select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
 

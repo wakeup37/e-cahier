@@ -488,7 +488,7 @@ export default function EnseignantDashboard() {
 
   const getOuCreerProgrammeAnnuel = async (etablissementId, anneeScolaireId) => {
     const cle = etablissementId || 'SANS_AFFILIATION';
-    if (programmesAnnuelsCache.current[cle]) return programmesAnnuelsCache.current[cle];
+    if (programmesAnnuelsCache.current[cle]) return { id: programmesAnnuelsCache.current[cle], erreur: null };
 
     const affiliationCorrespondante = affiliations.find(a => a.statut === 'Validée'); // simplification : 1er établissement actif trouvé
     let affiliationId = null;
@@ -506,7 +506,7 @@ export default function EnseignantDashboard() {
 
     if (existant) {
       programmesAnnuelsCache.current[cle] = existant.id;
-      return existant.id;
+      return { id: existant.id, erreur: null };
     }
 
     const { data: nouveau, error } = await supabase
@@ -519,9 +519,9 @@ export default function EnseignantDashboard() {
       })
       .select('id').single();
 
-    if (error) { showToast("⚠️ Erreur création programme : " + error.message); return null; }
+    if (error) return { id: null, erreur: error.message };
     programmesAnnuelsCache.current[cle] = nouveau.id;
-    return nouveau.id;
+    return { id: nouveau.id, erreur: null };
   };
 
   // =========================================================================
@@ -789,10 +789,11 @@ export default function EnseignantDashboard() {
       }
 
       let compteurCrees = 0;
+      const echecs = [];
       for (const classeCible of classesCiblesCycle) {
         const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
-        const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
-        if (!programmeAnnuelId) continue;
+        const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
+        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
 
         for (const cp of listeCycles) {
           const numeroCycle = (programmesClasses[classeCible]?.cycles?.length || 0) + 1;
@@ -805,7 +806,7 @@ export default function EnseignantDashboard() {
               nombre_lecons_prevu: cp.nbLecons ? parseInt(cp.nbLecons, 10) : null,
               classe_nom: classeCible,
             }).select().single();
-          if (error) { showToast(`⚠️ Erreur pour le cycle "${cp.competence || numeroCycle}" (${classeCible}) : ` + error.message); continue; }
+          if (error) { echecs.push(`${classeCible} (${error.message})`); continue; }
 
           compteurCrees++;
           if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
@@ -817,7 +818,13 @@ export default function EnseignantDashboard() {
         }
       }
 
-      showToast(`✨ Programme annuel créé : ${listeCycles.length} cycle(s) pour ${classesCiblesCycle.length} classe(s) !`);
+      if (compteurCrees === 0) {
+        showToast(`❌ Aucun cycle créé. Échec : ${echecs.join(' | ')}`);
+      } else if (echecs.length > 0) {
+        showToast(`✨ ${compteurCrees} cycle(s) créé(s). ⚠️ Échec pour : ${echecs.join(' | ')}`);
+      } else {
+        showToast(`✨ Programme annuel créé : ${compteurCrees} cycle(s) au total !`);
+      }
       setModalAssistant({ ...modalAssistant, ouvert: false });
       return;
     }
@@ -836,11 +843,12 @@ export default function EnseignantDashboard() {
 
       const etablissementsConcernes = new Set();
       let compteurCrees = 0;
+      const echecs = [];
 
       for (const classeCible of ciblesCycle) {
         const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
-        const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
-        if (!programmeAnnuelId) continue;
+        const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
+        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
         etablissementsConcernes.add(etablissementId || 'SANS_AFFILIATION');
 
         const periode = (modalAssistant.periodesParClasseCycle && modalAssistant.periodesParClasseCycle[classeCible]) || {};
@@ -856,7 +864,7 @@ export default function EnseignantDashboard() {
             plan_lecons: Array.isArray(modalAssistant.planLecons) ? modalAssistant.planLecons : [],
             classe_nom: classeCible,
           }).select().single();
-        if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+        if (error) { echecs.push(`${classeCible} (${error.message})`); continue; }
 
         compteurCrees++;
         if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
@@ -869,7 +877,9 @@ export default function EnseignantDashboard() {
 
       const nbEtablissements = etablissementsConcernes.size;
       if (compteurCrees === 0) {
-        showToast("❌ Le cycle n'a pas pu être créé — vérifiez votre connexion et réessayez. Si ça persiste, faites-moi une capture d'écran.");
+        showToast(`❌ Aucun cycle créé. Échec : ${echecs.join(' | ')}`);
+      } else if (echecs.length > 0) {
+        showToast(`✨ Cycle créé pour ${compteurCrees} classe(s). ⚠️ Échec pour : ${echecs.join(' | ')}`);
       } else {
         showToast(`✨ Cycle créé pour ${compteurCrees} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
       }

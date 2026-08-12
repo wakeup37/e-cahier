@@ -358,20 +358,22 @@ export default function CenseurDashboard() {
     // 7. Séances en attente de visa (onglet Visa) — regroupées par classe pour coller au JSX existant
     // [CORRECTIF] on récupère désormais "error" et on l'affiche s'il y en a une,
     // au lieu de laisser la liste se vider silencieusement (ex. policy RLS).
-    const { data: seances, error: erreurSeances } = await supabase
-      .from('seances')
-      .select(`
-        id, date_prevue, statut, contenu_json,
-        classes ( nom ),
-        lecons (
-          id, titre, statut_visa, envoyee_at, visee_at, observation_visa,
-          cycles (
-            id, titre, competence,
-            programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
-              utilisateurs_profils:proprietaire_user_id (nom, prenom) )
-          )
-        )
-      `)
+  const { data: seances, error: erreurSeances } = await supabase
+  .from('seances')
+  .select(`
+    id, date_prevue, statut, contenu_json,
+    statut_visa, envoyee_at, visee_at, observation_visa,
+    classes ( nom ),
+    lecons (
+      id, titre,
+      cycles (
+        id, titre, competence,
+        programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
+          utilisateurs_profils:proprietaire_user_id (nom, prenom) )
+      )
+    )
+  `)
+
       .in('statut', ['ENVOYEE', 'RECUE']);
 
     if (erreurSeances) {

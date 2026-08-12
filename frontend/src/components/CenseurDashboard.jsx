@@ -1,37 +1,3 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { supabase } from './AppRouter';
-
-// =========================================================================
-// DASHBOARD CENSEUR — BRANCHÉ SUR SUPABASE
-// Mêmes noms de fonctions/variables que votre fichier d'origine : le JSX
-// (formulaires, navbar, onglets, styles) n'a pas eu besoin d'être modifié.
-//
-// CE QUI EST RÉELLEMENT BRANCHÉ :
-//   - infosCenseur / ecoleConfigGlobale : profil + établissement actifs (Supabase)
-//   - listeProfesseursEtablissement : enseignants réellement affiliés (Supabase)
-//   - personnelAdministratifManuel : table "personnel" (Supabase)
-//   - demandePromotion : table "demandes_changement_role" (Supabase)
-//   - programmesClasses (onglet Visa) : vraies séances en attente de visa (Supabase)
-//   - archiveEcole / fichesPedagogiquesEcole : table "bibliotheque_etablissement" (Supabase)
-//
-// CE QUI RESTE UNIQUEMENT LOCAL (pas de vraie donnée backend pour l'instant) :
-//   - notificationsCenseur : reste sur localStorage — étape suivante si besoin
-//   - handleChangerPhotoProfil : la photo n'est pas envoyée à Supabase Storage,
-//     elle reste juste en aperçu local dans cette étape (aucune colonne
-//     "photoProfil" dans utilisateurs_profils pour l'instant)
-//
-// DÉPENDANCE IMPORTANTE : l'onglet Visa n'affichera des fiches que lorsque
-// le dashboard enseignant écrira réellement des séances dans la table
-// "seances" — tant que ce n'est pas fait, la liste sera vide (normal).
-//
-// [CORRECTIF AJOUTÉ] La requête "seances" (onglet Visa) ne vérifiait pas si
-// Supabase renvoyait une erreur (souvent une policy RLS trop restrictive).
-// En cas d'erreur, "seances" devenait silencieusement vide, sans aucun
-// message — impossible de savoir pourquoi rien ne s'affichait. Maintenant
-// l'erreur est loguée en console ET affichée dans un bandeau (showToast),
-// visible même sur téléphone sans avoir besoin d'ouvrir une console.
-// =========================================================================
-
 export default function CenseurDashboard() {
 
   // =========================================================================
@@ -41,23 +7,27 @@ export default function CenseurDashboard() {
   const [userId, setUserId] = useState(null);
   const [affiliationCenseur, setAffiliationCenseur] = useState(null); // ligne affiliations_etablissement (role CENSEUR, statut ACTIVE)
   const [anneeActiveId, setAnneeActiveId] = useState(null);
- const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
-useEffect(() => {
-  if (!affiliationCenseur?.etablissement_id) return;
-  const topic = `presence-etablissement-${affiliationCenseur.etablissement_id}`;
-  const interval = setInterval(() => {
-    const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
-    if (canal) {
-      const etat = canal.presenceState();
-      setPersonnesEnLigne(Object.values(etat).flat());
-    }
-  }, 3000);
-  return () => clearInterval(interval);
-}, [affiliationCenseur?.etablissement_id]);
 
-// =========================================================================
-// ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
-// =========================================================================
+  const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+  useEffect(() => {
+    if (!affiliationCenseur?.etablissement_id) return;
+    const topic = `presence-etablissement-${affiliationCenseur.etablissement_id}`;
+    const interval = setInterval(() => {
+      const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
+      if (canal) {
+        const etat = canal.presenceState();
+        setPersonnesEnLigne(Object.values(etat).flat());
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [affiliationCenseur?.etablissement_id]);
+
+  // =========================================================================
+  // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
+  // =========================================================================
+  const [infosCenseur, setInfosCenseur] = useState({
+    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
+  });
 
   const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
   const [formProfilCenseur, setFormProfilCenseur] = useState({ ...infosCenseur });
@@ -75,6 +45,12 @@ useEffect(() => {
 
   const [modalConfirmation, setModalConfirmation] = useState({
     ouvert: false, titre: '', message: '', actionCallback: null
+  });
+
+  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
+  const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
+    nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
+    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
   });
 
   // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json

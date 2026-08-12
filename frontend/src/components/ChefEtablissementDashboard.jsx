@@ -487,18 +487,18 @@ export default function ChefEtablissementDashboard() {
   // présence tant que son onglet est ouvert). Se met à jour tout seul,
   // sans recharger la page, dès que quelqu'un se connecte ou se déconnecte.
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
-  useEffect(() => {
-    if (!ecoleConfig?.id) return;
-    const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
-    canal.on('presence', { event: 'sync' }, () => {
+useEffect(() => {
+  if (!ecoleConfig?.id) return;
+  const topic = `presence-etablissement-${ecoleConfig.id}`;
+  const interval = setInterval(() => {
+    const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
+    if (canal) {
       const etat = canal.presenceState();
-      const liste = Object.values(etat).flat();
-      setPersonnesEnLigne(liste);
-    });
-    canal.subscribe();
-    return () => { supabase.removeChannel(canal); };
-  }, [ecoleConfig?.id]);
-
+      setPersonnesEnLigne(Object.values(etat).flat());
+    }
+  }, 3000);
+  return () => clearInterval(interval);
+}, [ecoleConfig?.id]);
   // --- Écran de chargement — maintenant APRÈS tous les hooks ci-dessus ---
   if (chargementInitial) {
     return (

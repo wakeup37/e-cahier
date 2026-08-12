@@ -82,6 +82,7 @@ export default function CenseurDashboard() {
   const [modalDepartCenseurOuvert, setModalDepartCenseurOuvert] = useState(false);
   const [motifDepartCenseur, setMotifDepartCenseur] = useState('');
   const [classesEtablissement, setClassesEtablissement] = useState([]);
+  const [enseignantsParClasse, setEnseignantsParClasse] = useState({});
   const [matieresDisponibles, setMatieresDisponibles] = useState([]);
   const [demandesAttributionsRecues, setDemandesAttributionsRecues] = useState([]);
   const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
@@ -257,6 +258,21 @@ export default function CenseurDashboard() {
         email: 'N/A',
       };
     });
+    const nomsEnseignants = {};
+    (affiliationsEnseignants || []).forEach(a => {
+      nomsEnseignants[a.user_id] = `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim() || 'Enseignant';
+    });
+    const groupeParClasse = {};
+    (attributions || []).forEach(at => {
+      const classeNom = at.classes?.nom;
+      if (!classeNom) return;
+      if (!groupeParClasse[classeNom]) groupeParClasse[classeNom] = [];
+      groupeParClasse[classeNom].push({
+        enseignant: nomsEnseignants[at.enseignant_id] || 'Inconnu',
+        matiere: at.matieres?.nom || 'Non définie',
+      });
+    });
+    setEnseignantsParClasse(groupeParClasse);
     setListeProfesseursEtablissementBrute(profsAvecClasses);
 
     // 4bis. Classes de l'établissement (année active) + matières disponibles
@@ -2099,6 +2115,34 @@ export default function CenseurDashboard() {
                         <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Accepter</button>
                         <button onClick={() => refuserDemandeAttribution(demande, description)} className="bouton bouton-danger">Refuser</button>
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>🏫 Vue par classe</h3>
+            <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>Chaque classe créée, avec tous les enseignants qui lui sont attribués, groupés par matière. Une classe vide signifie qu'aucun enseignant n'y est encore rattaché.</p>
+            {classesEtablissement.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune classe créée pour l'instant.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {classesEtablissement.map(cl => {
+                  const profsDeLaClasse = enseignantsParClasse[cl.nom] || [];
+                  return (
+                    <div key={cl.id} style={{ ...styles.itemRow, alignItems: 'flex-start', flexDirection: 'column', gap: '6px' }}>
+                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>{cl.nom}</strong>
+                      {profsDeLaClasse.length === 0 ? (
+                        <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic', margin: 0 }}>⚠️ Aucun enseignant attribué à cette classe.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {profsDeLaClasse.map((p, i) => (
+                            <span key={i} style={{ fontSize: '11px', backgroundColor: '#eff6ff', color: '#1e3a8a', padding: '3px 8px', borderRadius: '6px', fontWeight: '700' }}>
+                              {p.enseignant} · {p.matiere}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

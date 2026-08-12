@@ -41,6 +41,48 @@ export default function CenseurDashboard() {
   const [userId, setUserId] = useState(null);
   const [affiliationCenseur, setAffiliationCenseur] = useState(null); // ligne affiliations_etablissement (role CENSEUR, statut ACTIVE)
   const [anneeActiveId, setAnneeActiveId] = useState(null);
+ const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+useEffect(() => {
+  if (!affiliationCenseur?.etablissement_id) return;
+  const topic = `presence-etablissement-${affiliationCenseur.etablissement_id}`;
+  const interval = setInterval(() => {
+    const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
+    if (canal) {
+      const etat = canal.presenceState();
+      setPersonnesEnLigne(Object.values(etat).flat());
+    }
+  }, 3000);
+  return () => clearInterval(interval);
+}, [affiliationCenseur?.etablissement_id]);
+
+// =========================================================================
+// ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
+// =========================================================================
+
+  const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
+  const [formProfilCenseur, setFormProfilCenseur] = useState({ ...infosCenseur });
+  const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
+  const profilCenseurRef = useRef(null);
+
+  const [modalSecurite, setModalSecurite] = useState(false);
+  const [ancienMdp, setAncienMdp] = useState('');
+  const [nouveauMdp, setNouveauMdp] = useState('');
+  const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
+
+  const [menuBurgerCenseurOuvert, setMenuBurgerCenseurOuvert] = useState(false);
+  const menuBurgerCenseurRef = useRef(null);
+  const [modalDeconnexion, setModalDeconnexion] = useState(false);
+
+  const [modalConfirmation, setModalConfirmation] = useState({
+    ouvert: false, titre: '', message: '', actionCallback: null
+  });
+
+  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
+  const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
+    nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
+    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
+  });
+
 
   // =========================================================================
   // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
@@ -2289,9 +2331,9 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
               <div><label style={styles.label}>Code Établissement</label><p style={{...styles.pInfo, color: '#2563eb'}}>{ecoleConfigGlobale.codeEtablissement}</p></div>
               <div><label style={styles.label}>Type d'Établissement</label><p style={styles.pInfo}>{ecoleConfigGlobale.typeEtablissement}</p></div>
               <div><label style={styles.label}>Situation Géographique</label><p style={styles.pInfo}>{ecoleConfigGlobale.situationGeo}</p></div>
-              <div><label style={styles.label}>Effectif Élèves</label><p style={{...styles.pInfo, color: '#16a34a'}}>{ecoleConfigGlobale.nombreEleves} élèves</p></div>
-              <div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
-            </div>
+             <div><label style={styles.label}>Effectif Classes</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
+<div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{listeProfesseursEtablissement.length} enseignant(s)</p></div>
+</div>
 
             <div style={{ backgroundColor: '#fef2f2', padding: '20px', borderRadius: '16px', border: '1px solid #fecaca' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#991b1b', marginBottom: '8px' }}>🚪 Quitter cet établissement</h3>

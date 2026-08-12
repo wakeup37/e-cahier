@@ -374,6 +374,7 @@ export default function CenseurDashboard() {
     )
   `)
 
+
       .in('statut', ['ENVOYEE', 'RECUE']);
 
     if (erreurSeances) {

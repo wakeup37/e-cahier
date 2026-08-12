@@ -1012,10 +1012,15 @@ export default function EnseignantDashboard() {
       const arriveMaintenant = !dateSeance || dateSeance <= aujourdHui;
       const statutCible = arriveMaintenant ? 'ENVOYEE' : 'PROGRAMMEE';
 
-      const { error } = await supabase
-        .from('seances')
-        .update({ statut: statutCible, envoyee_at: arriveMaintenant ? new Date().toISOString() : null })
-        .eq('id', seanceId);
+     const { error } = await supabase
+  .from('seances')
+  .update({ 
+    statut: statutCible, 
+    envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
+    statut_visa: 'SOUMISE'
+  })
+  .eq('id', seanceId);
+
       if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
       const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {

@@ -269,6 +269,20 @@ export default function EnseignantDashboard() {
   const toggleCycle = (cycleId) => setCyclesOuverts(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
   const toggleLecon = (leconId) => setLeconsOuvertes(prev => ({ ...prev, [leconId]: !prev[leconId] }));
 
+  // En arrivant sur une classe qui a déjà un programme, ses cycles s'ouvrent
+  // automatiquement (on voit tout de suite les leçons) — les leçons, elles,
+  // restent repliées par défaut pour ne pas surcharger l'écran de séances.
+  useEffect(() => {
+    if (!classeSelectionneeVue) return;
+    const cycles = programmesClasses?.[classeSelectionneeVue]?.cycles;
+    if (!Array.isArray(cycles) || cycles.length === 0) return;
+    setCyclesOuverts(prev => {
+      const maj = { ...prev };
+      cycles.forEach(c => { if (maj[c.id] === undefined) maj[c.id] = true; });
+      return maj;
+    });
+  }, [classeSelectionneeVue, programmesClasses]);
+
   const [modalAssistant, setModalAssistant] = useState({
     ouvert: false, niveauCible: 'cycle', cycleIdCible: null, leconIdCible: null,
     titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }],
@@ -758,23 +772,49 @@ export default function EnseignantDashboard() {
     const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
-    // --- Branche NON câblée sur Supabase (reste locale, voir note en tête de fichier) ---
+    // --- Branche PROGRAMME ANNUEL COMPLET : vraie création Supabase ---
+    // Le professeur trace d'abord le squelette de son année (une suite de
+    // cycles, juste titre + compétence + nombre de leçons prévu). Chaque
+    // cycle devient un vrai cycle en base pour chaque classe cible — les
+    // leçons/séances se rempliront ensuite au fil de l'année, cycle par cycle.
     if (niveauCible === 'programme_annuel') {
       if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce programme.");
         return;
       }
-      classesCiblesCycle.forEach(classeCible => {
-        let nouveauxCyclesGeneres = cyclesProgramme.map(cp => {
-          let leconsGenerees = [];
-          for (let i = 1; i <= cp.nbLecons; i++) {
-            leconsGenerees.push({ id: Date.now() + Math.random(), titre: `Leçon ${i} du ${cp.titre}`, nombreSeancesPrevues: 3, statut: 'En attente', soumisAuCenseur: false, seances: [] });
-          }
-          return { id: Date.now() + Math.random(), titre: cp.titre, competence: `Compétence pour ${cp.titre}`, dateDebut: new Date().toISOString().split('T')[0], dateFin: new Date().toISOString().split('T')[0], dureeEstimee: cp.duree, statut: 'En attente', soumisAuCenseur: false, lecons: leconsGenerees };
-        });
-        setProgrammesClasses(prev => ({ ...(prev || {}), [classeCible]: { anneeScolaire: '2025-2026', titre: titreProgramme, cycles: nouveauxCyclesGeneres } }));
-      });
-      showToast("✨ Programme annuel complet généré (local uniquement pour l'instant) !");
+      const listeCycles = (Array.isArray(cyclesProgramme) ? cyclesProgramme : []).filter(cp => cp.titre && cp.titre.trim());
+      if (listeCycles.length === 0) {
+        showToast("⚠️ Ajoutez au moins un cycle avec un titre.");
+        return;
+      }
+
+      let compteurCrees = 0;
+      for (const classeCible of classesCiblesCycle) {
+        const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
+        const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
+        if (!programmeAnnuelId) continue;
+
+        for (const cp of listeCycles) {
+          const { data: nouveauCycle, error } = await supabase
+            .from('cycles').insert({
+              programme_annuel_id: programmeAnnuelId, titre: cp.titre.trim(), statut: 'EN_COURS',
+              competence: cp.competence || null,
+              nombre_lecons_prevu: cp.nbLecons ? parseInt(cp.nbLecons, 10) : null,
+              classe_nom: classeCible,
+            }).select().single();
+          if (error) { showToast(`⚠️ Erreur pour "${cp.titre}" (${classeCible}) : ` + error.message); continue; }
+
+          compteurCrees++;
+          if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
+          setProgrammesClasses(prev => {
+            const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
+            const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: '', dateFin: '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, planLecons: [], statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+            return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
+          });
+        }
+      }
+
+      showToast(`✨ Programme annuel créé : ${listeCycles.length} cycle(s) pour ${classesCiblesCycle.length} classe(s) !`);
       setModalAssistant({ ...modalAssistant, ouvert: false });
       return;
     }
@@ -2194,6 +2234,41 @@ export default function EnseignantDashboard() {
                     <div>
                       <label style={styles.label}>Titre du programme annuel</label>
                       <input type="text" value={modalAssistant.titreProgramme} onChange={(e) => setModalAssistant({...modalAssistant, titreProgramme: e.target.value})} style={styles.inputStyle} required />
+                    </div>
+
+                    <div style={{ backgroundColor: '#f0fdf4', padding: '12px', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#166534' }}>📚 Cycles du programme (titres et références — les leçons se rempliront plus tard, cycle par cycle)</label>
+                      {(Array.isArray(modalAssistant.cyclesProgramme) ? modalAssistant.cyclesProgramme : []).map((cp, index) => (
+                        <div key={cp.id} style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                            <input
+                              type="text" placeholder={`Titre du cycle ${index + 1}`} value={cp.titre}
+                              onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, titre: e.target.value } : c) }))}
+                              style={{ ...styles.inputStyle, margin: 0, flex: 2, fontWeight: '800' }}
+                            />
+                            {modalAssistant.cyclesProgramme.length > 1 && (
+                              <button type="button" onClick={() => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.filter(c => c.id !== cp.id) }))} style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', fontWeight: '900', cursor: 'pointer', flexShrink: 0 }}>−</button>
+                            )}
+                          </div>
+                          <input
+                            type="text" placeholder="Compétence visée (facultatif)" value={cp.competence || ''}
+                            onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, competence: e.target.value } : c) }))}
+                            style={{ ...styles.inputStyle, margin: '0 0 6px 0' }}
+                          />
+                          <input
+                            type="number" min="1" placeholder="Nombre de leçons prévu (facultatif)" value={cp.nbLecons || ''}
+                            onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, nbLecons: e.target.value } : c) }))}
+                            style={{ ...styles.inputStyle, margin: 0 }}
+                          />
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setModalAssistant(prev => ({ ...prev, cyclesProgramme: [...(prev.cyclesProgramme || []), { id: Date.now() + Math.random(), titre: `Cycle ${(prev.cyclesProgramme?.length || 0) + 1}`, competence: '', nbLecons: '' }] }))}
+                        className="bouton bouton-secondaire" style={{ width: '100%' }}
+                      >
+                        + Ajouter un cycle
+                      </button>
                     </div>
 
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>

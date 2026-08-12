@@ -87,8 +87,12 @@ export default function CenseurDashboard() {
   const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
   const [nouvelleClasseNiveau, setNouvelleClasseNiveau] = useState('');
   const [nouveauLotNiveau, setNouveauLotNiveau] = useState('');
+  const [nouveauLotAvecSeries, setNouveauLotAvecSeries] = useState(false);
+  const [nouveauLotNombre, setNouveauLotNombre] = useState('');
+  const [nouveauLotStyle, setNouveauLotStyle] = useState('alphabetique');
   const [nouveauLotSeries, setNouveauLotSeries] = useState('');
   const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
+  const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
   const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classeId: '', matiereNom: '' });
   const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
   const [nomNouveauFichier, setNomNouveauFichier] = useState('');
@@ -533,23 +537,53 @@ export default function CenseurDashboard() {
     showToast(`✅ Classe "${nouvelle.nom}" créée !`);
   };
 
-  // --- Créer toutes les classes d'un niveau en une fois (niveau + séries) ---
+  // --- Créer toutes les classes d'un niveau en une fois ---
   // Évite que chaque enseignant tape le nom d'une classe différemment
   // (ex. "6ème A" vs "6e1" vs "sixième un") : le censeur fixe la convention
   // une seule fois, tout le monde s'en sert ensuite.
+  // Deux modes : niveau simple (6ème, 5ème... : nombre de classes + style de
+  // numérotation) ou niveau avec séries (Seconde, Première, Terminale : nom
+  // de série libre + nombre de classes par série, ex. "A:3, C:2, D:1").
+  const ALPHABET_CLASSES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  const genererNomsLot = () => {
+    const niveau = nouveauLotNiveau.trim();
+    if (!niveau) return [];
+
+    if (!nouveauLotAvecSeries) {
+      const nombre = parseInt(nouveauLotNombre, 10);
+      if (!nombre || nombre < 1) return [];
+      const suffixes = nouveauLotStyle === 'alphabetique'
+        ? ALPHABET_CLASSES.slice(0, nombre).split('')
+        : Array.from({ length: nombre }, (_, i) => String(i + 1));
+      return suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
+    }
+
+    const noms = [];
+    nouveauLotSeries.split(',').forEach(entree => {
+      const [serieBrut, nombreBrut] = entree.split(':');
+      const serie = (serieBrut || '').trim();
+      if (!serie) return;
+      const nombre = parseInt((nombreBrut || '1').trim(), 10) || 1;
+      if (nombre <= 1) {
+        noms.push(`${niveau}${nouveauLotSeparateur}${serie}`);
+      } else {
+        for (let i = 1; i <= nombre; i++) noms.push(`${niveau}${nouveauLotSeparateur}${serie}${i}`);
+      }
+    });
+    return noms;
+  };
+
   const creerClassesEnLot = async (e) => {
     e.preventDefault();
-    if (!nouveauLotNiveau.trim() || !nouveauLotSeries.trim() || !affiliationCenseur || !anneeActiveId) {
-      showToast("⚠️ Merci d'indiquer le niveau et au moins une série.");
-      return;
-    }
-    const series = nouveauLotSeries.split(',').map(s => s.trim()).filter(Boolean);
-    if (series.length === 0) { showToast("⚠️ Aucune série valide détectée."); return; }
+    if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
+    const noms = genererNomsLot();
+    if (noms.length === 0) { showToast("⚠️ Merci de compléter le formulaire (niveau + nombre, ou niveau + séries)."); return; }
 
-    const lignes = series.map(serie => ({
+    const lignes = noms.map(nom => ({
       etablissement_id: affiliationCenseur.etablissement_id,
       annee_scolaire_id: anneeActiveId,
-      nom: `${nouveauLotNiveau.trim()}${nouveauLotSeparateur}${serie}`,
+      nom,
       niveau: nouveauLotNiveau.trim(),
     }));
 
@@ -570,8 +604,69 @@ export default function CenseurDashboard() {
       .order('nom', { ascending: true });
     setClassesEtablissement(classesRafraichies || []);
 
-    setNouveauLotNiveau(''); setNouveauLotSeries('');
-    showToast(`✅ ${series.length} classe(s) prête(s) pour "${lignes[0].niveau}" !`);
+    setNouveauLotNiveau(''); setNouveauLotNombre(''); setNouveauLotSeries('');
+    showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
+  };
+
+  // --- Générer plusieurs niveaux simples d'un coup (typiquement le premier
+  // cycle : 6ème, 5ème, 4ème, 3ème, chacun avec son propre nombre de classes) ---
+  const ajouterLigneLotNiveaux = () => {
+    setLotNiveauxMultiples(prev => [...prev, { niveau: '', nombre: '', style: 'alphabetique' }]);
+  };
+
+  const retirerLigneLotNiveaux = (index) => {
+    setLotNiveauxMultiples(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const modifierLigneLotNiveaux = (index, champ, valeur) => {
+    setLotNiveauxMultiples(prev => prev.map((ligne, i) => i === index ? { ...ligne, [champ]: valeur } : ligne));
+  };
+
+  const genererApercuLotNiveaux = () => {
+    const resultat = [];
+    lotNiveauxMultiples.forEach(({ niveau, nombre, style }) => {
+      const niveauPropre = niveau.trim();
+      const n = parseInt(nombre, 10);
+      if (!niveauPropre || !n || n < 1) return;
+      const suffixes = style === 'alphabetique'
+        ? ALPHABET_CLASSES.slice(0, n).split('')
+        : Array.from({ length: n }, (_, i) => String(i + 1));
+      suffixes.forEach(suf => resultat.push({ nom: `${niveauPropre} ${suf}`, niveau: niveauPropre }));
+    });
+    return resultat;
+  };
+
+  const creerNiveauxEnLot = async (e) => {
+    e.preventDefault();
+    if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
+    const classesAGenerer = genererApercuLotNiveaux();
+    if (classesAGenerer.length === 0) { showToast("⚠️ Merci de remplir au moins un niveau avec son nombre de classes."); return; }
+
+    const lignes = classesAGenerer.map(c => ({
+      etablissement_id: affiliationCenseur.etablissement_id,
+      annee_scolaire_id: anneeActiveId,
+      nom: c.nom,
+      niveau: c.niveau,
+    }));
+
+    const { error } = await supabase
+      .from('classes')
+      .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    const { data: classesRafraichies } = await supabase
+      .from('classes')
+      .select('id, nom, niveau')
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('annee_scolaire_id', anneeActiveId)
+      .is('deleted_at', null)
+      .order('nom', { ascending: true });
+    setClassesEtablissement(classesRafraichies || []);
+
+    const nombreNiveaux = new Set(classesAGenerer.map(c => c.niveau)).size;
+    setLotNiveauxMultiples([{ niveau: '', nombre: '', style: 'alphabetique' }]);
+    showToast(`✅ ${classesAGenerer.length} classe(s) créée(s) pour ${nombreNiveaux} niveau(x) !`);
   };
 
   // --- Trouver ou créer une matière par son nom (catalogue global partagé) ---
@@ -969,6 +1064,9 @@ export default function CenseurDashboard() {
         sousTotal + (cy.lecons || []).reduce((s, lc) =>
           s + (lc.seances || []).filter(sc => !sc.viseParCenseur).length, 0), 0), 0);
   }, [programmesClasses]);
+
+  const apercuLotClasses = genererNomsLot();
+  const apercuLotNiveauxMultiples = genererApercuLotNiveaux();
 
   const professeursFiltres = useMemo(() => {
     return listeProfesseursEtablissement.filter(prof => {
@@ -1630,15 +1728,40 @@ export default function CenseurDashboard() {
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Créer les classes d'un niveau (recommandé)</h3>
               <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e3a8a', marginBottom: '12px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNouveauLotAvecSeries(e.target.checked)} />
+                Ce niveau a des séries (ex. Seconde, Première, Terminale : A, C, D...)
+              </label>
+
               <form onSubmit={creerClassesEnLot} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 140px' }}>
                   <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>
-                  <input type="text" placeholder="ex. Seconde" value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                  <input type="text" placeholder={nouveauLotAvecSeries ? "ex. Seconde" : "ex. 6ème"} value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
                 </div>
-                <div style={{ flex: '2 1 200px' }}>
-                  <label style={{ ...styles.label, fontSize: '10px' }}>Séries (séparées par des virgules)</label>
-                  <input type="text" placeholder="ex. A, B, C, D" value={nouveauLotSeries} onChange={(e) => setNouveauLotSeries(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
-                </div>
+
+                {!nouveauLotAvecSeries ? (
+                  <>
+                    <div style={{ flex: '1 1 120px' }}>
+                      <label style={{ ...styles.label, fontSize: '10px' }}>Nombre de classes</label>
+                      <input type="number" min="1" max="26" placeholder="ex. 4" value={nouveauLotNombre} onChange={(e) => setNouveauLotNombre(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                    </div>
+                    <div style={{ flex: '1 1 160px' }}>
+                      <label style={{ ...styles.label, fontSize: '10px' }}>Numérotation</label>
+                      <select value={nouveauLotStyle} onChange={(e) => setNouveauLotStyle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                        <option value="alphabetique">Alphabétique (A, B, C...)</option>
+                        <option value="numerique">Numérique (1, 2, 3...)</option>
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ flex: '2 1 260px' }}>
+                    <label style={{ ...styles.label, fontSize: '10px' }}>Séries et nombre de classes (ex. A:3, C:2, D:1)</label>
+                    <input type="text" placeholder="ex. A:3, C:2, D:1" value={nouveauLotSeries} onChange={(e) => setNouveauLotSeries(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                    <p style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>Les noms de séries sont libres — utilisez ceux de votre établissement (A, C, D... ou autre chose).</p>
+                  </div>
+                )}
+
                 <div style={{ flex: '1 1 120px' }}>
                   <label style={{ ...styles.label, fontSize: '10px' }}>Entre les deux</label>
                   <select value={nouveauLotSeparateur} onChange={(e) => setNouveauLotSeparateur(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
@@ -1649,9 +1772,53 @@ export default function CenseurDashboard() {
                 </div>
                 <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer les classes</button>
               </form>
-              {nouveauLotNiveau.trim() && nouveauLotSeries.trim() && (
+
+              {nouveauLotNiveau.trim() && apercuLotClasses.length > 0 && (
                 <p style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '8px' }}>
-                  Aperçu : {nouveauLotSeries.split(',').map(s => s.trim()).filter(Boolean).map(s => `${nouveauLotNiveau.trim()}${nouveauLotSeparateur}${s}`).join(', ')}
+                  Aperçu ({apercuLotClasses.length}) : {apercuLotClasses.join(', ')}
+                </p>
+              )}
+            </div>
+
+            <div style={{ backgroundColor: '#f0fdf4', padding: '16px', borderRadius: '12px', border: '1px solid #bbf7d0', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#166534', marginBottom: '4px' }}>+ Générer plusieurs niveaux d'un coup (ex. tout le premier cycle)</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Idéal pour 6ème, 5ème, 4ème, 3ème en une seule opération — un niveau par ligne, chacun avec son propre nombre de classes.</p>
+
+              <form onSubmit={creerNiveauxEnLot}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                  {lotNiveauxMultiples.map((ligne, index) => (
+                    <div key={index} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <div style={{ flex: '1 1 140px' }}>
+                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>}
+                        <input type="text" placeholder="ex. 6ème" value={ligne.niveau} onChange={(e) => modifierLigneLotNiveaux(index, 'niveau', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                      </div>
+                      <div style={{ flex: '1 1 100px' }}>
+                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Nombre</label>}
+                        <input type="number" min="1" max="26" placeholder="4" value={ligne.nombre} onChange={(e) => modifierLigneLotNiveaux(index, 'nombre', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                      </div>
+                      <div style={{ flex: '1 1 140px' }}>
+                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Style</label>}
+                        <select value={ligne.style} onChange={(e) => modifierLigneLotNiveaux(index, 'style', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                          <option value="alphabetique">A, B, C...</option>
+                          <option value="numerique">1, 2, 3...</option>
+                        </select>
+                      </div>
+                      {lotNiveauxMultiples.length > 1 && (
+                        <button type="button" onClick={() => retirerLigneLotNiveaux(index)} className="bouton bouton-danger" style={{ padding: '8px 10px', fontSize: '11px', flexShrink: 0 }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <button type="button" onClick={ajouterLigneLotNiveaux} className="bouton bouton-secondaire" style={{ fontSize: '12px' }} disabled={!anneeActiveId}>+ Ajouter un niveau</button>
+                  <button type="submit" className="bouton bouton-succes" disabled={!anneeActiveId}>Générer {apercuLotNiveauxMultiples.length > 0 ? `les ${apercuLotNiveauxMultiples.length} classes` : 'tout'}</button>
+                </div>
+              </form>
+
+              {apercuLotNiveauxMultiples.length > 0 && (
+                <p style={{ fontSize: '11px', color: '#166534', marginTop: '10px' }}>
+                  Aperçu ({apercuLotNiveauxMultiples.length}) : {apercuLotNiveauxMultiples.map(c => c.nom).join(', ')}
                 </p>
               )}
             </div>

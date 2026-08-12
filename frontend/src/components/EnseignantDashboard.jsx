@@ -14,11 +14,11 @@ import { supabase } from './AppRouter';
 //   - soumettreAuCenseur : uniquement pour une séance (statut → ENVOYEE)
 //
 // RESTE VOLONTAIREMENT EN LOCAL POUR CETTE PASSE (localStorage, comme avant) :
-//   - bibliotheque, rapportsSeances, demandesDepart, demandePromotionCenseur,
+//   - rapportsSeances, demandesDepart, demandePromotionCenseur,
 //     propositionsCenseur, notifications, modeSansAffiliation (paiement),
 //     classesSansAffiliation, executerDuplicationIntelligente,
 //     sauvegarderEdition (modification d'un élément existant),
-//     executerConsultationEtReutilisation, la branche 'programme_annuel'
+//     la branche 'programme_annuel'
 //     du générateur, marquerLeconTerminee/marquerCycleTermine,
 //     soumettreAuCenseur pour type 'cycle'/'lecon'/'programme'
 //   → Ces actions modifient encore uniquement l'état local en mémoire :
@@ -160,19 +160,71 @@ export default function EnseignantDashboard() {
 
   const [classeSelectionneeVue, setClasseSelectionneeVue] = useState(null);
 
-  const [bibliotheque, setBibliotheque] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || []; }
-    catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_bibliotheque_permanente', JSON.stringify(bibliotheque)); }, [bibliotheque]);
-
-  const [filtreBiblioAnnee, setFiltreBiblioAnnee] = useState('2025-2026');
-  const [filtreBiblioClasse, setFiltreBiblioClasse] = useState('TOUTES');
+  // --- BIBLIOTHÈQUE PERSONNELLE — vraie table Supabase (bibliotheque_personnelle).
+  // Chaque ligne pointe vers une séance déjà créée (reference_id) ; le
+  // contenu réel est relu depuis la table seances au chargement.
+  const [bibliotheque, setBibliotheque] = useState([]);
   const [filtreBiblioTexte, setFiltreBiblioTexte] = useState('');
 
-  const [modalConsulterReutiliser, setModalConsulterReutiliser] = useState({
-    ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {}
-  });
+  const chargerBibliotheque = async (uid) => {
+    const idUtilisateur = uid || userId;
+    if (!idUtilisateur) return;
+    const { data: lignes } = await supabase
+      .from('bibliotheque_personnelle')
+      .select('id, reference_id, titre, created_at')
+      .eq('user_id', idUtilisateur)
+      .eq('type_item', 'SEANCE')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    const idsSeances = (lignes || []).map(l => l.reference_id).filter(Boolean);
+    let seancesParId = {};
+    if (idsSeances.length > 0) {
+      const { data: seancesData } = await supabase
+        .from('seances')
+        .select('id, contenu_json, date_prevue, classes(nom)')
+        .in('id', idsSeances);
+      (seancesData || []).forEach(s => { seancesParId[s.id] = s; });
+    }
+
+    setBibliotheque((lignes || []).map(l => {
+      const seance = seancesParId[l.reference_id];
+      return {
+        id: l.id,
+        referenceId: l.reference_id,
+        nom: l.titre || seance?.contenu_json?.titre || 'Fiche',
+        classeOrigine: seance?.classes?.nom || '',
+        dateOrigine: seance?.date_prevue || '',
+        contenuJson: seance?.contenu_json || {},
+      };
+    }));
+  };
+
+  const enregistrerDansBibliotheque = async (seanceId, titre) => {
+    if (!userId) return;
+    const { error } = await supabase.from('bibliotheque_personnelle').insert({
+      user_id: userId, type_item: 'SEANCE', reference_id: seanceId, titre: titre || 'Fiche',
+    });
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    showToast("💾 Fiche enregistrée dans votre bibliothèque !");
+    chargerBibliotheque(userId);
+  };
+
+  const [modalChoixBibliotheque, setModalChoixBibliotheque] = useState({ ouvert: false, cycleId: null, leconId: null });
+
+  const utiliserFicheDeLaBibliotheque = (item) => {
+    const { titre, lieu, ...autresChamps } = item.contenuJson || {};
+    const { cycleId, leconId } = modalChoixBibliotheque;
+    setModalChoixBibliotheque({ ouvert: false, cycleId: null, leconId: null });
+    setModalAssistant(prev => ({
+      ...prev,
+      ouvert: true, niveauCible: 'seance',
+      cycleIdCible: cycleId, leconIdCible: leconId,
+      titreSeance: titre || item.nom, lieuSeance: lieu || '', valeursChamps: autresChamps,
+      classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [],
+      datesParClasseCycle: {}, dateSeance: new Date().toISOString().split('T')[0],
+    }));
+  };
 
   // --- PROGRAMMES (Supabase en lecture, écriture partielle) ---
   const [programmesClasses, setProgrammesClasses] = useState({});
@@ -234,6 +286,7 @@ export default function EnseignantDashboard() {
       return;
     }
     setUserId(user.id);
+    chargerBibliotheque(user.id);
 
     const { data: profil } = await supabase
       .from('utilisateurs_profils').select('*').eq('user_id', user.id).single();
@@ -638,7 +691,7 @@ export default function EnseignantDashboard() {
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
     const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, titreLecon, nombreSeancesLecon,
-      titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, cyclesProgramme, titreProgramme } = modalAssistant;
+      titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
     // --- Branche NON câblée sur Supabase (reste locale, voir note en tête de fichier) ---
     if (niveauCible === 'programme_annuel') {
@@ -661,75 +714,136 @@ export default function EnseignantDashboard() {
       return;
     }
 
-    // --- Branche CYCLE : vraie création Supabase ---
+    // --- Branche CYCLE : vraie création Supabase, sûre multi-établissements ---
+    // Chaque classe cochée garde SON PROPRE cycle en base (dans son propre
+    // programme_annuel) — les classes d'un même établissement partagent le
+    // même cycle réel, celles d'un autre établissement en ont un distinct.
     if (niveauCible === 'cycle') {
-      if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
+      const ciblesCycle = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
+        ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
+      if (ciblesCycle.length === 0) {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce cycle.");
         return;
       }
-      const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classesCiblesCycle[0]);
-      const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
-      if (!programmeAnnuelId) return;
 
-      const { data: nouveauCycle, error } = await supabase
-        .from('cycles').insert({ programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS' }).select().single();
-      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      const cycleParProgramme = {};
+      const resolutions = [];
+      for (const classeCible of ciblesCycle) {
+        const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
+        const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
+        if (!programmeAnnuelId) continue;
 
-      classesCiblesCycle.forEach(classeCible => {
+        if (!cycleParProgramme[programmeAnnuelId]) {
+          const { data, error } = await supabase
+            .from('cycles').insert({ programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS' }).select().single();
+          if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+          cycleParProgramme[programmeAnnuelId] = data;
+        }
+        resolutions.push({ classeCible, cycle: cycleParProgramme[programmeAnnuelId] });
+      }
+
+      resolutions.forEach(({ classeCible, cycle }) => {
         if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
-        const progCible = programmesClasses[classeCible] || { anneeScolaire: '', cycles: [] };
-        const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: competenceCycle || '', dateDebut: '', dateFin: '', statut: 'En cours', soumisAuCenseur: false, lecons: [] };
-        setProgrammesClasses(prev => ({ ...(prev || {}), [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } }));
+        setProgrammesClasses(prev => {
+          const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
+          const cycleLocal = { id: cycle.id, titre: cycle.titre, competence: competenceCycle || '', dateDebut: '', dateFin: '', statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+          return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
+        });
       });
-      showToast("✨ Cycle créé avec succès !");
+
+      const nbEtablissements = Object.keys(cycleParProgramme).length;
+      showToast(`✨ Cycle créé pour ${resolutions.length} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
     }
 
-    // --- Branche LEÇON : vraie création Supabase ---
+    // --- Branche LEÇON : vraie création Supabase, multi-classes ---
+    // La liaison entre établissements se fait par titre de cycle (aucun
+    // identifiant technique commun n'existe entre deux bases d'écoles
+    // différentes) — seules les classes ayant déjà un cycle du même titre
+    // reçoivent la nouvelle leçon.
     else if (niveauCible === 'lecon') {
-      if (!classeSelectionneeVue) return;
-      const { data: nouvelleLecon, error } = await supabase
-        .from('lecons').insert({ cycle_id: cycleIdCible, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS' }).select().single();
-      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      const ciblesLecon = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
+        ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
+      if (ciblesLecon.length === 0 || !classeSelectionneeVue) return;
 
-      const progClasse = programmesClasses[classeSelectionneeVue];
-      const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleIdCible ? c : {
-        ...c, lecons: [...(c.lecons || []), { id: nouvelleLecon.id, titre: nouvelleLecon.titre, nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3, statut: 'En cours', soumisAuCenseur: false, seances: [] }]
-      });
-      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...progClasse, cycles: cyclesMaj } });
-      showToast("Leçon créée !");
+      const cycleReference = (programmesClasses[classeSelectionneeVue]?.cycles || []).find(c => c.id === cycleIdCible);
+      if (!cycleReference) { showToast("⚠️ Cycle introuvable."); return; }
+
+      let compteurCreees = 0;
+      for (const classeCible of ciblesLecon) {
+        const cycleCorrespondant = (programmesClasses[classeCible]?.cycles || []).find(c => c.titre === cycleReference.titre);
+        if (!cycleCorrespondant) {
+          showToast(`⚠️ "${classeCible}" n'a pas de cycle "${cycleReference.titre}" — ignorée.`);
+          continue;
+        }
+
+        const { data: nouvelleLecon, error } = await supabase
+          .from('lecons').insert({ cycle_id: cycleCorrespondant.id, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS' }).select().single();
+        if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+
+        compteurCreees++;
+        setProgrammesClasses(prev => {
+          const progClasse = prev[classeCible];
+          const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleCorrespondant.id ? c : {
+            ...c, lecons: [...(c.lecons || []), { id: nouvelleLecon.id, titre: nouvelleLecon.titre, nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3, statut: 'En cours', soumisAuCenseur: false, seances: [] }]
+          });
+          return { ...prev, [classeCible]: { ...progClasse, cycles: cyclesMaj } };
+        });
+      }
+      showToast(`✨ Leçon créée pour ${compteurCreees} classe(s) !`);
     }
 
-    // --- Branche SÉANCE : vraie création Supabase ---
+    // --- Branche SÉANCE : vraie création Supabase, multi-classes + une date
+    // propre à chaque classe (même logique de liaison par titre que ci-dessus) ---
     else if (niveauCible === 'seance') {
-      if (!classeSelectionneeVue) return;
-      const { classeId } = await resoudreContexteClasse(classeSelectionneeVue);
+      const ciblesSeance = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
+        ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
+      if (ciblesSeance.length === 0 || !classeSelectionneeVue) return;
 
-      const { data: nouvelleSeance, error } = await supabase
-        .from('seances')
-        .insert({
-          lecon_id: leconIdCible,
-          classe_id: classeId,
-          date_prevue: dateSeance || null,
-          contenu_json: { titre: titreSeance || 'Séance pédagogique', lieu: lieuSeance || '', ...(valeursChamps || {}) },
-          statut: 'BROUILLON',
-        })
-        .select().single();
+      const cycleReference = (programmesClasses[classeSelectionneeVue]?.cycles || []).find(c => c.id === cycleIdCible);
+      const leconReference = cycleReference?.lecons?.find(l => l.id === leconIdCible);
+      if (!cycleReference || !leconReference) { showToast("⚠️ Leçon introuvable."); return; }
 
-      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      let compteurCreees = 0;
+      for (const classeCible of ciblesSeance) {
+        const cycleCorrespondant = (programmesClasses[classeCible]?.cycles || []).find(c => c.titre === cycleReference.titre);
+        const leconCorrespondante = cycleCorrespondant?.lecons?.find(l => l.titre === leconReference.titre);
+        if (!leconCorrespondante) {
+          showToast(`⚠️ "${classeCible}" n'a pas la leçon "${leconReference.titre}" — ignorée.`);
+          continue;
+        }
 
-      const progClasse = programmesClasses[classeSelectionneeVue];
-      const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleIdCible ? c : {
-        ...c,
-        lecons: (c.lecons || []).map(l => l.id !== leconIdCible ? l : {
-          ...l,
-          seances: [...(l.seances || []), {
-            id: nouvelleSeance.id, numero: (l.seances || []).length + 1, titre: titreSeance || 'Séance pédagogique',
-            date: dateSeance, lieu: lieuSeance, valeursChamps: valeursChamps || {}, fichiersMultimedias: [], statut: 'En cours', soumisAuCenseur: false,
-          }]
-        })
-      });
-      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...progClasse, cycles: cyclesMaj } });
-      showToast("Séance créée !");
+        const { classeId } = await resoudreContexteClasse(classeCible);
+        const dateCiblee = (datesParClasseCycle && datesParClasseCycle[classeCible]) || dateSeance || null;
+
+        const { data: nouvelleSeance, error } = await supabase
+          .from('seances')
+          .insert({
+            lecon_id: leconCorrespondante.id,
+            classe_id: classeId,
+            date_prevue: dateCiblee,
+            contenu_json: { titre: titreSeance || 'Séance pédagogique', lieu: lieuSeance || '', ...(valeursChamps || {}) },
+            statut: 'BROUILLON',
+          })
+          .select().single();
+        if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+
+        compteurCreees++;
+        setProgrammesClasses(prev => {
+          const progClasse = prev[classeCible];
+          const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleCorrespondant.id ? c : {
+            ...c,
+            lecons: (c.lecons || []).map(l => l.id !== leconCorrespondante.id ? l : {
+              ...l,
+              seances: [...(l.seances || []), {
+                id: nouvelleSeance.id, numero: (l.seances || []).length + 1, titre: titreSeance || 'Séance pédagogique',
+                date: dateCiblee, lieu: lieuSeance, valeursChamps: valeursChamps || {}, fichiersMultimedias: [], statut: 'En cours', soumisAuCenseur: false,
+              }]
+            })
+          });
+          return { ...prev, [classeCible]: { ...progClasse, cycles: cyclesMaj } };
+        });
+      }
+      showToast(`✨ Séance créée pour ${compteurCreees} classe(s), chacune avec sa propre date !`);
     }
 
     setModalAssistant({
@@ -740,49 +854,6 @@ export default function EnseignantDashboard() {
       valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {},
       titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }]
     });
-  };
-
-  // Reste en local pour cette passe (voir note en tête de fichier)
-  const executerConsultationEtReutilisation = (e) => {
-    e.preventDefault();
-    const { item, donneesModifiees, classesSelectionnees, datesParClasse } = modalConsulterReutiliser;
-    if (!Array.isArray(classesSelectionnees) || classesSelectionnees.length === 0) {
-      showToast("⚠️ Veuillez sélectionner au moins une classe cible.");
-      return;
-    }
-    classesSelectionnees.forEach(classeCible => {
-      const dateAttribuee = (datesParClasse && datesParClasse[classeCible]) || new Date().toISOString().split('T')[0];
-      const progCible = programmesClasses[classeCible] || { anneeScolaire: '2025-2026', cycles: [] };
-      const nouvelleSeanceReutilisee = {
-        id: Date.now() + Math.random(), numero: 1,
-        titre: (donneesModifiees && donneesModifiees.nom) || (item && item.nom) || 'Séance réutilisée',
-        date: dateAttribuee, lieu: 'Gymnase',
-        valeursChamps: (donneesModifiees && donneesModifiees.valeursChamps) || (item && item.valeursChamps) || {},
-        fichiersMultimedias: (item && item.fichiersMultimedias) || [], statut: 'En cours', soumisAuCenseur: false
-      };
-      setProgrammesClasses(prev => {
-        let cyclesCible = Array.isArray(progCible.cycles) ? [...progCible.cycles] : [];
-        if (cyclesCible.length === 0) {
-          cyclesCible.push({ id: Date.now(), titre: 'Cycle Général', competence: 'Compétence', dateDebut: '2026-01-01', dateFin: '2026-06-30', statut: 'En cours',
-            lecons: [{ id: Date.now() + 1, titre: 'Leçon Générale', nombreSeancesPrevues: 3, statut: 'En cours', seances: [nouvelleSeanceReutilisee] }] });
-        } else {
-          let premierCycle = { ...cyclesCible[0] };
-          let leconsCibles = Array.isArray(premierCycle.lecons) ? [...premierCycle.lecons] : [];
-          if (leconsCibles.length === 0) {
-            leconsCibles.push({ id: Date.now() + 1, titre: 'Leçon Générale', nombreSeancesPrevues: 3, statut: 'En cours', seances: [nouvelleSeanceReutilisee] });
-          } else {
-            let premiereLecon = { ...leconsCibles[0] };
-            premiereLecon.seances = [...(premiereLecon.seances || []), nouvelleSeanceReutilisee];
-            leconsCibles[0] = premiereLecon;
-          }
-          premierCycle.lecons = leconsCibles;
-          cyclesCible[0] = premierCycle;
-        }
-        return { ...(prev || {}), [classeCible]: { ...progCible, cycles: cyclesCible } };
-      });
-    });
-    showToast("♻️ Fiche réutilisée avec succès !");
-    setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} });
   };
 
   // --- Envoi au censeur : vraie mise à jour Supabase pour une séance, local sinon ---
@@ -1026,16 +1097,9 @@ export default function EnseignantDashboard() {
 
   const bibliothequeFiltree = useMemo(() => {
     if (!Array.isArray(bibliotheque)) return [];
-    return bibliotheque.filter(b => {
-      const matchAnnee = !filtreBiblioAnnee || b.anneeScolaire === filtreBiblioAnnee;
-      const matchClasse = filtreBiblioClasse === 'TOUTES' || b.classe === filtreBiblioClasse;
-      const matchTexte = !filtreBiblioTexte ||
-        (b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) ||
-        (b.cycleAssocie && b.cycleAssocie.toLowerCase().includes(filtreBiblioTexte.toLowerCase())) ||
-        (b.leconAssociee && b.leconAssociee.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
-      return matchAnnee && matchClasse && matchTexte;
-    });
-  }, [bibliotheque, filtreBiblioAnnee, filtreBiblioClasse, filtreBiblioTexte]);
+    if (!filtreBiblioTexte) return bibliotheque;
+    return bibliotheque.filter(b => b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
+  }, [bibliotheque, filtreBiblioTexte]);
 
   if (chargementInitial) {
     return (
@@ -1342,39 +1406,39 @@ export default function EnseignantDashboard() {
                 <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation. Si la classe n'existe pas encore, tapez simplement son nom — le censeur pourra le corriger avant de valider.
+                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation.
               </p>
-              <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Classe</label>
-                  <input
-                    type="text" list="liste-classes-enseignant" placeholder="ex. 6ème A (nouvelle ou existante)"
-                    value={modalProposerClasse.classeNom}
-                    onChange={(e) => setModalProposerClasse(prev => ({ ...prev, classeNom: e.target.value }))}
-                    style={styles.inputStyle} required
-                  />
-                  <datalist id="liste-classes-enseignant">
-                    {modalProposerClasse.classesDisponibles.map(c => <option key={c.id} value={c.nom} />)}
-                  </datalist>
-                  {modalProposerClasse.classesDisponibles.length === 0 && (
-                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Aucune classe existante pour l'instant dans cet établissement — la vôtre sera une proposition de nouvelle classe.</p>
-                  )}
-                </div>
-                <div>
-                  <label style={styles.label}>Matière</label>
-                  <select value={modalProposerClasse.matiereNom} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, matiereNom: e.target.value }))} style={styles.inputStyle} required>
-                    <option value="">— Choisir une matière —</option>
-                    {modalProposerClasse.matieresDisponibles.map(m => <option key={m.id} value={m.nom}>{m.nom}</option>)}
-                  </select>
-                  {modalProposerClasse.matieresDisponibles.length === 0 && (
-                    <p style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
-                  )}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
-                </div>
-              </form>
+              {modalProposerClasse.classesDisponibles.length === 0 ? (
+                <p style={{ fontSize: '13px', color: '#991b1b', fontStyle: 'italic' }}>Aucune classe créée pour l'année en cours dans cet établissement pour l'instant — demandez au censeur d'en créer d'abord.</p>
+              ) : (
+                <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Classe</label>
+                    <select
+                      value={modalProposerClasse.classeNom}
+                      onChange={(e) => setModalProposerClasse(prev => ({ ...prev, classeNom: e.target.value }))}
+                      style={styles.inputStyle} required
+                    >
+                      <option value="">— Choisir une classe —</option>
+                      {modalProposerClasse.classesDisponibles.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Matière</label>
+                    <select value={modalProposerClasse.matiereNom} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, matiereNom: e.target.value }))} style={styles.inputStyle} required>
+                      <option value="">— Choisir une matière —</option>
+                      {modalProposerClasse.matieresDisponibles.map(m => <option key={m.id} value={m.nom}>{m.nom}</option>)}
+                    </select>
+                    {modalProposerClasse.matieresDisponibles.length === 0 && (
+                      <p style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                    <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire">Annuler</button>
+                    <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )}
@@ -1915,6 +1979,27 @@ export default function EnseignantDashboard() {
                       <label style={styles.label}>Compétence visée</label>
                       <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
                     </div>
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles (une ou plusieurs écoles) :</label>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Chaque classe garde son propre cycle en base, même si elles appartiennent à des écoles différentes.</p>
+                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
+                        return (
+                          <label key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', border: '1px solid #e2e8f0', padding: '8px 10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
+                            <input
+                              type="checkbox"
+                              checked={estCoche}
+                              onChange={() => {
+                                const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
+                                const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
+                                setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                              }}
+                            />
+                            {cl}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </>
                 )}
 
@@ -1928,6 +2013,27 @@ export default function EnseignantDashboard() {
                       <label style={styles.label}>Nombre de séances</label>
                       <input type="number" min="1" value={modalAssistant.nombreSeancesLecon} onChange={(e) => setModalAssistant({...modalAssistant, nombreSeancesLecon: e.target.value})} style={styles.inputStyle} required />
                     </div>
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Ajouter aussi cette leçon à :</label>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Seules les classes ayant déjà un cycle du même titre seront proposées.</p>
+                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle.includes(cl) : cl === classeSelectionneeVue;
+                        return (
+                          <label key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', border: '1px solid #e2e8f0', padding: '8px 10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
+                            <input
+                              type="checkbox"
+                              checked={estCoche}
+                              onChange={() => {
+                                const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [classeSelectionneeVue].filter(Boolean);
+                                const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
+                                setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                              }}
+                            />
+                            {cl}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </>
                 )}
 
@@ -1936,6 +2042,37 @@ export default function EnseignantDashboard() {
                     <div>
                       <label style={styles.label}>Titre de la séance</label>
                       <input type="text" value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required />
+                    </div>
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>📅 Classes cibles et date propre à chacune :</label>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Seules les classes ayant déjà cette leçon (même titre) seront proposées.</p>
+                      {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
+                        const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle.includes(cl) : cl === classeSelectionneeVue;
+                        return (
+                          <div key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', padding: '8px 10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px', flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', flex: '1 1 140px' }}>
+                              <input
+                                type="checkbox"
+                                checked={estCoche}
+                                onChange={() => {
+                                  const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [classeSelectionneeVue].filter(Boolean);
+                                  const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
+                                  setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                                }}
+                              />
+                              {cl}
+                            </label>
+                            {estCoche && (
+                              <input
+                                type="date"
+                                value={modalAssistant.datesParClasseCycle?.[cl] || modalAssistant.dateSeance || ''}
+                                onChange={(e) => setModalAssistant(prev => ({ ...prev, datesParClasseCycle: { ...(prev.datesParClasseCycle || {}), [cl]: e.target.value } }))}
+                                style={{ ...styles.inputStyle, flex: '1 1 150px', margin: 0 }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -1974,31 +2111,34 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
-        {modalConsulterReutiliser.ouvert && (
+        {modalChoixBibliotheque.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ ...styles.cardWide, width: '520px', maxHeight: '80vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👁️ Consulter, Modifier & Réutiliser</h3>
-                <button onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>♻️ Réutiliser une fiche</h3>
+                <button onClick={() => setModalChoixBibliotheque({ ouvert: false, cycleId: null, leconId: null })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '14px' }}>Choisissez une fiche déjà enregistrée — vous pourrez la modifier, choisir les classes cibles et les dates avant de l'envoyer, exactement comme une fiche neuve.</p>
 
-              <form onSubmit={executerConsultationEtReutilisation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Titre de la fiche / séance</label>
-                  <input 
-                    type="text" 
-                    value={(modalConsulterReutiliser.donneesModifiees && modalConsulterReutiliser.donneesModifiees.nom) || ''} 
-                    onChange={(e) => setModalConsulterReutiliser(prev => ({ ...prev, donneesModifiees: { ...(prev.donneesModifiees || {}), nom: e.target.value } }))} 
-                    style={styles.inputStyle} 
-                    required 
-                  />
+              {bibliothequeFiltree.length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '20px' }}>Aucune fiche enregistrée dans votre bibliothèque pour l'instant.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {bibliothequeFiltree.map(item => (
+                    <div key={item.id} style={styles.itemRow}>
+                      <div style={{ flex: 1 }}>
+                        <strong style={{ fontSize: '13px', color: '#0f172a' }}>{item.nom}</strong>
+                        {(item.classeOrigine || item.dateOrigine) && (
+                          <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
+                            {item.classeOrigine && `Créée pour ${item.classeOrigine}`}{item.dateOrigine && ` — ${item.dateOrigine}`}
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => utiliserFicheDeLaBibliotheque(item)} className="bouton bouton-principal" style={{ fontSize: '12px', padding: '6px 12px', flexShrink: 0 }}>Utiliser</button>
+                    </div>
+                  ))}
                 </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button type="button" onClick={() => setModalConsulterReutiliser({ ouvert: false, item: null, donneesModifiees: {}, classesSelectionnees: [], datesParClasse: {} })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer & Réutiliser</button>
-                </div>
-              </form>
+              )}
             </div>
           </div>
         )}
@@ -2165,7 +2305,8 @@ export default function EnseignantDashboard() {
                                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                                             <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
                                             <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Séance PDF</button>
-                                            
+                                            <button onClick={() => enregistrerDansBibliotheque(seance.id, seance.titre)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>💾 Enregistrer</button>
+
                                             {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && (
                                               <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
                                                 🚀 Envoyé
@@ -2175,9 +2316,12 @@ export default function EnseignantDashboard() {
                                         </div>
                                       ))}
 
-                                      <div style={{ marginTop: '6px' }}>
-                                        <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', width: '100%', borderStyle: 'dashed', padding: '8px' }}>
+                                      <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px' }}>
                                           + Ajouter une nouvelle séance
+                                        </button>
+                                        <button onClick={() => setModalChoixBibliotheque({ ouvert: true, cycleId: cycle.id, leconId: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px', color: '#7c3aed' }}>
+                                          ♻️ Réutiliser une fiche
                                         </button>
                                       </div>
                                     </div>
@@ -2201,45 +2345,28 @@ export default function EnseignantDashboard() {
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Bibliothèque & Base de Données Permanente</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Filtrez par année et par classe pour rechercher, télécharger et réutiliser vos fiches.</p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Vos fiches enregistrées, réutilisables à tout moment (bouton "💾 Enregistrer" sur chaque séance). Pour les réutiliser : ouvrez la classe cible, la leçon concernée, puis "♻️ Réutiliser une fiche".</p>
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={styles.labelFiltre}>Année</label>
-                <select value={filtreBiblioAnnee} onChange={(e) => setFiltreBiblioAnnee(e.target.value)} style={styles.inputStyle}>
-                  <option value="2025-2026">2025-2026</option>
-                  <option value="2026-2027">2026-2027</option>
-                </select>
-              </div>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={styles.labelFiltre}>Classe</label>
-                <select value={filtreBiblioClasse} onChange={(e) => setFiltreBiblioClasse(e.target.value)} style={styles.inputStyle}>
-                  <option value="TOUTES">Toutes les classes</option>
-                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => <option key={cl} value={cl}>{cl}</option>)}
-                </select>
-              </div>
               <div style={{ flex: '1 1 240px' }}>
                 <label style={styles.labelFiltre}>Recherche</label>
-                <input type="text" placeholder="Titre, habileté..." value={filtreBiblioTexte} onChange={(e) => setFiltreBiblioTexte(e.target.value)} style={styles.inputStyle} />
+                <input type="text" placeholder="Titre de la fiche..." value={filtreBiblioTexte} onChange={(e) => setFiltreBiblioTexte(e.target.value)} style={styles.inputStyle} />
               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
               {bibliothequeFiltree.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucune fiche trouvée.</p>
+                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucune fiche enregistrée pour l'instant.</p>
               ) : (
                 bibliothequeFiltree.map(b => (
                   <div key={b.id} style={styles.itemRow}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{b.classe}</span>
+                        {b.classeOrigine && <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{b.classeOrigine}</span>}
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{b.nom}</strong>
                       </div>
-                      <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Cycle : {b.cycleAssocie} | Leçon : {b.leconAssociee}</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={() => telechargerFicheSeancePDF(b, { titre: b.leconAssociee }, { titre: b.cycleAssocie })} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px' }}>📥 Télécharger</button>
+                      {b.dateOrigine && <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Créée le {b.dateOrigine}</p>}
                     </div>
                   </div>
                 ))

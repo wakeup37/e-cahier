@@ -782,7 +782,7 @@ export default function EnseignantDashboard() {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce programme.");
         return;
       }
-      const listeCycles = (Array.isArray(cyclesProgramme) ? cyclesProgramme : []).filter(cp => cp.titre && cp.titre.trim());
+      const listeCycles = Array.isArray(cyclesProgramme) ? cyclesProgramme : [];
       if (listeCycles.length === 0) {
         showToast("⚠️ Ajoutez au moins un cycle avec un titre.");
         return;
@@ -795,16 +795,17 @@ export default function EnseignantDashboard() {
         if (!programmeAnnuelId) continue;
 
         for (const cp of listeCycles) {
+          const numeroCycle = (programmesClasses[classeCible]?.cycles?.length || 0) + 1;
           const { data: nouveauCycle, error } = await supabase
             .from('cycles').insert({
-              programme_annuel_id: programmeAnnuelId, titre: cp.titre.trim(), statut: 'EN_COURS',
+              programme_annuel_id: programmeAnnuelId, titre: `Cycle ${numeroCycle}`, statut: 'EN_COURS',
               competence: cp.competence || null,
               date_debut: cp.dateDebut || null,
               date_fin: cp.dateFin || null,
               nombre_lecons_prevu: cp.nbLecons ? parseInt(cp.nbLecons, 10) : null,
               classe_nom: classeCible,
             }).select().single();
-          if (error) { showToast(`⚠️ Erreur pour "${cp.titre}" (${classeCible}) : ` + error.message); continue; }
+          if (error) { showToast(`⚠️ Erreur pour le cycle "${cp.competence || numeroCycle}" (${classeCible}) : ` + error.message); continue; }
 
           compteurCrees++;
           if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
@@ -843,10 +844,11 @@ export default function EnseignantDashboard() {
         etablissementsConcernes.add(etablissementId || 'SANS_AFFILIATION');
 
         const periode = (modalAssistant.periodesParClasseCycle && modalAssistant.periodesParClasseCycle[classeCible]) || {};
+        const numeroCycle = (programmesClasses[classeCible]?.cycles?.length || 0) + 1;
 
         const { data: nouveauCycle, error } = await supabase
           .from('cycles').insert({
-            programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS',
+            programme_annuel_id: programmeAnnuelId, titre: `Cycle ${numeroCycle}`, statut: 'EN_COURS',
             competence: competenceCycle || null,
             date_debut: periode.debut || dateDebutCycle || null,
             date_fin: periode.fin || dateFinCycle || null,
@@ -866,7 +868,11 @@ export default function EnseignantDashboard() {
       }
 
       const nbEtablissements = etablissementsConcernes.size;
-      showToast(`✨ Cycle créé pour ${compteurCrees} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
+      if (compteurCrees === 0) {
+        showToast("❌ Le cycle n'a pas pu être créé — vérifiez votre connexion et réessayez. Si ça persiste, faites-moi une capture d'écran.");
+      } else {
+        showToast(`✨ Cycle créé pour ${compteurCrees} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
+      }
     }
 
     // --- Branche LEÇON : vraie création Supabase, multi-classes ---
@@ -2243,11 +2249,9 @@ export default function EnseignantDashboard() {
                       {(Array.isArray(modalAssistant.cyclesProgramme) ? modalAssistant.cyclesProgramme : []).map((cp, index) => (
                         <div key={cp.id} style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', marginBottom: '8px' }}>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-                            <input
-                              type="text" placeholder={`Titre du cycle ${index + 1}`} value={cp.titre}
-                              onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, titre: e.target.value } : c) }))}
-                              style={{ ...styles.inputStyle, margin: 0, flex: 2, fontWeight: '800' }}
-                            />
+                            <div style={{ flex: 1, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '6px 10px', fontWeight: '900', color: '#166534', fontSize: '13px' }}>
+                              Cycle N° {(programmesClasses?.[classeSelectionneeVue]?.cycles?.length || 0) + index + 1}
+                            </div>
                             {modalAssistant.cyclesProgramme.length > 1 && (
                               <button type="button" onClick={() => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.filter(c => c.id !== cp.id) }))} style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', fontWeight: '900', cursor: 'pointer', flexShrink: 0 }}>−</button>
                             )}
@@ -2318,13 +2322,16 @@ export default function EnseignantDashboard() {
 
                 {modalAssistant.niveauCible === 'cycle' && (
                   <>
-                    <div>
-                      <label style={styles.label}>Titre du cycle</label>
-                      <input type="text" value={modalAssistant.titreCycle} onChange={(e) => setModalAssistant({...modalAssistant, titreCycle: e.target.value})} style={styles.inputStyle} required />
+                    <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase' }}>Cycle N°</span>
+                      <p style={{ fontSize: '22px', fontWeight: '900', color: '#1e3a8a', margin: '2px 0 0 0' }}>
+                        {(programmesClasses?.[classeSelectionneeVue]?.cycles?.length || 0) + 1}
+                      </p>
+                      <p style={{ fontSize: '10px', color: '#64748b', margin: '2px 0 0 0' }}>Numéroté automatiquement, rien à saisir.</p>
                     </div>
                     <div>
                       <label style={styles.label}>Compétence visée</label>
-                      <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
+                      <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} required />
                       <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Apparaîtra sur toutes les fiches (leçons et séances) de ce cycle.</p>
                     </div>
                     <div>
@@ -2652,7 +2659,7 @@ export default function EnseignantDashboard() {
                       <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses?.[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
                         📥 Télécharger Programme PDF
                       </button>
-                      <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })} className="bouton bouton-principal">
+                      <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle', classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [] })} className="bouton bouton-principal">
                         + Ajouter un cycle
                       </button>
                     </div>
@@ -2666,7 +2673,7 @@ export default function EnseignantDashboard() {
                     <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 28px 0' }}>Choisissez comment vous voulez démarrer — vous pourrez toujours ajouter d'autres cycles ensuite, quelle que soit l'option choisie.</p>
                     <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
                       <button
-                        onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })}
+                        onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle', classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [] })}
                         style={{ width: '220px', textAlign: 'left', padding: '20px', borderRadius: '18px', border: '1px solid #bfdbfe', backgroundColor: '#eff6ff', cursor: 'pointer' }}
                       >
                         <div style={{ fontSize: '26px', marginBottom: '8px' }}>🚀</div>

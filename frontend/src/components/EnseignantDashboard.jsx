@@ -799,6 +799,8 @@ export default function EnseignantDashboard() {
             .from('cycles').insert({
               programme_annuel_id: programmeAnnuelId, titre: cp.titre.trim(), statut: 'EN_COURS',
               competence: cp.competence || null,
+              date_debut: cp.dateDebut || null,
+              date_fin: cp.dateFin || null,
               nombre_lecons_prevu: cp.nbLecons ? parseInt(cp.nbLecons, 10) : null,
               classe_nom: classeCible,
             }).select().single();
@@ -808,7 +810,7 @@ export default function EnseignantDashboard() {
           if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
           setProgrammesClasses(prev => {
             const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
-            const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: '', dateFin: '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, planLecons: [], statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+            const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: nouveauCycle.date_debut || '', dateFin: nouveauCycle.date_fin || '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, planLecons: [], statut: 'En cours', soumisAuCenseur: false, lecons: [] };
             return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
           });
         }
@@ -2258,13 +2260,31 @@ export default function EnseignantDashboard() {
                           <input
                             type="number" min="1" placeholder="Nombre de leçons prévu (facultatif)" value={cp.nbLecons || ''}
                             onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, nbLecons: e.target.value } : c) }))}
-                            style={{ ...styles.inputStyle, margin: 0 }}
+                            style={{ ...styles.inputStyle, margin: '0 0 6px 0' }}
                           />
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block', marginBottom: '2px' }}>Début</label>
+                              <input
+                                type="date" value={cp.dateDebut || ''}
+                                onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, dateDebut: e.target.value } : c) }))}
+                                style={{ ...styles.inputStyle, margin: 0 }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block', marginBottom: '2px' }}>Fin</label>
+                              <input
+                                type="date" value={cp.dateFin || ''}
+                                onChange={(e) => setModalAssistant(prev => ({ ...prev, cyclesProgramme: prev.cyclesProgramme.map(c => c.id === cp.id ? { ...c, dateFin: e.target.value } : c) }))}
+                                style={{ ...styles.inputStyle, margin: 0 }}
+                              />
+                            </div>
+                          </div>
                         </div>
                       ))}
                       <button
                         type="button"
-                        onClick={() => setModalAssistant(prev => ({ ...prev, cyclesProgramme: [...(prev.cyclesProgramme || []), { id: Date.now() + Math.random(), titre: `Cycle ${(prev.cyclesProgramme?.length || 0) + 1}`, competence: '', nbLecons: '' }] }))}
+                        onClick={() => setModalAssistant(prev => ({ ...prev, cyclesProgramme: [...(prev.cyclesProgramme || []), { id: Date.now() + Math.random(), titre: `Cycle ${(prev.cyclesProgramme?.length || 0) + 1}`, competence: '', nbLecons: '', dateDebut: '', dateFin: '' }] }))}
                         className="bouton bouton-secondaire" style={{ width: '100%' }}
                       >
                         + Ajouter un cycle
@@ -2627,19 +2647,43 @@ export default function EnseignantDashboard() {
                     <button onClick={() => setClasseSelectionneeVue(null)} className="bouton bouton-secondaire" style={{ marginBottom: '8px' }}>← Retour aux classes</button>
                     <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: 0 }}>Programme : <span style={{ color: '#2563eb' }}>{classeSelectionneeVue}</span></h2>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses?.[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
-                      📥 Télécharger Programme PDF
-                    </button>
-                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'programme_annuel', titreProgramme: `Prog. ${classeSelectionneeVue}`, cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }], classesCiblesCycle: [classeSelectionneeVue] })} className="bouton" style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: '#ffffff' }}>
-                      📊 Créer le programme annuel
-                    </button>
-                    <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })} className="bouton bouton-principal">
-                      + Créer un Cycle Multi-écoles
-                    </button>
-                  </div>
+                  {Array.isArray(programmesClasses?.[classeSelectionneeVue]?.cycles) && programmesClasses[classeSelectionneeVue].cycles.length > 0 && (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button onClick={() => telechargerProgrammeAnnuelPDF(programmesClasses?.[classeSelectionneeVue], classeSelectionneeVue)} className="bouton bouton-secondaire">
+                        📥 Télécharger Programme PDF
+                      </button>
+                      <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })} className="bouton bouton-principal">
+                        + Ajouter un cycle
+                      </button>
+                    </div>
+                  )}
                 </div>
 
+                {!(Array.isArray(programmesClasses?.[classeSelectionneeVue]?.cycles) && programmesClasses[classeSelectionneeVue].cycles.length > 0) ? (
+                  <div style={{ textAlign: 'center', padding: '50px 20px', backgroundColor: '#ffffff', borderRadius: '24px', border: '1px dashed #cbd5e1' }}>
+                    <div style={{ fontSize: '46px', marginBottom: '10px' }}>📖</div>
+                    <h3 style={{ fontSize: '17px', fontWeight: '900', color: '#0f172a', margin: '0 0 6px 0' }}>Le programme de {classeSelectionneeVue} est encore vide</h3>
+                    <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 28px 0' }}>Choisissez comment vous voulez démarrer — vous pourrez toujours ajouter d'autres cycles ensuite, quelle que soit l'option choisie.</p>
+                    <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'cycle' })}
+                        style={{ width: '220px', textAlign: 'left', padding: '20px', borderRadius: '18px', border: '1px solid #bfdbfe', backgroundColor: '#eff6ff', cursor: 'pointer' }}
+                      >
+                        <div style={{ fontSize: '26px', marginBottom: '8px' }}>🚀</div>
+                        <p style={{ fontSize: '14px', fontWeight: '900', color: '#1e3a8a', margin: '0 0 4px 0' }}>Cycle par cycle</p>
+                        <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Créez un premier cycle maintenant, les suivants au fil de l'année.</p>
+                      </button>
+                      <button
+                        onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'programme_annuel', titreProgramme: `Prog. ${classeSelectionneeVue}`, cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', competence: '', nbLecons: '' }], classesCiblesCycle: [classeSelectionneeVue] })}
+                        style={{ width: '220px', textAlign: 'left', padding: '20px', borderRadius: '18px', border: '1px solid #ddd6fe', backgroundColor: '#f5f3ff', cursor: 'pointer' }}
+                      >
+                        <div style={{ fontSize: '26px', marginBottom: '8px' }}>📊</div>
+                        <p style={{ fontSize: '14px', fontWeight: '900', color: '#4c1d95', margin: '0 0 4px 0' }}>Toute l'année d'un coup</p>
+                        <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Posez le squelette de tous vos cycles maintenant, remplissez-les ensuite.</p>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {programmesClasses?.[classeSelectionneeVue]?.cycles && Array.isArray(programmesClasses[classeSelectionneeVue].cycles) && programmesClasses[classeSelectionneeVue].cycles.map(cycle => {
                     const estCycleOuvert = !!cyclesOuverts[cycle.id];
@@ -2652,7 +2696,7 @@ export default function EnseignantDashboard() {
                               <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: '0 0 2px 0' }}>📁 {cycle.titre}</h3>
                               <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
                                 <strong>Compétence :</strong> {cycle.competence} | 
-                                <strong>Durée :</strong> {cycle.dureeEstimee ? `${cycle.dureeEstimee}` : `Du ${cycle.dateDebut} au ${cycle.dateFin}`}
+                                <strong>Période :</strong> {cycle.dateDebut && cycle.dateFin ? `Du ${cycle.dateDebut} au ${cycle.dateFin}` : 'Non précisée'}
                               </p>
                             </div>
                           </div>
@@ -2753,6 +2797,7 @@ export default function EnseignantDashboard() {
                     );
                   })}
                 </div>
+                )}
               </div>
             )}
           </div>

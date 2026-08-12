@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from './AppRouter';
 
+// =========================================================================
+// CORRECTIONS APPLIQUÉES DANS CETTE VERSION :
+//   1. Import corrigé : from './AppRouter' (votre vrai chemin, le client
+//      Supabase est exporté directement depuis ce fichier chez vous).
+//   2. Bug d'ordre des hooks corrigé : les useMemo/useEffect qui étaient
+//      placés APRÈS le "if (chargementInitial) return (...)" ont été
+//      déplacés AVANT. React exige que tous les hooks s'exécutent dans le
+//      même ordre à chaque rendu — en les laissant après un retour
+//      conditionnel, ils ne s'exécutaient pas pendant le premier rendu
+//      (chargement) mais s'exécutaient ensuite, ce qui casse cette règle
+//      et provoque l'écran blanc (React error #310).
+// =========================================================================
+
 const safeGetArray = (key, defaultArr = []) => {
   try {
     const item = localStorage.getItem(key);
@@ -29,7 +42,7 @@ export default function ChefEtablissementDashboard() {
   const [inputEmailRecuperation, setInputEmailRecuperation] = useState('');
 
   const [infosChef, setInfosChef] = useState({
-    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Chef d\u2019Établissement', photoProfil: '', emailSecurite: ''
+    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Chef d\u2019Établissement', photoProfil: '', emailSecurite: '', telephone: ''
   });
 
   const [modalProfilChefOuvert, setModalProfilChefOuvert] = useState(false);
@@ -62,7 +75,11 @@ export default function ChefEtablissementDashboard() {
   const [notificationsChef, setNotificationsChef] = useState(() => safeGetArray('app_chef_notifications', []));
   const [notifChefOuvert, setNotifChefOuvert] = useState(false);
   const notifChefRef = useRef(null);
-  const [fichiersAdministratifsUploads, setFichiersAdministratifsUploads] = useState(() => safeGetArray('app_chef_fichiers_admin', []));
+  const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
+  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
+  const [categorieNouveauFichier, setCategorieNouveauFichier] = useState('Administratif');
+  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
+  const [uploadEnCours, setUploadEnCours] = useState(false);
   const [nombreClassesReel, setNombreClassesReel] = useState(0);
   const [nombreCenseursActifs, setNombreCenseursActifs] = useState(0);
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
@@ -72,14 +89,14 @@ export default function ChefEtablissementDashboard() {
   const [nouveauAdminMatricule, setNouveauAdminMatricule] = useState('');
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
-  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
-  const [anneeFichier, setAnneeFichier] = useState('2025-2026');
-  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
   const [activeTab, setActiveTab] = useState('profil_ecole');
   const [filtreProfMatiere, setFiltreProfMatiere] = useState('TOUTES');
   const [filtreProfNiveau, setFiltreProfNiveau] = useState('TOUS');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
 
+  // Modale de confirmation générique — réutilisée pour toute action
+  // sensible (refus, retrait, régénération de code) ; motif optionnel
+  // demandé selon le cas.
   const [modalConfirmationGenerique, setModalConfirmationGenerique] = useState({
     ouvert: false, titre: '', message: '', necessiteMotif: false, motif: '', onConfirmer: null,
   });
@@ -113,8 +130,8 @@ export default function ChefEtablissementDashboard() {
       if (erreurProfil) {
         showToast("⚠️ Impossible de charger le profil : " + erreurProfil.message);
       } else if (profil) {
-        setInfosChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, emailSecurite: user.email }));
-        setFormProfilChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom }));
+        setInfosChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, emailSecurite: user.email, telephone: profil.telephone || '' }));
+        setFormProfilChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, telephone: profil.telephone || '' }));
       }
 
       const { data: affiliation, error: erreurAffiliation } = await supabase
@@ -133,6 +150,7 @@ export default function ChefEtablissementDashboard() {
         setFormEcoleEdition(affiliation.etablissements);
         setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
 
+        // Demandes d'affiliation en attente pour cet établissement (§ approbation)
         const { data: demandes } = await supabase
           .from('demandes_affiliation')
           .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
@@ -141,6 +159,8 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: true });
         setDemandesAffiliationRecues(demandes || []);
 
+        // Demandes de départ en attente (enseignants ET censeurs — les RLS
+        // filtrent déjà correctement selon le rôle du demandeur)
         const { data: departs } = await supabase
           .from('demandes_depart')
           .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils(nom, prenom)')
@@ -149,6 +169,7 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: true });
         setDemandesDepartRecues(departs || []);
 
+        // Invitations déjà envoyées (pour éviter d'en renvoyer une en double)
         const { data: invitationsEnvoyeesData } = await supabase
           .from('invitations')
           .select('id, email, role_propose, statut, created_at')
@@ -156,6 +177,8 @@ export default function ChefEtablissementDashboard() {
           .order('created_at', { ascending: false });
         setInvitationsEnvoyees(invitationsEnvoyeesData || []);
 
+        // Année scolaire active (s'il y en a une — un établissement peut
+        // rester sans année active entre une fermeture et une ouverture)
         const { data: anneeActiveData } = await supabase
           .from('annees_scolaires')
           .select('*')
@@ -164,6 +187,8 @@ export default function ChefEtablissementDashboard() {
           .maybeSingle();
         setAnneeActive(anneeActiveData || null);
 
+        // Classes réelles de l'établissement (remplace l'ancien comptage
+        // factice basé sur le localStorage de l'enseignant)
         const { data: classesData } = await supabase
           .from('classes')
           .select('id')
@@ -171,6 +196,7 @@ export default function ChefEtablissementDashboard() {
           .is('deleted_at', null);
         setNombreClassesReel((classesData || []).length);
 
+        // Enseignants réellement affiliés + leurs classes/matières attribuées
         const { data: affiliationsEnseignants } = await supabase
           .from('affiliations_etablissement')
           .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
@@ -196,6 +222,7 @@ export default function ChefEtablissementDashboard() {
         });
         setListeProfesseursEtablissementBrute(profsAvecClasses);
 
+        // Personnel administratif manuel (table "personnel")
         const { data: personnelData } = await supabase
           .from('personnel')
           .select('*')
@@ -205,6 +232,7 @@ export default function ChefEtablissementDashboard() {
           matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
         })));
 
+        // Censeurs actifs (pour le total réel de membres du réseau)
         const { data: censeursActifsData } = await supabase
           .from('affiliations_etablissement')
           .select('id')
@@ -212,6 +240,20 @@ export default function ChefEtablissementDashboard() {
           .eq('role', 'CENSEUR')
           .eq('statut', 'ACTIVE');
         setNombreCenseursActifs((censeursActifsData || []).length);
+
+        // Documents d'établissement déjà stockés (avec le chemin réel du
+        // fichier physique, via la version courante)
+        const { data: documentsData } = await supabase
+          .from('documents_etablissement')
+          .select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
+        setDocumentsEtablissement((documentsData || []).map(d => ({
+          ...d,
+          cle_stockage: d.versions_document?.fichiers_metadonnees?.cle_stockage,
+          taille_octets: d.versions_document?.fichiers_metadonnees?.taille_octets,
+        })));
       }
 
       setChargementInitial(false);
@@ -228,6 +270,8 @@ export default function ChefEtablissementDashboard() {
     if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
 
+    // Id généré côté client pour éviter le piège "RETURNING soumis à la
+    // policy SELECT" (qui exige une affiliation qu'on n'a pas encore créée).
     const nouvelEtablissementId = crypto.randomUUID();
 
     const { error: erreurEtab } = await supabase
@@ -284,6 +328,8 @@ export default function ChefEtablissementDashboard() {
       return;
     }
 
+    // On relit l'établissement maintenant que l'affiliation existe (la policy
+    // de lecture exige une affiliation active, qui vient d'être créée).
     const { data: etabRelu } = await supabase
       .from('etablissements').select('*').eq('id', nouvelEtablissementId).single();
 
@@ -374,6 +420,7 @@ export default function ChefEtablissementDashboard() {
       .update({
         nom: formProfilChef.nom,
         prenom: formProfilChef.prenoms,
+        telephone: formProfilChef.telephone || null,
       })
       .eq('user_id', userId);
 
@@ -388,7 +435,8 @@ export default function ChefEtablissementDashboard() {
   };
 
   // =========================================================================
-  // HOOKS (MEMOS + EFFETS)
+  // TOUS LES AUTRES HOOKS (memos + effect) — DOIVENT être avant tout return
+  // conditionnel. C'était le bug : ils étaient après.
   // =========================================================================
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
@@ -420,6 +468,7 @@ export default function ChefEtablissementDashboard() {
 
   const statistiquesReseau = useMemo(() => ({
     totalClasses: nombreClassesReel,
+    // 1 (le chef lui-même) + censeurs actifs + enseignants affiliés + personnel administratif
     totalPersonnesConnectees: 1 + nombreCenseursActifs + listeProfesseursEtablissement.length + personnelAdministratifManuel.length,
   }), [nombreClassesReel, nombreCenseursActifs, listeProfesseursEtablissement.length, personnelAdministratifManuel.length]);
 
@@ -433,37 +482,31 @@ export default function ChefEtablissementDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+  // --- "En ligne maintenant" : écoute le même canal de présence temps réel
+  // qu'AppRouter.jsx alimente (chaque utilisateur connecté "track" sa
+  // présence tant que son onglet est ouvert). Se met à jour tout seul,
+  // sans recharger la page, dès que quelqu'un se connecte ou se déconnecte.
+  const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
   useEffect(() => {
     if (!ecoleConfig?.id) return;
-    try {
-      const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
-      
-      canal
-        .on('presence', { event: 'sync' }, () => {
-          try {
-            const etat = canal.presenceState();
-            const liste = Object.values(etat).flat();
-            setPersonnesEnLigne(liste);
-          } catch (err) {
-            console.warn("Erreur de synchronisation de présence", err);
-          }
-        })
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            // Optionnel : tracker la présence de l'utilisateur connecté
-            canal.track({ id: userId, nom: infosChef.nom || 'Directeur' });
-          }
-        });
+    const canal = supabase.channel(`presence-etablissement-${ecoleConfig.id}`);
+    canal.on('presence', { event: 'sync' }, () => {
+      const etat = canal.presenceState();
+      const liste = Object.values(etat).flat();
+      setPersonnesEnLigne(liste);
+    });
+    canal.subscribe();
+    return () => { supabase.removeChannel(canal); };
+  }, [ecoleConfig?.id]);
 
-      return () => { 
-        try { supabase.removeChannel(canal); } catch (e) {} 
-      };
-    } catch (e) {
-      console.warn("Realtime non disponible", e);
-    }
-  }, [ecoleConfig?.id, userId, infosChef.nom]);
-
+  // --- Écran de chargement — maintenant APRÈS tous les hooks ci-dessus ---
+  if (chargementInitial) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
+        Chargement de votre espace...
+      </div>
+    );
+  }
 
   const telechargerDocumentPDF = (titre, contenuHTML) => {
     const fenetreImpression = window.open('', '_blank');
@@ -525,6 +568,9 @@ export default function ChefEtablissementDashboard() {
         showToast("⚠️ Merci d'indiquer l'intitulé de la nouvelle année (ex. 2026-2027).");
         return;
       }
+      // S'il y a une année active en cours, on la ferme d'abord — ceci
+      // déclenche automatiquement le bilan de fermeture côté base
+      // (fiches non traitées/non produites, rapports censeur/chef).
       if (anneeActive?.id) {
         const { error: erreurFermeture } = await supabase
           .from('annees_scolaires')
@@ -568,6 +614,7 @@ export default function ChefEtablissementDashboard() {
     setModalConfirmationActionAnnee({ ouvert: false, actionType: null });
   };
 
+
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
     if (!nouveauAdminNom.trim() || !affiliationChef?.etablissement_id) return;
@@ -610,6 +657,9 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
+  // --- Retrait d'un enseignant de l'établissement (chef uniquement) ---
+  // Confirmation + motif obligatoires ; le trigger AFFILIATION_TERMINEE
+  // (déjà en base) notifie automatiquement la personne retirée.
   const retirerEnseignant = (affiliationId, nomComplet) => {
     demanderConfirmation({
       titre: `Retirer ${nomComplet} de l'établissement ?`,
@@ -628,6 +678,7 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
+  // --- Régénérer le code établissement ---
   const regenererCodeEtablissement = () => {
     demanderConfirmation({
       titre: 'Régénérer le code établissement ?',
@@ -649,6 +700,7 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
+  // --- Changer l'email de connexion ---
   const handleChangerEmailConnexion = async (e) => {
     e.preventDefault();
     if (!emailSaisiChangement.trim()) return;
@@ -658,15 +710,62 @@ export default function ChefEtablissementDashboard() {
     setEmailSaisiChangement('');
   };
 
-  const uploaderFichierAdministratifreel = (e) => {
+  const uploaderFichierAdministratifreel = async (e) => {
     e.preventDefault();
-    if (!nomNouveauFichier.trim()) return;
-    const nouveauFichier = { id: Date.now(), nom: nomNouveauFichier.trim(), annee: anneeFichier, nomFichierReel: fichierSelectionneObj ? fichierSelectionneObj.name : 'Document_officiel.pdf', dateAjout: new Date().toLocaleDateString() };
-    setFichiersAdministratifsUploads(prev => [nouveauFichier, ...prev]);
+    if (!nomNouveauFichier.trim() || !fichierSelectionneObj || !affiliationChef?.etablissement_id || !userId) {
+      showToast("⚠️ Merci de choisir un fichier et de lui donner un nom.");
+      return;
+    }
+    setUploadEnCours(true);
+    const etablissementId = affiliationChef.etablissement_id;
+    const cheminStockage = `${etablissementId}/${Date.now()}-${fichierSelectionneObj.name}`;
+
+    // 1. Dépôt du fichier physique dans Supabase Storage
+    const { error: erreurStorage } = await supabase.storage
+      .from('documents-etablissements')
+      .upload(cheminStockage, fichierSelectionneObj);
+    if (erreurStorage) { showToast("⚠️ Erreur d'envoi du fichier : " + erreurStorage.message); setUploadEnCours(false); return; }
+
+    // 2. Métadonnées du fichier physique
+    const { data: fichierMeta, error: erreurMeta } = await supabase
+      .from('fichiers_metadonnees')
+      .insert({
+        type_proprietaire: 'ETABLISSEMENT', proprietaire_id: etablissementId, etablissement_id: etablissementId,
+        categorie: categorieNouveauFichier, cle_stockage: cheminStockage,
+        type_mime: fichierSelectionneObj.type, taille_octets: fichierSelectionneObj.size,
+      })
+      .select().single();
+    if (erreurMeta) { showToast("⚠️ Erreur métadonnées : " + erreurMeta.message); setUploadEnCours(false); return; }
+
+    // 3. La fiche "document" (ce que la liste affichera)
+    const { data: document, error: erreurDoc } = await supabase
+      .from('documents_etablissement')
+      .insert({ etablissement_id: etablissementId, categorie: categorieNouveauFichier, titre: nomNouveauFichier.trim(), auteur_user_id: userId })
+      .select().single();
+    if (erreurDoc) { showToast("⚠️ Erreur document : " + erreurDoc.message); setUploadEnCours(false); return; }
+
+    // 4. Première version, puis on la marque comme version courante
+    const { data: version, error: erreurVersion } = await supabase
+      .from('versions_document')
+      .insert({ document_id: document.id, numero_version: 1, fichier_id: fichierMeta.id, auteur_user_id: userId })
+      .select().single();
+    if (erreurVersion) { showToast("⚠️ Erreur version : " + erreurVersion.message); setUploadEnCours(false); return; }
+
+    await supabase.from('documents_etablissement').update({ version_courante_id: version.id }).eq('id', document.id);
+
+    setDocumentsEtablissement(prev => [{ ...document, taille_octets: fichierMeta.taille_octets, cle_stockage: cheminStockage }, ...prev]);
     setNomNouveauFichier(''); setFichierSelectionneObj(null);
+    setUploadEnCours(false);
     showToast("📎 Fichier stocké avec succès !");
   };
 
+  const telechargerDocumentEtablissement = async (doc) => {
+    const { data, error } = await supabase.storage.from('documents-etablissements').createSignedUrl(doc.cle_stockage, 60);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+
+  // --- Approuver une demande d'affiliation reçue : crée la vraie affiliation ---
   const approuverDemande = async (demande) => {
     if (!affiliationChef) return;
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
@@ -684,7 +783,7 @@ export default function ChefEtablissementDashboard() {
       .eq('id', demande.id);
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
-      return;
+      return; // on ne retire pas la carte de la liste : elle refléterait un état faux
     }
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -701,6 +800,7 @@ export default function ChefEtablissementDashboard() {
     showToast("❌ Demande refusée.");
   };
 
+  // --- Traiter une demande de départ (enseignant OU censeur) ---
   const approuverDemandeDepart = async (demande) => {
     const { error } = await supabase
       .from('demandes_depart')
@@ -729,6 +829,7 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
+  // --- Inviter quelqu'un par email (censeur ou enseignant) ---
   const genererTokenInvitation = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
   const envoyerInvitation = async (e) => {
@@ -743,7 +844,7 @@ export default function ChefEtablissementDashboard() {
         email: nouvelleInvitationEmail.trim().toLowerCase(),
         role_propose: nouvelleInvitationRole,
         token: genererTokenInvitation(),
-        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 jours
       })
       .select().single();
 
@@ -995,6 +1096,10 @@ export default function ChefEtablissementDashboard() {
                   <input type="text" value={formProfilChef.prenoms} onChange={(e) => setFormProfilChef({...formProfilChef, prenoms: e.target.value})} style={styles.inputStyle} required />
                 </div>
                 <div>
+                  <label style={styles.label}>Téléphone</label>
+                  <input type="tel" placeholder="+225 XX XX XX XX XX" value={formProfilChef.telephone || ''} onChange={(e) => setFormProfilChef({...formProfilChef, telephone: e.target.value})} style={styles.inputStyle} />
+                </div>
+                <div>
                   <label style={styles.label}>Établissement</label>
                   <input type="text" value={formProfilChef.etablissement} onChange={(e) => setFormProfilChef({...formProfilChef, etablissement: e.target.value})} style={styles.inputStyle} required />
                 </div>
@@ -1204,8 +1309,29 @@ export default function ChefEtablissementDashboard() {
               <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>📤 Uploader un Fichier Administratif</h3>
               <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Uploader</button>
+                <select value={categorieNouveauFichier} onChange={(e) => setCategorieNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }}>
+                  <option value="Administratif">Administratif</option>
+                  <option value="Pédagogique">Pédagogique</option>
+                  <option value="Officiel">Officiel</option>
+                  <option value="Autre">Autre</option>
+                </select>
+                <input type="file" onChange={(e) => setFichierSelectionneObj(e.target.files[0] || null)} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0, padding: '8px 10px' }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={uploadEnCours}>{uploadEnCours ? 'Envoi...' : 'Uploader'}</button>
               </form>
+
+              {documentsEtablissement.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                  {documentsEtablissement.map(doc => (
+                    <div key={doc.id} style={{ ...styles.itemRow, backgroundColor: '#ffffff' }}>
+                      <div>
+                        <strong style={{ fontSize: '13px' }}>{doc.titre}</strong>
+                        <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>{doc.categorie}</span>
+                      </div>
+                      <button onClick={() => telechargerDocumentEtablissement(doc)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>📥 Télécharger</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

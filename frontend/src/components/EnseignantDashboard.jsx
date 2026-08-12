@@ -50,7 +50,8 @@ export default function EnseignantDashboard() {
   const [demandesDepart, setDemandesDepart] = useState([]);
 
   const [modalDepart, setModalDepart] = useState({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
-  const [modalProposerClasse, setModalProposerClasse] = useState({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeId: '', matiereNom: '' });
+  const [modalProposerClasse, setModalProposerClasse] = useState({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' });
+  const [modalChoixEcoleProposerClasse, setModalChoixEcoleProposerClasse] = useState(false);
   const [demandesAttributionsEnvoyees, setDemandesAttributionsEnvoyees] = useState([]);
 
   const [modalConfirmation, setModalConfirmation] = useState({ ouvert: false, titre: '', message: '', actionCallback: null });
@@ -69,13 +70,19 @@ export default function EnseignantDashboard() {
   const [nouvelleClasseLibre, setNouvelleClasseLibre] = useState('');
 
   const classesActivesValidees = useMemo(() => {
-    if (modeSansAffiliation) return classesSansAffiliation;
     let classes = [];
     affiliations.forEach(aff => {
       if (aff.statut === 'Validée' && Array.isArray(aff.classes)) {
         aff.classes.forEach(cl => { if (!classes.includes(cl)) classes.push(cl); });
       }
     });
+    // Les classes personnelles (mode sans affiliation) s'AJOUTENT à celles
+    // des établissements affiliés — elles ne les remplacent plus. Un
+    // enseignant peut ainsi être affilié à une école ET gérer en parallèle
+    // des classes personnelles pour une autre école qui n'utilise pas l'app.
+    if (modeSansAffiliation) {
+      (classesSansAffiliation || []).forEach(cl => { if (!classes.includes(cl)) classes.push(cl); });
+    }
     return classes;
   }, [modeSansAffiliation, classesSansAffiliation, affiliations]);
 
@@ -89,6 +96,7 @@ export default function EnseignantDashboard() {
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
   const [nouveauMdp, setNouveauMdp] = useState('');
+  const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
 
   const [rapportsSeances, setRapportsSeances] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_enseignant_rapports')) || []; }
@@ -120,7 +128,7 @@ export default function EnseignantDashboard() {
   // --- PROFIL (Supabase) ---
   const [infosEnseignant, setInfosEnseignant] = useState({
     civilite: 'M.', nom: '', prenoms: '', ville: '', matiere: '', photoProfil: '',
-    etablissementSaisi: '', classesSelectionneesEnCours: [], emailSecurite: ''
+    etablissementSaisi: '', classesSelectionneesEnCours: [], emailSecurite: '', telephone: ''
   });
 
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
@@ -271,9 +279,9 @@ export default function EnseignantDashboard() {
       const premiereEcole = affiliationsFormatees.find(a => a.statut === 'Validée')?.ecole || '';
       setInfosEnseignant(prev => ({
         ...prev, nom: profil.nom, prenoms: profil.prenom,
-        emailSecurite: user.email, etablissementSaisi: premiereEcole,
+        emailSecurite: user.email, etablissementSaisi: premiereEcole, telephone: profil.telephone || '',
       }));
-      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole }));
+      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '' }));
     }
 
     // Séances de l'enseignant (tous statuts), regroupées par classe pour coller au JSX
@@ -331,7 +339,12 @@ export default function EnseignantDashboard() {
   // HELPERS DE RÉSOLUTION DE CONTEXTE (établissement / année / classe réelle)
   // =========================================================================
   const resoudreContexteClasse = async (classeNom) => {
-    if (modeSansAffiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null };
+    // Une classe personnelle (créée en mode sans affiliation) n'est jamais
+    // rattachée à un établissement réel — même si l'enseignant est par
+    // ailleurs affilié à une autre école.
+    const estClassePersonnelle = Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeNom);
+    if (estClassePersonnelle) return { etablissementId: null, anneeScolaireId: null, classeId: null };
+
     const affiliation = affiliations.find(a => a.statut === 'Validée' && a.classes.includes(classeNom));
     if (!affiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null };
 
@@ -400,7 +413,7 @@ export default function EnseignantDashboard() {
     e.preventDefault();
     if (!userId) return;
     const { error } = await supabase
-      .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms }).eq('user_id', userId);
+      .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms, telephone: formProfil.telephone || null }).eq('user_id', userId);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setInfosEnseignant({ ...formProfil });
     setModalProfilOuvert(false);
@@ -494,15 +507,15 @@ export default function EnseignantDashboard() {
     setModalProposerClasse({
       ouvert: true, affiliation: { ...affiliation, anneeScolaireId: annee.id },
       classesDisponibles: classesData || [], matieresDisponibles: matieresData || [],
-      classeId: '', matiereNom: '',
+      classeNom: '', matiereNom: '',
     });
   };
 
   const soumettreDemandeAttributionClasse = async (e) => {
     e.preventDefault();
-    const { affiliation, classeId, matiereNom } = modalProposerClasse;
-    if (!classeId || !matiereNom.trim() || !userId) {
-      showToast("⚠️ Merci de choisir une classe et une matière.");
+    const { affiliation, classeNom, matiereNom } = modalProposerClasse;
+    if (!classeNom.trim() || !matiereNom.trim() || !userId) {
+      showToast("⚠️ Merci d'indiquer une classe et une matière.");
       return;
     }
     const matiere = modalProposerClasse.matieresDisponibles.find(m => m.nom.toLowerCase() === matiereNom.trim().toLowerCase());
@@ -511,9 +524,15 @@ export default function EnseignantDashboard() {
       return;
     }
 
+    // Si le nom tapé correspond exactement à une classe déjà créée par le
+    // censeur, on la référence directement. Sinon, c'est une PROPOSITION de
+    // nouvelle classe : le censeur pourra en corriger le nom avant validation.
+    const classeExistante = modalProposerClasse.classesDisponibles.find(c => c.nom.toLowerCase() === classeNom.trim().toLowerCase());
+
     const { error } = await supabase.from('demandes_attributions_classes').insert({
       enseignant_id: userId,
-      classe_id: classeId,
+      classe_id: classeExistante ? classeExistante.id : null,
+      classe_nom_propose: classeExistante ? null : classeNom.trim(),
       etablissement_id: affiliation.etablissementId,
       annee_scolaire_id: affiliation.anneeScolaireId,
       matiere_id: matiere.id,
@@ -525,7 +544,7 @@ export default function EnseignantDashboard() {
       return;
     }
 
-    setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeId: '', matiereNom: '' });
+    setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' });
     showToast("📤 Proposition envoyée au censeur/chef pour validation !");
   };
 
@@ -1080,7 +1099,7 @@ export default function EnseignantDashboard() {
                   }
                   setProfilOuvert(false);
                 }} className="bouton-option" style={{ color: '#d97706', fontWeight: '800' }}>
-                  {modeSansAffiliation ? '🔄 Quitter le mode sans affiliation' : '💳 Activer Mode Sans Affiliation'}
+                  {modeSansAffiliation ? '🔄 Désactiver les classes personnelles' : '💳 Débloquer les classes personnelles'}
                 </button>
               </div>
             )}
@@ -1140,6 +1159,13 @@ export default function EnseignantDashboard() {
                   <div style={styles.dropdownHeader}>Menu de Navigation</div>
                   <button onClick={() => { setActiveTab('cycles'); setMenuBurgerOuvert(false); }} className="bouton-option">📊 Programme Annuel</button>
                   <button onClick={() => { setActiveTab('bibliotheque'); setMenuBurgerOuvert(false); }} className="bouton-option">📁 Bibliothèque Permanente</button>
+                  <button onClick={() => {
+                    const affsValidees = (affiliations || []).filter(a => a.statut === 'Validée');
+                    setMenuBurgerOuvert(false);
+                    if (affsValidees.length === 0) { showToast("⚠️ Vous devez être affilié à un établissement pour proposer une classe."); return; }
+                    if (affsValidees.length === 1) { ouvrirModalProposerClasse(affsValidees[0]); return; }
+                    setModalChoixEcoleProposerClasse(true);
+                  }} className="bouton-option">🏫 Proposer une classe</button>
                   <button onClick={() => { setActiveTab('affiliation'); setMenuBurgerOuvert(false); }} className="bouton-option">🏫 Gestion des Écoles & Demandes de Départ</button>
                   <button onClick={() => { setActiveTab('rapports'); setMenuBurgerOuvert(false); }} className="bouton-option">📝 Rapports de Séance</button>
                   <button onClick={() => { setModalAffiliation(true); setMenuBurgerOuvert(false); }} className="bouton-option" style={{ color: '#16a34a', fontWeight: '800' }}>+ Demander une Affiliation</button>
@@ -1285,43 +1311,70 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {modalChoixEcoleProposerClasse && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '400px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Pour quel établissement ?</h3>
+                <button onClick={() => setModalChoixEcoleProposerClasse(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {(affiliations || []).filter(a => a.statut === 'Validée').map(aff => (
+                  <button
+                    key={aff.id}
+                    onClick={() => { setModalChoixEcoleProposerClasse(false); ouvrirModalProposerClasse(aff); }}
+                    className="bouton bouton-secondaire"
+                    style={{ textAlign: 'left', padding: '12px 14px' }}
+                  >
+                    {aff.ecole}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalProposerClasse.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Proposer une classe</h3>
-                <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeId: '', matiereNom: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+                <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation.
+                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation. Si la classe n'existe pas encore, tapez simplement son nom — le censeur pourra le corriger avant de valider.
               </p>
-              {modalProposerClasse.classesDisponibles.length === 0 ? (
-                <p style={{ fontSize: '13px', color: '#991b1b', fontStyle: 'italic' }}>Aucune classe créée pour l'année en cours dans cet établissement pour l'instant.</p>
-              ) : (
-                <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div>
-                    <label style={styles.label}>Classe</label>
-                    <select value={modalProposerClasse.classeId} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, classeId: e.target.value }))} style={styles.inputStyle} required>
-                      <option value="">— Choisir une classe —</option>
-                      {modalProposerClasse.classesDisponibles.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Matière</label>
-                    <select value={modalProposerClasse.matiereNom} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, matiereNom: e.target.value }))} style={styles.inputStyle} required>
-                      <option value="">— Choisir une matière —</option>
-                      {modalProposerClasse.matieresDisponibles.map(m => <option key={m.id} value={m.nom}>{m.nom}</option>)}
-                    </select>
-                    {modalProposerClasse.matieresDisponibles.length === 0 && (
-                      <p style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                    <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeId: '', matiereNom: '' })} className="bouton bouton-secondaire">Annuler</button>
-                    <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
-                  </div>
-                </form>
-              )}
+              <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Classe</label>
+                  <input
+                    type="text" list="liste-classes-enseignant" placeholder="ex. 6ème A (nouvelle ou existante)"
+                    value={modalProposerClasse.classeNom}
+                    onChange={(e) => setModalProposerClasse(prev => ({ ...prev, classeNom: e.target.value }))}
+                    style={styles.inputStyle} required
+                  />
+                  <datalist id="liste-classes-enseignant">
+                    {modalProposerClasse.classesDisponibles.map(c => <option key={c.id} value={c.nom} />)}
+                  </datalist>
+                  {modalProposerClasse.classesDisponibles.length === 0 && (
+                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Aucune classe existante pour l'instant dans cet établissement — la vôtre sera une proposition de nouvelle classe.</p>
+                  )}
+                </div>
+                <div>
+                  <label style={styles.label}>Matière</label>
+                  <select value={modalProposerClasse.matiereNom} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, matiereNom: e.target.value }))} style={styles.inputStyle} required>
+                    <option value="">— Choisir une matière —</option>
+                    {modalProposerClasse.matieresDisponibles.map(m => <option key={m.id} value={m.nom}>{m.nom}</option>)}
+                  </select>
+                  {modalProposerClasse.matieresDisponibles.length === 0 && (
+                    <p style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -1349,25 +1402,37 @@ export default function EnseignantDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
-              <form onSubmit={(e) => {
+              <form onSubmit={async (e) => {
                 e.preventDefault();
-                if (!ancienMdp || !nouveauMdp) {
-                  showToast("⚠️ Veuillez remplir tous les champs de mot de passe.");
-                  return;
-                }
-                showToast("🔒 Mot de passe modifié et sécurisé avec succès !");
+                if (!emailSaisiChangement.trim()) return;
+                const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
+                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                showToast("📧 Vérifiez votre boîte mail : un lien de confirmation a été envoyé au nouvel email.");
+                setEmailSaisiChangement('');
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid #e2e8f0' }}>
+                <label style={styles.label}>Changer l'email de connexion</label>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 4px 0' }}>Actuel : {infosEnseignant.emailSecurite || '—'}</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={{ ...styles.inputStyle, flex: 1 }} required />
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Changer</button>
+                </div>
+              </form>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                if (!nouveauMdp) { showToast("⚠️ Veuillez saisir un nouveau mot de passe."); return; }
+                const { error } = await supabase.auth.updateUser({ password: nouveauMdp });
+                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                showToast("🔒 Mot de passe modifié avec succès !");
                 setModalSecurite(false);
                 setAncienMdp('');
                 setNouveauMdp('');
               }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Ancien mot de passe</label>
-                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
-                </div>
+                <label style={styles.label}>Changer mon mot de passe</label>
                 <div>
                   <label style={styles.label}>Nouveau mot de passe sécurisé</label>
                   <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
@@ -1614,6 +1679,11 @@ export default function EnseignantDashboard() {
                 <div>
                   <label style={styles.label}>Ville</label>
                   <input type="text" value={formProfil.ville} onChange={(e) => setFormProfil({...formProfil, ville: e.target.value})} style={styles.inputStyle} required />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Téléphone</label>
+                  <input type="tel" placeholder="+225 XX XX XX XX XX" value={formProfil.telephone || ''} onChange={(e) => setFormProfil({...formProfil, telephone: e.target.value})} style={styles.inputStyle} />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
@@ -1975,8 +2045,9 @@ export default function EnseignantDashboard() {
                           <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
                         </div>
 
-                        {/* BOUTON SUPPRESSION CLASSE SÉCURISÉ PAR MODALE */}
-                        {modeSansAffiliation && (
+                        {/* BOUTON SUPPRESSION CLASSE SÉCURISÉ PAR MODALE — uniquement sur les
+                            classes personnelles, jamais sur une classe affiliée à un établissement */}
+                        {Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(cl) && (
                           <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
                             <button 
                               onClick={(e) => {
@@ -2095,7 +2166,7 @@ export default function EnseignantDashboard() {
                                             <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
                                             <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Séance PDF</button>
                                             
-                                            {!modeSansAffiliation && !seance.soumisAuCenseur && (
+                                            {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && (
                                               <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
                                                 🚀 Envoyé
                                               </button>
@@ -2243,14 +2314,9 @@ export default function EnseignantDashboard() {
                       </div>
                       <div>
                         {!demandeEnCours ? (
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            <button onClick={() => ouvrirModalProposerClasse(aff)} className="bouton bouton-principal" style={{ padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}>
-                              🏫 Proposer une classe
-                            </button>
-                            <button onClick={() => setModalDepart({ ouvert: true, ecoleId: aff.id, ecoleNom: aff.ecole, motif: '' })} className="bouton bouton-danger" style={{ padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}>
-                              🚪 Quitter l'établissement
-                            </button>
-                          </div>
+                          <button onClick={() => setModalDepart({ ouvert: true, ecoleId: aff.id, ecoleNom: aff.ecole, motif: '' })} className="bouton bouton-danger" style={{ padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}>
+                            🚪 Quitter l'établissement
+                          </button>
                         ) : (
                           <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>En attente de visa...</span>
                         )}

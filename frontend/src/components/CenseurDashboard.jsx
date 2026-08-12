@@ -39,7 +39,7 @@ export default function CenseurDashboard() {
   // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
   // =========================================================================
   const [infosCenseur, setInfosCenseur] = useState({
-    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: ''
+    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
   });
 
   const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
@@ -50,6 +50,7 @@ export default function CenseurDashboard() {
   const [modalSecurite, setModalSecurite] = useState(false);
   const [ancienMdp, setAncienMdp] = useState('');
   const [nouveauMdp, setNouveauMdp] = useState('');
+  const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
 
   const [menuBurgerCenseurOuvert, setMenuBurgerCenseurOuvert] = useState(false);
   const menuBurgerCenseurRef = useRef(null);
@@ -85,7 +86,15 @@ export default function CenseurDashboard() {
   const [demandesAttributionsRecues, setDemandesAttributionsRecues] = useState([]);
   const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
   const [nouvelleClasseNiveau, setNouvelleClasseNiveau] = useState('');
+  const [nouveauLotNiveau, setNouveauLotNiveau] = useState('');
+  const [nouveauLotSeries, setNouveauLotSeries] = useState('');
+  const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
   const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classeId: '', matiereNom: '' });
+  const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
+  const [nomNouveauFichier, setNomNouveauFichier] = useState('');
+  const [categorieNouveauFichier, setCategorieNouveauFichier] = useState('Administratif');
+  const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
+  const [uploadEnCours, setUploadEnCours] = useState(false);
 
   // =========================================================================
   // ÉTATS INTERNES ET FILTRES (inchangés, purement UI)
@@ -166,8 +175,9 @@ export default function CenseurDashboard() {
         prenoms: profil.prenom,
         etablissement: etab?.nom || '',
         emailSecurite: user.email,
+        telephone: profil.telephone || '',
       }));
-      setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '' }));
+      setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '', telephone: profil.telephone || '' }));
     }
 
     // 3. Année scolaire active de l'établissement
@@ -253,15 +263,28 @@ export default function CenseurDashboard() {
 
       const { data: demandesAttrib } = await supabase
         .from('demandes_attributions_classes')
-        .select('id, enseignant_id, classe_id, matiere_id, created_at, classes(nom), matieres(nom), utilisateurs_profils:enseignant_id(nom, prenom)')
+        .select('id, enseignant_id, classe_id, classe_nom_propose, matiere_id, etablissement_id, annee_scolaire_id, created_at, classes(nom), matieres(nom), utilisateurs_profils:enseignant_id(nom, prenom)')
         .eq('etablissement_id', etablissementId)
         .eq('statut', 'EN_ATTENTE')
         .order('created_at', { ascending: true });
-      setDemandesAttributionsRecues(demandesAttrib || []);
+      setDemandesAttributionsRecues((demandesAttrib || []).map(d => ({ ...d, nomClasseEdite: d.classes?.nom || d.classe_nom_propose || '' })));
     }
 
     const { data: matieresData } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
     setMatieresDisponibles(matieresData || []);
+
+    // Documents d'établissement déjà stockés
+    const { data: documentsData } = await supabase
+      .from('documents_etablissement')
+      .select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))')
+      .eq('etablissement_id', etablissementId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+    setDocumentsEtablissement((documentsData || []).map(d => ({
+      ...d,
+      cle_stockage: d.versions_document?.fichiers_metadonnees?.cle_stockage,
+      taille_octets: d.versions_document?.fichiers_metadonnees?.taille_octets,
+    })));
 
     // 5. Personnel administratif manuel (table personnel)
     const { data: personnel } = await supabase
@@ -379,7 +402,7 @@ export default function CenseurDashboard() {
     if (!userId) return;
     const { error } = await supabase
       .from('utilisateurs_profils')
-      .update({ nom: formProfilCenseur.nom, prenom: formProfilCenseur.prenoms })
+      .update({ nom: formProfilCenseur.nom, prenom: formProfilCenseur.prenoms, telephone: formProfilCenseur.telephone || null })
       .eq('user_id', userId);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setInfosCenseur({ ...formProfilCenseur });
@@ -510,6 +533,47 @@ export default function CenseurDashboard() {
     showToast(`✅ Classe "${nouvelle.nom}" créée !`);
   };
 
+  // --- Créer toutes les classes d'un niveau en une fois (niveau + séries) ---
+  // Évite que chaque enseignant tape le nom d'une classe différemment
+  // (ex. "6ème A" vs "6e1" vs "sixième un") : le censeur fixe la convention
+  // une seule fois, tout le monde s'en sert ensuite.
+  const creerClassesEnLot = async (e) => {
+    e.preventDefault();
+    if (!nouveauLotNiveau.trim() || !nouveauLotSeries.trim() || !affiliationCenseur || !anneeActiveId) {
+      showToast("⚠️ Merci d'indiquer le niveau et au moins une série.");
+      return;
+    }
+    const series = nouveauLotSeries.split(',').map(s => s.trim()).filter(Boolean);
+    if (series.length === 0) { showToast("⚠️ Aucune série valide détectée."); return; }
+
+    const lignes = series.map(serie => ({
+      etablissement_id: affiliationCenseur.etablissement_id,
+      annee_scolaire_id: anneeActiveId,
+      nom: `${nouveauLotNiveau.trim()}${nouveauLotSeparateur}${serie}`,
+      niveau: nouveauLotNiveau.trim(),
+    }));
+
+    const { error } = await supabase
+      .from('classes')
+      .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    // On relit la liste complète pour rester fiable (plutôt que de deviner
+    // ce qui a été réellement inséré vs ignoré comme doublon)
+    const { data: classesRafraichies } = await supabase
+      .from('classes')
+      .select('id, nom, niveau')
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('annee_scolaire_id', anneeActiveId)
+      .is('deleted_at', null)
+      .order('nom', { ascending: true });
+    setClassesEtablissement(classesRafraichies || []);
+
+    setNouveauLotNiveau(''); setNouveauLotSeries('');
+    showToast(`✅ ${series.length} classe(s) prête(s) pour "${lignes[0].niveau}" !`);
+  };
+
   // --- Trouver ou créer une matière par son nom (catalogue global partagé) ---
   const trouverOuCreerMatiere = async (nomMatiere) => {
     const nom = nomMatiere.trim();
@@ -555,11 +619,100 @@ export default function CenseurDashboard() {
     chargerTout();
   };
 
+  // --- Gestion des classes d'un enseignant, modifiable à tout moment ---
+  const [modalGererClasses, setModalGererClasses] = useState({ ouvert: false, prof: null, attributions: [] });
+  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '' });
+
+  const ouvrirGestionClasses = async (prof) => {
+    const { data } = await supabase
+      .from('attributions_classes')
+      .select('id, classe_id, matiere_id, classes(nom), matieres(nom)')
+      .eq('enseignant_id', prof.userId)
+      .eq('etablissement_id', affiliationCenseur.etablissement_id);
+    setModalGererClasses({ ouvert: true, prof, attributions: data || [] });
+    setFormAjoutAttribution({ classeId: '', matiereNom: '' });
+  };
+
+  const retirerAttributionEnseignant = (attribution) => {
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Retirer cette classe ?',
+      message: `Retirer "${attribution.classes?.nom}" (${attribution.matieres?.nom}) de la liste de ${modalGererClasses.prof?.nomComplet} ?`,
+      actionCallback: async () => {
+        const { error } = await supabase.from('attributions_classes').delete().eq('id', attribution.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setModalGererClasses(prev => ({ ...prev, attributions: prev.attributions.filter(a => a.id !== attribution.id) }));
+        chargerTout();
+        showToast("🗑️ Classe retirée.");
+      },
+    });
+  };
+
+  const ajouterAttributionEnseignant = async (e) => {
+    e.preventDefault();
+    if (!formAjoutAttribution.classeId || !formAjoutAttribution.matiereNom.trim() || !modalGererClasses.prof) {
+      showToast("⚠️ Merci de choisir une classe et une matière.");
+      return;
+    }
+    const matiereId = await trouverOuCreerMatiere(formAjoutAttribution.matiereNom);
+    if (!matiereId) return;
+
+    const { data: nouvelle, error } = await supabase.from('attributions_classes').insert({
+      enseignant_id: modalGererClasses.prof.userId,
+      classe_id: formAjoutAttribution.classeId,
+      etablissement_id: affiliationCenseur.etablissement_id,
+      annee_scolaire_id: anneeActiveId,
+      matiere_id: matiereId,
+    }).select('id, classe_id, matiere_id, classes(nom), matieres(nom)').single();
+
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette attribution existe déjà.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, nouvelle] }));
+    setFormAjoutAttribution({ classeId: '', matiereNom: '' });
+    chargerTout();
+    showToast("✅ Classe ajoutée !");
+  };
+
   // --- Traiter une proposition de classe soumise par un enseignant ---
+  // Si la proposition référence une classe qui n'existe pas encore
+  // (classe_id vide), on la crée maintenant avec le nom éventuellement
+  // corrigé par le censeur, puis on rattache la demande à cette classe.
   const approuverDemandeAttribution = async (demande) => {
+    let classeId = demande.classe_id;
+    const nomFinal = (demande.nomClasseEdite || demande.classe_nom_propose || '').trim();
+
+    if (!classeId) {
+      if (!nomFinal) { showToast("⚠️ Merci d'indiquer le nom de la classe avant d'accepter."); return; }
+
+      // Réutilise une classe existante du même nom si elle existe déjà (évite les doublons)
+      const { data: classeExistante } = await supabase
+        .from('classes')
+        .select('id')
+        .eq('etablissement_id', demande.etablissement_id)
+        .eq('annee_scolaire_id', demande.annee_scolaire_id)
+        .eq('nom', nomFinal)
+        .maybeSingle();
+
+      if (classeExistante) {
+        classeId = classeExistante.id;
+      } else {
+        const { data: nouvelleClasse, error: erreurClasse } = await supabase
+          .from('classes')
+          .insert({ etablissement_id: demande.etablissement_id, annee_scolaire_id: demande.annee_scolaire_id, nom: nomFinal })
+          .select()
+          .single();
+        if (erreurClasse) { showToast("⚠️ Erreur création classe : " + erreurClasse.message); return; }
+        classeId = nouvelleClasse.id;
+        setClassesEtablissement(prev => [...prev, nouvelleClasse].sort((a, b) => a.nom.localeCompare(b.nom)));
+      }
+    }
+
     const { error } = await supabase
       .from('demandes_attributions_classes')
-      .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId })
+      .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId, classe_id: classeId })
       .eq('id', demande.id);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -582,6 +735,58 @@ export default function CenseurDashboard() {
         showToast("❌ Proposition refusée.");
       },
     });
+  };
+
+  // --- Uploader un document d'établissement (réel : Storage + tables liées) ---
+  const uploaderFichierAdministratifreel = async (e) => {
+    e.preventDefault();
+    if (!nomNouveauFichier.trim() || !fichierSelectionneObj || !affiliationCenseur?.etablissement_id || !userId) {
+      showToast("⚠️ Merci de choisir un fichier et de lui donner un nom.");
+      return;
+    }
+    setUploadEnCours(true);
+    const etablissementId = affiliationCenseur.etablissement_id;
+    const cheminStockage = `${etablissementId}/${Date.now()}-${fichierSelectionneObj.name}`;
+
+    const { error: erreurStorage } = await supabase.storage
+      .from('documents-etablissements')
+      .upload(cheminStockage, fichierSelectionneObj);
+    if (erreurStorage) { showToast("⚠️ Erreur d'envoi du fichier : " + erreurStorage.message); setUploadEnCours(false); return; }
+
+    const { data: fichierMeta, error: erreurMeta } = await supabase
+      .from('fichiers_metadonnees')
+      .insert({
+        type_proprietaire: 'ETABLISSEMENT', proprietaire_id: etablissementId, etablissement_id: etablissementId,
+        categorie: categorieNouveauFichier, cle_stockage: cheminStockage,
+        type_mime: fichierSelectionneObj.type, taille_octets: fichierSelectionneObj.size,
+      })
+      .select().single();
+    if (erreurMeta) { showToast("⚠️ Erreur métadonnées : " + erreurMeta.message); setUploadEnCours(false); return; }
+
+    const { data: document, error: erreurDoc } = await supabase
+      .from('documents_etablissement')
+      .insert({ etablissement_id: etablissementId, categorie: categorieNouveauFichier, titre: nomNouveauFichier.trim(), auteur_user_id: userId })
+      .select().single();
+    if (erreurDoc) { showToast("⚠️ Erreur document : " + erreurDoc.message); setUploadEnCours(false); return; }
+
+    const { data: version, error: erreurVersion } = await supabase
+      .from('versions_document')
+      .insert({ document_id: document.id, numero_version: 1, fichier_id: fichierMeta.id, auteur_user_id: userId })
+      .select().single();
+    if (erreurVersion) { showToast("⚠️ Erreur version : " + erreurVersion.message); setUploadEnCours(false); return; }
+
+    await supabase.from('documents_etablissement').update({ version_courante_id: version.id }).eq('id', document.id);
+
+    setDocumentsEtablissement(prev => [{ ...document, taille_octets: fichierMeta.taille_octets, cle_stockage: cheminStockage }, ...prev]);
+    setNomNouveauFichier(''); setFichierSelectionneObj(null);
+    setUploadEnCours(false);
+    showToast("📎 Fichier stocké avec succès !");
+  };
+
+  const telechargerDocumentEtablissement = async (doc) => {
+    const { data, error } = await supabase.storage.from('documents-etablissements').createSignedUrl(doc.cle_stockage, 60);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    window.open(data.signedUrl, '_blank');
   };
 
   const soumettreDemandeRejoindre = async (e) => {
@@ -886,6 +1091,7 @@ export default function CenseurDashboard() {
                   <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📚 Archives Pédagogiques</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
                   <button onClick={() => { setActiveTab('classes'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏫 Classes & Attributions</button>
+                  <button onClick={() => { setActiveTab('documents'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📤 Documents d'Établissement</button>
                   <button onClick={() => { setActiveTab('suivi'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">⏰ Suivi & Rappels</button>
                   <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏛️ Profil Établissement</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', margin: '6px 0', paddingTop: '6px' }}>
@@ -961,6 +1167,40 @@ export default function CenseurDashboard() {
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
         {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
+        {modalGererClasses.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '460px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✏️ Classes de {modalGererClasses.prof?.nomComplet}</h3>
+                <button onClick={() => setModalGererClasses({ ouvert: false, prof: null, attributions: [] })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '14px' }}>Modifiable à tout moment — corrige une erreur d'attribution sans repasser par une demande.</p>
+
+              {modalGererClasses.attributions.length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px', marginBottom: '14px' }}>Aucune classe attribuée pour l'instant.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+                  {modalGererClasses.attributions.map(attribution => (
+                    <div key={attribution.id} style={{ ...styles.itemRow, backgroundColor: '#f8fafc' }}>
+                      <span style={{ fontSize: '13px' }}><strong>{attribution.classes?.nom}</strong> — {attribution.matieres?.nom}</span>
+                      <button onClick={() => retirerAttributionEnseignant(attribution)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '4px 8px' }}>Retirer</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={ajouterAttributionEnseignant} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                <select value={formAjoutAttribution.classeId} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, classeId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required>
+                  <option value="">— Classe —</option>
+                  {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                </select>
+                <input type="text" list="liste-matieres-censeur" placeholder="Matière" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
+              </form>
+            </div>
+          </div>
+        )}
+
         {modalConfirmation.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
@@ -1018,25 +1258,37 @@ export default function CenseurDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Changer mon mot de passe</h3>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
-              <form onSubmit={(e) => {
+              <form onSubmit={async (e) => {
                 e.preventDefault();
-                if (!ancienMdp || !nouveauMdp) {
-                  showToast("⚠️ Veuillez remplir tous les champs de mot de passe.");
-                  return;
-                }
-                showToast("🔒 Mot de passe modifié et sécurisé avec succès !");
+                if (!emailSaisiChangement.trim()) return;
+                const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
+                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                showToast("📧 Vérifiez votre boîte mail : un lien de confirmation a été envoyé au nouvel email.");
+                setEmailSaisiChangement('');
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid #e2e8f0' }}>
+                <label style={styles.label}>Changer l'email de connexion</label>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 4px 0' }}>Actuel : {infosCenseur.emailSecurite || '—'}</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={{ ...styles.inputStyle, flex: 1 }} required />
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Changer</button>
+                </div>
+              </form>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                if (!nouveauMdp) { showToast("⚠️ Veuillez saisir un nouveau mot de passe."); return; }
+                const { error } = await supabase.auth.updateUser({ password: nouveauMdp });
+                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                showToast("🔒 Mot de passe modifié avec succès !");
                 setModalSecurite(false);
                 setAncienMdp('');
                 setNouveauMdp('');
               }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Ancien mot de passe</label>
-                  <input type="password" value={ancienMdp} onChange={e => setAncienMdp(e.target.value)} style={styles.inputStyle} required />
-                </div>
+                <label style={styles.label}>Changer mon mot de passe</label>
                 <div>
                   <label style={styles.label}>Nouveau mot de passe sécurisé</label>
                   <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
@@ -1089,6 +1341,11 @@ export default function CenseurDashboard() {
                 <div>
                   <label style={styles.label}>Prénoms</label>
                   <input type="text" value={formProfilCenseur.prenoms} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, prenoms: e.target.value})} style={styles.inputStyle} required />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Téléphone</label>
+                  <input type="tel" placeholder="+225 XX XX XX XX XX" value={formProfilCenseur.telephone || ''} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, telephone: e.target.value})} style={styles.inputStyle} />
                 </div>
 
                 <div>
@@ -1350,6 +1607,7 @@ export default function CenseurDashboard() {
                       <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
                       <p style={{ fontSize: '12px', color: '#475569', margin: '4px 0 0 0' }}>Matière : <strong style={{color: '#2563eb'}}>{prof.matiere}</strong> | Classes : <strong>{Array.isArray(prof.classes) ? prof.classes.join(', ') : 'N/A'}</strong></p>
                     </div>
+                    <button onClick={() => ouvrirGestionClasses(prof)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px', flexShrink: 0 }}>✏️ Modifier ses classes</button>
                   </div>
                 ))}
               </div>
@@ -1369,12 +1627,41 @@ export default function CenseurDashboard() {
               <p style={{ fontSize: '13px', color: '#991b1b', backgroundColor: '#fef2f2', padding: '12px', borderRadius: '10px', marginBottom: '20px' }}>⚠️ Aucune année scolaire active — le chef doit d'abord en ouvrir une.</p>
             )}
 
+            <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Créer les classes d'un niveau (recommandé)</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
+              <form onSubmit={creerClassesEnLot} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div style={{ flex: '1 1 140px' }}>
+                  <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>
+                  <input type="text" placeholder="ex. Seconde" value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                </div>
+                <div style={{ flex: '2 1 200px' }}>
+                  <label style={{ ...styles.label, fontSize: '10px' }}>Séries (séparées par des virgules)</label>
+                  <input type="text" placeholder="ex. A, B, C, D" value={nouveauLotSeries} onChange={(e) => setNouveauLotSeries(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                </div>
+                <div style={{ flex: '1 1 120px' }}>
+                  <label style={{ ...styles.label, fontSize: '10px' }}>Entre les deux</label>
+                  <select value={nouveauLotSeparateur} onChange={(e) => setNouveauLotSeparateur(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                    <option value=" ">Espace (Seconde A)</option>
+                    <option value="">Rien (SecondeA)</option>
+                    <option value=" - ">Tiret (Seconde - A)</option>
+                  </select>
+                </div>
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer les classes</button>
+              </form>
+              {nouveauLotNiveau.trim() && nouveauLotSeries.trim() && (
+                <p style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '8px' }}>
+                  Aperçu : {nouveauLotSeries.split(',').map(s => s.trim()).filter(Boolean).map(s => `${nouveauLotNiveau.trim()}${nouveauLotSeparateur}${s}`).join(', ')}
+                </p>
+              )}
+            </div>
+
             <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Créer une classe pour l'année en cours</h3>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Créer une classe isolée (cas particulier)</h3>
               <form onSubmit={creerClasse} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <input type="text" placeholder="Nom (ex. 6ème A)" value={nouvelleClasseNom} onChange={(e) => setNouvelleClasseNom(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
                 <input type="text" placeholder="Niveau (ex. 6ème)" value={nouvelleClasseNiveau} onChange={(e) => setNouvelleClasseNiveau(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} disabled={!anneeActiveId} />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
+                <button type="submit" className="bouton bouton-secondaire" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
               </form>
               {classesEtablissement.length > 0 && (
                 <p style={{ fontSize: '12px', color: '#475569', marginTop: '12px' }}>
@@ -1409,14 +1696,31 @@ export default function CenseurDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {demandesAttributionsRecues.map(demande => {
                   const nomEnseignant = `${demande.utilisateurs_profils?.prenom || ''} ${demande.utilisateurs_profils?.nom || ''}`.trim() || 'Enseignant';
-                  const description = `${nomEnseignant} — ${demande.classes?.nom || 'classe'} (${demande.matieres?.nom || 'matière'})`;
+                  const estNouvelleClasse = !demande.classe_id;
+                  const description = `${nomEnseignant} — ${demande.nomClasseEdite || 'classe'} (${demande.matieres?.nom || 'matière'})`;
                   return (
                     <div key={demande.id} style={styles.itemRow}>
-                      <div>
+                      <div style={{ flex: 1, minWidth: '220px' }}>
                         <strong style={{ fontSize: '13px' }}>{nomEnseignant}</strong>
-                        <p style={{ fontSize: '12px', color: '#475569', margin: '2px 0 0 0' }}>
-                          Propose : <strong>{demande.classes?.nom || 'classe'}</strong> en <strong>{demande.matieres?.nom || 'matière'}</strong>
+                        {estNouvelleClasse && (
+                          <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>NOUVELLE CLASSE</span>
+                        )}
+                        <p style={{ fontSize: '12px', color: '#475569', margin: '6px 0 0 0' }}>
+                          en <strong>{demande.matieres?.nom || 'matière'}</strong>
                         </p>
+                        {estNouvelleClasse ? (
+                          <div style={{ marginTop: '6px' }}>
+                            <label style={{ ...styles.label, fontSize: '10px' }}>Nom de la classe (corrigible avant validation)</label>
+                            <input
+                              type="text"
+                              value={demande.nomClasseEdite}
+                              onChange={(e) => setDemandesAttributionsRecues(prev => prev.map(d => d.id === demande.id ? { ...d, nomClasseEdite: e.target.value } : d))}
+                              style={{ ...styles.inputStyle, maxWidth: '220px' }}
+                            />
+                          </div>
+                        ) : (
+                          <p style={{ fontSize: '12px', color: '#475569', margin: '2px 0 0 0' }}>Classe : <strong>{demande.nomClasseEdite}</strong></p>
+                        )}
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Accepter</button>
@@ -1425,6 +1729,47 @@ export default function CenseurDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {/* ONGLET : DOCUMENTS D'ÉTABLISSEMENT */}
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {activeTab === 'documents' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📤 Documents d'Établissement</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Uploadez les documents officiels, administratifs ou pédagogiques de l'établissement.</p>
+
+            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>+ Nouveau document</h3>
+              <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
+                <select value={categorieNouveauFichier} onChange={(e) => setCategorieNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }}>
+                  <option value="Administratif">Administratif</option>
+                  <option value="Pédagogique">Pédagogique</option>
+                  <option value="Officiel">Officiel</option>
+                  <option value="Autre">Autre</option>
+                </select>
+                <input type="file" onChange={(e) => setFichierSelectionneObj(e.target.files[0] || null)} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0, padding: '8px 10px' }} required />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={uploadEnCours}>{uploadEnCours ? 'Envoi...' : 'Uploader'}</button>
+              </form>
+            </div>
+
+            {documentsEtablissement.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun document stocké pour l'instant.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {documentsEtablissement.map(doc => (
+                  <div key={doc.id} style={styles.itemRow}>
+                    <div>
+                      <strong style={{ fontSize: '13px' }}>{doc.titre}</strong>
+                      <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>{doc.categorie}</span>
+                    </div>
+                    <button onClick={() => telechargerDocumentEtablissement(doc)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>📥 Télécharger</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

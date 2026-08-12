@@ -80,6 +80,12 @@ export default function CenseurDashboard() {
   const [demandeDepartCenseurEnCours, setDemandeDepartCenseurEnCours] = useState(false);
   const [modalDepartCenseurOuvert, setModalDepartCenseurOuvert] = useState(false);
   const [motifDepartCenseur, setMotifDepartCenseur] = useState('');
+  const [classesEtablissement, setClassesEtablissement] = useState([]);
+  const [matieresDisponibles, setMatieresDisponibles] = useState([]);
+  const [demandesAttributionsRecues, setDemandesAttributionsRecues] = useState([]);
+  const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
+  const [nouvelleClasseNiveau, setNouvelleClasseNiveau] = useState('');
+  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classeId: '', matiereNom: '' });
 
   // =========================================================================
   // ÉTATS INTERNES ET FILTRES (inchangés, purement UI)
@@ -222,6 +228,7 @@ export default function CenseurDashboard() {
       const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
       return {
         id: a.id,
+        userId: a.user_id,
         nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
         matiere: attrsDeCetEnseignant[0]?.matieres?.nom || 'Non définie',
         classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
@@ -231,6 +238,30 @@ export default function CenseurDashboard() {
       };
     });
     setListeProfesseursEtablissementBrute(profsAvecClasses);
+
+    // 4bis. Classes de l'établissement (année active) + matières disponibles
+    // + demandes d'attribution soumises par les enseignants
+    if (annee?.id) {
+      const { data: classesData } = await supabase
+        .from('classes')
+        .select('id, nom, niveau')
+        .eq('etablissement_id', etablissementId)
+        .eq('annee_scolaire_id', annee.id)
+        .is('deleted_at', null)
+        .order('nom', { ascending: true });
+      setClassesEtablissement(classesData || []);
+
+      const { data: demandesAttrib } = await supabase
+        .from('demandes_attributions_classes')
+        .select('id, enseignant_id, classe_id, matiere_id, created_at, classes(nom), matieres(nom), utilisateurs_profils:enseignant_id(nom, prenom)')
+        .eq('etablissement_id', etablissementId)
+        .eq('statut', 'EN_ATTENTE')
+        .order('created_at', { ascending: true });
+      setDemandesAttributionsRecues(demandesAttrib || []);
+    }
+
+    const { data: matieresData } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
+    setMatieresDisponibles(matieresData || []);
 
     // 5. Personnel administratif manuel (table personnel)
     const { data: personnel } = await supabase
@@ -452,6 +483,107 @@ export default function CenseurDashboard() {
     showToast("📤 Demande de départ transmise au chef d'établissement pour validation !");
   };
 
+  // --- Créer une classe pour l'année active ---
+  const creerClasse = async (e) => {
+    e.preventDefault();
+    if (!nouvelleClasseNom.trim() || !affiliationCenseur || !anneeActiveId) {
+      showToast("⚠️ Aucune année scolaire active — impossible de créer une classe.");
+      return;
+    }
+    const { data: nouvelle, error } = await supabase
+      .from('classes')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        nom: nouvelleClasseNom.trim(),
+        niveau: nouvelleClasseNiveau.trim() || null,
+      })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette classe existe déjà pour cette année.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    setClassesEtablissement(prev => [...prev, nouvelle].sort((a, b) => a.nom.localeCompare(b.nom)));
+    setNouvelleClasseNom(''); setNouvelleClasseNiveau('');
+    showToast(`✅ Classe "${nouvelle.nom}" créée !`);
+  };
+
+  // --- Trouver ou créer une matière par son nom (catalogue global partagé) ---
+  const trouverOuCreerMatiere = async (nomMatiere) => {
+    const nom = nomMatiere.trim();
+    if (!nom) return null;
+    const existante = matieresDisponibles.find(m => m.nom.toLowerCase() === nom.toLowerCase());
+    if (existante) return existante.id;
+    const { data: nouvelle, error } = await supabase.from('matieres').insert({ nom }).select().single();
+    if (error) {
+      // Conflit possible si créée entre-temps par quelqu'un d'autre — on la relit
+      const { data: relue } = await supabase.from('matieres').select('id').eq('nom', nom).maybeSingle();
+      if (relue) return relue.id;
+      showToast("⚠️ Erreur matière : " + error.message);
+      return null;
+    }
+    setMatieresDisponibles(prev => [...prev, nouvelle]);
+    return nouvelle.id;
+  };
+
+  // --- Attribution directe d'une classe à un enseignant, par matière ---
+  const attribuerClasseDirectement = async (e) => {
+    e.preventDefault();
+    if (!formAttribution.enseignantId || !formAttribution.classeId || !formAttribution.matiereNom.trim() || !affiliationCenseur || !anneeActiveId) {
+      showToast("⚠️ Merci de remplir l'enseignant, la classe et la matière.");
+      return;
+    }
+    const matiereId = await trouverOuCreerMatiere(formAttribution.matiereNom);
+    if (!matiereId) return;
+
+    const { error } = await supabase.from('attributions_classes').insert({
+      enseignant_id: formAttribution.enseignantId,
+      classe_id: formAttribution.classeId,
+      etablissement_id: affiliationCenseur.etablissement_id,
+      annee_scolaire_id: anneeActiveId,
+      matiere_id: matiereId,
+    });
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette attribution existe déjà.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    showToast("✅ Classe attribuée !");
+    setFormAttribution({ enseignantId: '', classeId: '', matiereNom: '' });
+    chargerTout();
+  };
+
+  // --- Traiter une proposition de classe soumise par un enseignant ---
+  const approuverDemandeAttribution = async (demande) => {
+    const { error } = await supabase
+      .from('demandes_attributions_classes')
+      .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId })
+      .eq('id', demande.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
+    showToast("✅ Proposition acceptée, la classe est attribuée !");
+    chargerTout();
+  };
+
+  const refuserDemandeAttribution = (demande, description) => {
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Refuser cette proposition ?',
+      message: `Refuser la proposition de ${description} ?`,
+      actionCallback: async () => {
+        const { error } = await supabase
+          .from('demandes_attributions_classes')
+          .update({ statut: 'REFUSEE', traitee_par_user_id: userId })
+          .eq('id', demande.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
+        showToast("❌ Proposition refusée.");
+      },
+    });
+  };
+
   const soumettreDemandeRejoindre = async (e) => {
     e.preventDefault();
     if (!inputCodeEtablissementCenseur.trim() || !userId) return;
@@ -626,6 +758,13 @@ export default function CenseurDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse]);
 
+  const nombreFichesTotalEnAttente = useMemo(() => {
+    return Object.values(programmesClasses || {}).reduce((total, prog) =>
+      total + (prog.cycles || []).reduce((sousTotal, cy) =>
+        sousTotal + (cy.lecons || []).reduce((s, lc) =>
+          s + (lc.seances || []).filter(sc => !sc.viseParCenseur).length, 0), 0), 0);
+  }, [programmesClasses]);
+
   const professeursFiltres = useMemo(() => {
     return listeProfesseursEtablissement.filter(prof => {
       const matchCl = filtreProfClasse === 'TOUTES' || (Array.isArray(prof.classes) && prof.classes.includes(filtreProfClasse));
@@ -738,9 +877,15 @@ export default function CenseurDashboard() {
               {menuBurgerCenseurOuvert && (
                 <div style={{ ...styles.burgerDropdown, right: 0, left: 'auto' }} className="anim-apparition">
                   <div style={styles.dropdownHeader}>Menu Censeur</div>
-                  <button onClick={() => { setActiveTab('visa'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option" style={{color: '#2563eb', fontWeight: '800'}}>✍️ Visa & File d'Attente</button>
+                  <button onClick={() => { setActiveTab('visa'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option" style={{color: '#2563eb', fontWeight: '800', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <span>✍️ Visa & File d'Attente</span>
+                    {nombreFichesTotalEnAttente > 0 && (
+                      <span style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '10px', fontWeight: '900', padding: '1px 7px', borderRadius: '999px' }}>{nombreFichesTotalEnAttente}</span>
+                    )}
+                  </button>
                   <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📚 Archives Pédagogiques</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
+                  <button onClick={() => { setActiveTab('classes'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏫 Classes & Attributions</button>
                   <button onClick={() => { setActiveTab('suivi'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">⏰ Suivi & Rappels</button>
                   <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏛️ Profil Établissement</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', margin: '6px 0', paddingTop: '6px' }}>
@@ -1006,6 +1151,10 @@ export default function CenseurDashboard() {
                   )
                 );
 
+                const nombreFichesEnAttente = (prog.cycles || []).reduce((total, cy) =>
+                  total + (cy.lecons || []).reduce((sousTotal, lc) =>
+                    sousTotal + (lc.seances || []).filter(sc => !sc.viseParCenseur).length, 0), 0);
+
                 if (!hasPendingSeances) return null;
 
                 const isClasseOuverte = classesOuvertesVisa[classeNom];
@@ -1016,9 +1165,16 @@ export default function CenseurDashboard() {
                       onClick={() => toggleClasseVisa(classeNom)}
                       style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', backgroundColor: isClasseOuverte ? '#e0f2fe' : '#f8fafc', border: 'none', cursor: 'pointer', outline: 'none' }}
                     >
-                      <div style={{ textAlign: 'left' }}>
-                        <h3 style={{ margin: 0, color: '#0f172a', fontSize: '15px', fontWeight: '800' }}>🏫 Classe : {classeNom}</h3>
-                        <span style={{ fontSize: '12px', color: '#475569' }}>Matière : {prog.matiere || 'EPS'} | Enseignant : <strong>{prog.enseignant || 'Inconnu'}</strong></span>
+                      <div style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div>
+                          <h3 style={{ margin: 0, color: '#0f172a', fontSize: '15px', fontWeight: '800' }}>🏫 Classe : {classeNom}</h3>
+                          <span style={{ fontSize: '12px', color: '#475569' }}>Matière : {prog.matiere || 'EPS'} | Enseignant : <strong>{prog.enseignant || 'Inconnu'}</strong></span>
+                        </div>
+                        {nombreFichesEnAttente > 0 && (
+                          <span style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '11px', fontWeight: '900', padding: '2px 8px', borderRadius: '999px', flexShrink: 0 }}>
+                            {nombreFichesEnAttente} nouvelle{nombreFichesEnAttente > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </div>
                       <span style={{ fontSize: '16px', color: '#2563eb' }}>{isClasseOuverte ? '▲' : '▼'}</span>
                     </button>
@@ -1196,6 +1352,79 @@ export default function CenseurDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {/* ONGLET : CLASSES & ATTRIBUTIONS */}
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {activeTab === 'classes' && (
+          <div style={styles.cardWide}>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Créez les classes de l'année, attribuez-les directement, ou traitez les propositions des enseignants.</p>
+
+            {!anneeActiveId && (
+              <p style={{ fontSize: '13px', color: '#991b1b', backgroundColor: '#fef2f2', padding: '12px', borderRadius: '10px', marginBottom: '20px' }}>⚠️ Aucune année scolaire active — le chef doit d'abord en ouvrir une.</p>
+            )}
+
+            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Créer une classe pour l'année en cours</h3>
+              <form onSubmit={creerClasse} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="text" placeholder="Nom (ex. 6ème A)" value={nouvelleClasseNom} onChange={(e) => setNouvelleClasseNom(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
+                <input type="text" placeholder="Niveau (ex. 6ème)" value={nouvelleClasseNiveau} onChange={(e) => setNouvelleClasseNiveau(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} disabled={!anneeActiveId} />
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
+              </form>
+              {classesEtablissement.length > 0 && (
+                <p style={{ fontSize: '12px', color: '#475569', marginTop: '12px' }}>
+                  Classes existantes : {classesEtablissement.map(c => c.nom).join(', ')}
+                </p>
+              )}
+            </div>
+
+            <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '12px' }}>🎯 Attribuer une classe à un enseignant</h3>
+              <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
+                  <option value="">— Choisir un enseignant —</option>
+                  {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                </select>
+                <select value={formAttribution.classeId} onChange={(e) => setFormAttribution({ ...formAttribution, classeId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId}>
+                  <option value="">— Choisir une classe —</option>
+                  {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                </select>
+                <input type="text" list="liste-matieres-censeur" placeholder="Matière" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
+                <datalist id="liste-matieres-censeur">
+                  {matieresDisponibles.map(m => <option key={m.id} value={m.nom} />)}
+                </datalist>
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
+              </form>
+            </div>
+
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>📥 Propositions des enseignants en attente</h3>
+            {demandesAttributionsRecues.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune proposition en attente.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {demandesAttributionsRecues.map(demande => {
+                  const nomEnseignant = `${demande.utilisateurs_profils?.prenom || ''} ${demande.utilisateurs_profils?.nom || ''}`.trim() || 'Enseignant';
+                  const description = `${nomEnseignant} — ${demande.classes?.nom || 'classe'} (${demande.matieres?.nom || 'matière'})`;
+                  return (
+                    <div key={demande.id} style={styles.itemRow}>
+                      <div>
+                        <strong style={{ fontSize: '13px' }}>{nomEnseignant}</strong>
+                        <p style={{ fontSize: '12px', color: '#475569', margin: '2px 0 0 0' }}>
+                          Propose : <strong>{demande.classes?.nom || 'classe'}</strong> en <strong>{demande.matieres?.nom || 'matière'}</strong>
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Accepter</button>
+                        <button onClick={() => refuserDemandeAttribution(demande, description)} className="bouton bouton-danger">Refuser</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

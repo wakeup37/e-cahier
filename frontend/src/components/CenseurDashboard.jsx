@@ -339,9 +339,9 @@ export default function CenseurDashboard() {
         id, date_prevue, statut, contenu_json,
         classes ( nom ),
         lecons (
-          id, titre,
+          id, titre, statut_visa, envoyee_at, visee_at, observation_visa,
           cycles (
-            id, titre,
+            id, titre, competence,
             programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
               utilisateurs_profils:proprietaire_user_id (nom, prenom) )
           )
@@ -364,12 +364,16 @@ export default function CenseurDashboard() {
       }
       let cy = groupe[classeNom].cycles.find(c => c.id === cycle?.id);
       if (!cy) {
-        cy = { id: cycle?.id, titre: cycle?.titre || '', lecons: [] };
+        cy = { id: cycle?.id, titre: cycle?.titre || '', competence: cycle?.competence || '', lecons: [] };
         groupe[classeNom].cycles.push(cy);
       }
       let lc = cy.lecons.find(l => l.id === sc.lecons?.id);
       if (!lc) {
-        lc = { id: sc.lecons?.id, titre: sc.lecons?.titre || '', seances: [] };
+        lc = {
+          id: sc.lecons?.id, titre: sc.lecons?.titre || '', seances: [],
+          statutVisa: sc.lecons?.statut_visa || 'NON_ENVOYEE',
+          observationVisa: sc.lecons?.observation_visa || '',
+        };
         cy.lecons.push(lc);
       }
       lc.seances.push({
@@ -1088,6 +1092,34 @@ export default function CenseurDashboard() {
     chargerTout(); // recharge visa + archives pour refléter le nouvel état
   };
 
+  // --- Viser / retourner une fiche de leçon (distincte des séances qu'elle contient) ---
+  const viserLecon = async (leconId) => {
+    const { error } = await supabase
+      .from('lecons')
+      .update({ statut_visa: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
+      .eq('id', leconId);
+    if (error) { showToast("⚠️ Erreur de visa : " + error.message); return; }
+    showToast("✅ Fiche de leçon visée !");
+    chargerTout();
+  };
+
+  const retournerLecon = (leconId) => {
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Retourner cette fiche de leçon ?',
+      message: "L'enseignant devra la corriger avant de pouvoir la renvoyer.",
+      actionCallback: async () => {
+        const { error } = await supabase
+          .from('lecons')
+          .update({ statut_visa: 'RETOURNEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
+          .eq('id', leconId);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        showToast("↩️ Fiche de leçon retournée à l'enseignant.");
+        chargerTout();
+      },
+    });
+  };
+
   const telechargerPDFArchive = (item) => {
     const fenetre = window.open('', '_blank');
     if (!fenetre) return;
@@ -1617,6 +1649,18 @@ export default function CenseurDashboard() {
                           <div key={cy.id} style={{ marginBottom: '12px' }}>
                             {(cy.lecons || []).map(lc => (
                               <div key={lc.id}>
+                                {(lc.statutVisa === 'ENVOYEE' || lc.statutVisa === 'RECUE') && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', backgroundColor: '#eff6ff', padding: '12px 16px', borderRadius: '10px', marginBottom: '8px', borderLeft: '4px solid #2563eb' }}>
+                                    <div>
+                                      <span style={{ fontSize: '10px', color: '#1e3a8a', textTransform: 'uppercase', fontWeight: '800' }}>📖 Fiche de leçon — {cy.titre}{cy.competence ? ` (${cy.competence})` : ''}</span>
+                                      <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{lc.titre}</p>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <button onClick={() => retournerLecon(lc.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
+                                      <button onClick={() => viserLecon(lc.id)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
+                                    </div>
+                                  </div>
+                                )}
                                 {([...(lc.seances || [])])
                                   .filter(sc => !sc.viseParCenseur)
                                   .sort((a, b) => new Date(b.date) - new Date(a.date))

@@ -258,7 +258,7 @@ export default function EnseignantDashboard() {
     ouvert: false, niveauCible: 'cycle', cycleIdCible: null, leconIdCible: null,
     titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }],
     titreCycle: '', competenceCycle: '',
-    dateDebutCycle: new Date().toISOString().split('T')[0], dateFinCycle: new Date().toISOString().split('T')[0],
+    dateDebutCycle: new Date().toISOString().split('T')[0], dateFinCycle: new Date().toISOString().split('T')[0], nombreLeconsPrevu: '',
     titreLecon: '', nombreSeancesLecon: '3', titreSeance: '',
     dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
     valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}
@@ -714,7 +714,7 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
-    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, titreLecon, nombreSeancesLecon,
+    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
     // --- Branche NON câblée sur Supabase (reste locale, voir note en tête de fichier) ---
@@ -759,7 +759,11 @@ export default function EnseignantDashboard() {
 
         if (!cycleParProgramme[programmeAnnuelId]) {
           const { data, error } = await supabase
-            .from('cycles').insert({ programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS' }).select().single();
+            .from('cycles').insert({
+              programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS',
+              competence: competenceCycle || null, date_debut: dateDebutCycle || null, date_fin: dateFinCycle || null,
+              nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
+            }).select().single();
           if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
           cycleParProgramme[programmeAnnuelId] = data;
         }
@@ -770,7 +774,7 @@ export default function EnseignantDashboard() {
         if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
         setProgrammesClasses(prev => {
           const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
-          const cycleLocal = { id: cycle.id, titre: cycle.titre, competence: competenceCycle || '', dateDebut: '', dateFin: '', statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+          const cycleLocal = { id: cycle.id, titre: cycle.titre, competence: cycle.competence || '', dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '', nombreLeconsPrevu: cycle.nombre_lecons_prevu || null, statut: 'En cours', soumisAuCenseur: false, lecons: [] };
           return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
         });
       });
@@ -872,7 +876,7 @@ export default function EnseignantDashboard() {
 
     setModalAssistant({
       ouvert: false, niveauCible: 'programme', cycleIdCible: null, leconIdCible: null,
-      titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '',
+      titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '', nombreLeconsPrevu: '',
       titreLecon: '', nombreSeancesLecon: '3', titreSeance: '',
       dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
       valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {},
@@ -886,24 +890,67 @@ export default function EnseignantDashboard() {
     if (!prog || !Array.isArray(prog.cycles)) return;
 
     if (type === 'seance' && seanceId) {
+      // Retrouve la date prévue de cette séance dans le mirroir local, pour
+      // décider si elle arrive maintenant ou est programmée pour plus tard.
+      let dateSeance = null;
+      (prog.cycles || []).forEach(c => (c.lecons || []).forEach(l => (l.seances || []).forEach(s => {
+        if (s.id === seanceId) dateSeance = s.date;
+      })));
+
+      const aujourdHui = new Date().toISOString().slice(0, 10);
+      const arriveMaintenant = !dateSeance || dateSeance <= aujourdHui;
+      const statutCible = arriveMaintenant ? 'ENVOYEE' : 'PROGRAMMEE';
+
       const { error } = await supabase
-        .from('seances').update({ statut: 'ENVOYEE', envoyee_at: new Date().toISOString() }).eq('id', seanceId);
+        .from('seances')
+        .update({ statut: statutCible, envoyee_at: arriveMaintenant ? new Date().toISOString() : null })
+        .eq('id', seanceId);
       if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+      const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {
+        ...c,
+        lecons: (c.lecons || []).map(l => l.id !== leconId ? l : {
+          ...l, seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true, statutReel: statutCible } : s)
+        })
+      });
+      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+
+      showToast(arriveMaintenant
+        ? "🚀 Fiche envoyée — visible chez le censeur dès maintenant !"
+        : `📅 Fiche programmée — elle arrivera automatiquement chez le censeur le ${dateSeance}, pas avant.`);
+      return;
+    }
+
+    // --- Branche LEÇON : vraie création Supabase — obligatoirement précédée
+    // d'au moins une séance déjà envoyée (jamais une leçon "vide" chez le censeur) ---
+    if (type === 'lecon' && leconId) {
+      const { data: seancesDeLaLecon } = await supabase
+        .from('seances').select('id, statut').eq('lecon_id', leconId);
+      const auMoinsUneSeanceEnvoyee = (seancesDeLaLecon || []).some(s => ['ENVOYEE', 'RECUE', 'VISEE', 'PROGRAMMEE'].includes(s.statut));
+
+      if (!auMoinsUneSeanceEnvoyee) {
+        showToast("⚠️ Envoyez d'abord au moins une séance de cette leçon — une fiche de leçon ne peut pas être envoyée seule.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from('lecons')
+        .update({ statut_visa: 'ENVOYEE', envoyee_at: new Date().toISOString() })
+        .eq('id', leconId);
+      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+      const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {
+        ...c, lecons: (c.lecons || []).map(l => l.id === leconId ? { ...l, soumisAuCenseur: true } : l)
+      });
+      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+      showToast("🚀 Fiche de leçon envoyée au censeur !");
+      return;
     }
 
     const cyclesMaj = prog.cycles.map(c => {
       if (c.id === cycleId) {
         if (type === 'programme' || type === 'cycle') return { ...c, soumisAuCenseur: true };
-        return {
-          ...c,
-          lecons: Array.isArray(c.lecons) ? c.lecons.map(l => {
-            if (l.id === leconId) {
-              if (type === 'lecon') return { ...l, soumisAuCenseur: true };
-              return { ...l, seances: Array.isArray(l.seances) ? l.seances.map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true } : s) : [] };
-            }
-            return l;
-          }) : []
-        };
+        return c;
       }
       return c;
     });
@@ -911,21 +958,24 @@ export default function EnseignantDashboard() {
     showToast("🚀 Élément envoyé au censeur !");
   };
 
-  // Reste en local pour cette passe
-  const marquerLeconTerminee = (cycleId, leconId) => {
+  const marquerLeconTerminee = async (cycleId, leconId) => {
+    const { error } = await supabase.from('lecons').update({ statut: 'TERMINEE' }).eq('id', leconId);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) return;
     const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? { ...c, lecons: Array.isArray(c.lecons) ? c.lecons.map(l => l.id === leconId ? { ...l, statut: 'Terminée' } : l) : [] } : c);
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
-    showToast("🏁 Leçon terminée (local uniquement pour l'instant) !");
+    showToast("🏁 Leçon terminée !");
   };
 
-  const marquerCycleTermine = (cycleId) => {
+  const marquerCycleTermine = async (cycleId) => {
+    const { error } = await supabase.from('cycles').update({ statut: 'TERMINEE' }).eq('id', cycleId);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) return;
     const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? { ...c, statut: 'Terminé' } : c);
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
-    showToast("🏆 Cycle terminé (local uniquement pour l'instant) !");
+    showToast("🏆 Cycle terminé !");
   };
 
   const ouvrirModalEdition = (type, cycleId, leconId = null, seanceId = null) => {
@@ -1045,12 +1095,12 @@ export default function EnseignantDashboard() {
       champsHtml += `<tr><th>📎 Fichiers Multimedias</th><td>${seance.fichiersMultimedias.join(', ')}</td></tr>`;
     }
     champsHtml += '</table>';
-    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Leçon: ${lecon?.titre || ''}`, champsHtml);
+    telechargerPDFEntite(`Fiche de Séance - ${seance?.titre || 'Séance'}`, `Cycle: ${cycle?.titre || ''} | Compétence : ${cycle?.competence || 'N/A'} | Leçon: ${lecon?.titre || ''}`, champsHtml);
   };
 
   const telechargerLeconPDF = (lecon, cycle) => {
     let htmlContent = `<h3 style="color: #0f172a; font-size: 16px; border-bottom: 2px solid #2563eb; padding-bottom: 6px;">📖 Leçon : ${lecon.titre}</h3>`;
-    htmlContent += `<p style="font-size: 13px; color: #475569;"><strong>Cycle parent :</strong> ${cycle.titre} | <strong>Séances prévues :</strong> ${lecon.nombreSeancesPrevues}</p>`;
+    htmlContent += `<p style="font-size: 13px; color: #475569;"><strong>Cycle parent :</strong> ${cycle.titre} | <strong>Compétence :</strong> ${cycle.competence || 'N/A'} | <strong>Séances prévues :</strong> ${lecon.nombreSeancesPrevues}</p>`;
     if (Array.isArray(lecon.seances) && lecon.seances.length > 0) {
       lecon.seances.forEach(sc => {
         htmlContent += `<div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #f8fafc;">`;
@@ -2024,6 +2074,21 @@ export default function EnseignantDashboard() {
                     <div>
                       <label style={styles.label}>Compétence visée</label>
                       <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
+                      <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Apparaîtra sur toutes les fiches (leçons et séances) de ce cycle.</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={styles.label}>Début</label>
+                        <input type="date" value={modalAssistant.dateDebutCycle || ''} onChange={(e) => setModalAssistant({...modalAssistant, dateDebutCycle: e.target.value})} style={styles.inputStyle} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={styles.label}>Fin</label>
+                        <input type="date" value={modalAssistant.dateFinCycle || ''} onChange={(e) => setModalAssistant({...modalAssistant, dateFinCycle: e.target.value})} style={styles.inputStyle} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={styles.label}>Leçons prévues</label>
+                        <input type="number" min="1" placeholder="ex. 2" value={modalAssistant.nombreLeconsPrevu || ''} onChange={(e) => setModalAssistant({...modalAssistant, nombreLeconsPrevu: e.target.value})} style={styles.inputStyle} />
+                      </div>
                     </div>
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                       <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles (une ou plusieurs écoles) :</label>
@@ -2329,6 +2394,9 @@ export default function EnseignantDashboard() {
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                       <button onClick={() => telechargerLeconPDF(lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Leçon PDF</button>
                                       <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
+                                      {!lecon.soumisAuCenseur && (
+                                        <button onClick={() => soumettreAuCenseur('lecon', cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🚀 Envoyer la fiche de leçon</button>
+                                      )}
                                       {lecon.statut !== 'Terminée' && (
                                         <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🏁 Terminer</button>
                                       )}

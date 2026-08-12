@@ -23,6 +23,13 @@ import { supabase } from './AppRouter';
 // DÉPENDANCE IMPORTANTE : l'onglet Visa n'affichera des fiches que lorsque
 // le dashboard enseignant écrira réellement des séances dans la table
 // "seances" — tant que ce n'est pas fait, la liste sera vide (normal).
+//
+// [CORRECTIF AJOUTÉ] La requête "seances" (onglet Visa) ne vérifiait pas si
+// Supabase renvoyait une erreur (souvent une policy RLS trop restrictive).
+// En cas d'erreur, "seances" devenait silencieusement vide, sans aucun
+// message — impossible de savoir pourquoi rien ne s'affichait. Maintenant
+// l'erreur est loguée en console ET affichée dans un bandeau (showToast),
+// visible même sur téléphone sans avoir besoin d'ouvrir une console.
 // =========================================================================
 
 export default function CenseurDashboard() {
@@ -349,7 +356,9 @@ export default function CenseurDashboard() {
     }
 
     // 7. Séances en attente de visa (onglet Visa) — regroupées par classe pour coller au JSX existant
-    const { data: seances } = await supabase
+    // [CORRECTIF] on récupère désormais "error" et on l'affiche s'il y en a une,
+    // au lieu de laisser la liste se vider silencieusement (ex. policy RLS).
+    const { data: seances, error: erreurSeances } = await supabase
       .from('seances')
       .select(`
         id, date_prevue, statut, contenu_json,
@@ -364,6 +373,11 @@ export default function CenseurDashboard() {
         )
       `)
       .in('statut', ['ENVOYEE', 'RECUE']);
+
+    if (erreurSeances) {
+      console.error('Erreur chargement séances (onglet Visa) :', erreurSeances);
+      showToast("⚠️ Erreur de chargement des fiches à viser : " + erreurSeances.message);
+    }
 
     const groupe = {};
     (seances || []).forEach((sc, index) => {

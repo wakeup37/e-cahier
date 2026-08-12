@@ -249,6 +249,21 @@ export default function EnseignantDashboard() {
   });
   useEffect(() => { localStorage.setItem('app_enseignant_champs_perso', JSON.stringify(champsPersonnalises)); }, [champsPersonnalises]);
 
+  const [champsPersonnalisesLecon, setChampsPersonnalisesLecon] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('app_enseignant_champs_perso_lecon')) || [
+        { id: 'habilites', label: '🎯 Habiletés (générales à la leçon)', type: 'textarea' },
+        { id: 'contenus', label: '📚 Contenus Pédagogiques (généraux à la leçon)', type: 'textarea' },
+      ];
+    } catch {
+      return [
+        { id: 'habilites', label: '🎯 Habiletés (générales à la leçon)', type: 'textarea' },
+        { id: 'contenus', label: '📚 Contenus Pédagogiques (généraux à la leçon)', type: 'textarea' },
+      ];
+    }
+  });
+  useEffect(() => { localStorage.setItem('app_enseignant_champs_perso_lecon', JSON.stringify(champsPersonnalisesLecon)); }, [champsPersonnalisesLecon]);
+
   const [cyclesOuverts, setCyclesOuverts] = useState({});
   const [leconsOuvertes, setLeconsOuvertes] = useState({});
   const toggleCycle = (cycleId) => setCyclesOuverts(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
@@ -259,9 +274,9 @@ export default function EnseignantDashboard() {
     titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }],
     titreCycle: '', competenceCycle: '',
     dateDebutCycle: new Date().toISOString().split('T')[0], dateFinCycle: new Date().toISOString().split('T')[0], nombreLeconsPrevu: '',
-    titreLecon: '', nombreSeancesLecon: '3', habiletesLecon: '', contenusLecon: '', titreSeance: '',
+    titreLecon: '', nombreSeancesLecon: '3', valeursChampsLecon: {}, titreSeance: '',
     dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
-    valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, habiletesLeconReference: '', contenusLeconReference: ''
+    valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, referenceLeconValeurs: {}, planLecons: [], planSeances: []
   });
 
   const [modalEdition, setModalEdition] = useState({ ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {} });
@@ -714,7 +729,7 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
-    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon, habiletesLecon, contenusLecon,
+    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
     // --- Branche NON câblée sur Supabase (reste locale, voir note en tête de fichier) ---
@@ -768,6 +783,7 @@ export default function EnseignantDashboard() {
             date_debut: periode.debut || dateDebutCycle || null,
             date_fin: periode.fin || dateFinCycle || null,
             nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
+            plan_lecons: Array.isArray(modalAssistant.planLecons) ? modalAssistant.planLecons : [],
           }).select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
 
@@ -775,7 +791,7 @@ export default function EnseignantDashboard() {
         if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
         setProgrammesClasses(prev => {
           const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
-          const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: nouveauCycle.date_debut || '', dateFin: nouveauCycle.date_fin || '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+          const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: nouveauCycle.date_debut || '', dateFin: nouveauCycle.date_fin || '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, planLecons: nouveauCycle.plan_lecons || [], statut: 'En cours', soumisAuCenseur: false, lecons: [] };
           return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
         });
       }
@@ -808,7 +824,8 @@ export default function EnseignantDashboard() {
         const { data: nouvelleLecon, error } = await supabase
           .from('lecons').insert({
             cycle_id: cycleCorrespondant.id, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS',
-            habiletes: habiletesLecon || null, contenus: contenusLecon || null,
+            contenu_json: modalAssistant.valeursChampsLecon || {},
+            plan_seances: Array.isArray(modalAssistant.planSeances) ? modalAssistant.planSeances : [],
           }).select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
 
@@ -818,7 +835,8 @@ export default function EnseignantDashboard() {
           const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleCorrespondant.id ? c : {
             ...c, lecons: [...(c.lecons || []), {
               id: nouvelleLecon.id, titre: nouvelleLecon.titre, nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3,
-              habiletes: nouvelleLecon.habiletes || '', contenus: nouvelleLecon.contenus || '',
+              contenuJson: nouvelleLecon.contenu_json || {},
+              planSeances: nouvelleLecon.plan_seances || [],
               statut: 'En cours', soumisAuCenseur: false, seances: [],
             }]
           });
@@ -885,9 +903,9 @@ export default function EnseignantDashboard() {
     setModalAssistant({
       ouvert: false, niveauCible: 'programme', cycleIdCible: null, leconIdCible: null,
       titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '', nombreLeconsPrevu: '',
-      titreLecon: '', nombreSeancesLecon: '3', habiletesLecon: '', contenusLecon: '', titreSeance: '',
+      titreLecon: '', nombreSeancesLecon: '3', valeursChampsLecon: {}, titreSeance: '',
       dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
-      valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, habiletesLeconReference: '', contenusLeconReference: '',
+      valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, referenceLeconValeurs: {}, planLecons: [], planSeances: [],
       titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }]
     });
   };
@@ -1109,6 +1127,14 @@ export default function EnseignantDashboard() {
   const telechargerLeconPDF = (lecon, cycle) => {
     let htmlContent = `<h3 style="color: #0f172a; font-size: 16px; border-bottom: 2px solid #2563eb; padding-bottom: 6px;">📖 Leçon : ${lecon.titre}</h3>`;
     htmlContent += `<p style="font-size: 13px; color: #475569;"><strong>Cycle parent :</strong> ${cycle.titre} | <strong>Compétence :</strong> ${cycle.competence || 'N/A'} | <strong>Séances prévues :</strong> ${lecon.nombreSeancesPrevues}</p>`;
+    if (Array.isArray(champsPersonnalisesLecon) && lecon.contenuJson && Object.keys(lecon.contenuJson).length > 0) {
+      htmlContent += '<table>';
+      champsPersonnalisesLecon.forEach(champ => {
+        const val = lecon.contenuJson[champ.id];
+        if (val) htmlContent += `<tr><th>${champ.label}</th><td>${String(val).replace(/\n/g, '<br>')}</td></tr>`;
+      });
+      htmlContent += '</table>';
+    }
     if (Array.isArray(lecon.seances) && lecon.seances.length > 0) {
       lecon.seances.forEach(sc => {
         htmlContent += `<div style="margin-top: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #f8fafc;">`;
@@ -1535,7 +1561,8 @@ export default function EnseignantDashboard() {
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setChampASupprimer(null)} className="bouton bouton-secondaire">Annuler</button>
                 <button onClick={() => {
-                  setChampsPersonnalises(prev => Array.isArray(prev) ? prev.filter(c => c.id !== champASupprimer) : []);
+                  const listeCible = champASupprimer.contexte === 'lecon' ? setChampsPersonnalisesLecon : setChampsPersonnalises;
+                  listeCible(prev => Array.isArray(prev) ? prev.filter(c => c.id !== champASupprimer.id) : []);
                   setChampASupprimer(null);
                   showToast("🗑️ Champ supprimé avec succès !");
                 }} className="bouton bouton-danger">Oui, supprimer</button>
@@ -1944,9 +1971,10 @@ export default function EnseignantDashboard() {
                 <button 
                   type="button" 
                   onClick={() => {
+                    const cle = champEnEditionPleinEcran.contexte === 'lecon' ? 'valeursChampsLecon' : 'valeursChamps';
                     setModalAssistant(prev => ({
                       ...prev,
-                      valeursChamps: { ...(prev.valeursChamps || {}), [champEnEditionPleinEcran.id]: champEnEditionPleinEcran.valeurTemporaire }
+                      [cle]: { ...(prev[cle] || {}), [champEnEditionPleinEcran.id]: champEnEditionPleinEcran.valeurTemporaire }
                     }));
                     setChampEnEditionPleinEcran(null);
                     showToast("✨ Texte validé avec succès !");
@@ -1974,6 +2002,7 @@ export default function EnseignantDashboard() {
                 <button onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
+              {modalAssistant.niveauCible === 'seance' && (
               <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <label style={{ ...styles.label, color: '#2563eb', fontSize: '13px', margin: 0 }}>⚙️ Structure & Champs de la fiche :</label>
@@ -1999,7 +2028,7 @@ export default function EnseignantDashboard() {
                         {champsPersonnalises.length > 1 && (
                           <button 
                             type="button" 
-                            onClick={() => setChampASupprimer(champ.id)}
+                            onClick={() => setChampASupprimer({ id: champ.id, contexte: 'seance' })}
                             style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', fontWeight: '900', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginTop: '16px' }}
                           >
                             −
@@ -2009,10 +2038,9 @@ export default function EnseignantDashboard() {
 
                       <div>
                         <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>CONTENU</label>
-                        {modalAssistant.niveauCible === 'seance' && (champ.id === 'habilites' || champ.id === 'contenus') && (modalAssistant.habiletesLeconReference || modalAssistant.contenusLeconReference) && (
+                        {modalAssistant.referenceLeconValeurs && modalAssistant.referenceLeconValeurs[champ.id] && (
                           (() => {
-                            const reference = champ.id === 'habilites' ? modalAssistant.habiletesLeconReference : modalAssistant.contenusLeconReference;
-                            if (!reference) return null;
+                            const reference = modalAssistant.referenceLeconValeurs[champ.id];
                             return (
                               <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '8px 10px', marginBottom: '8px' }}>
                                 <p style={{ fontSize: '10px', color: '#1e3a8a', fontWeight: '800', margin: '0 0 4px 0' }}>📋 Proposé par la leçon (facultatif, à adapter ou ignorer) :</p>
@@ -2032,6 +2060,7 @@ export default function EnseignantDashboard() {
                           onClick={() => {
                             setChampEnEditionPleinEcran({
                               id: champ.id,
+                              contexte: 'seance',
                               label: champ.label,
                               valeurTemporaire: (modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''
                             });
@@ -2059,6 +2088,78 @@ export default function EnseignantDashboard() {
                   + Ajouter un champ
                 </button>
               </div>
+              )}
+
+              {modalAssistant.niveauCible === 'lecon' && (
+              <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <label style={{ ...styles.label, color: '#2563eb', fontSize: '13px', margin: 0 }}>⚙️ Structure & Champs de la fiche de leçon :</label>
+                </div>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 12px 0' }}>Comme pour la séance : ajoutez, renommez ou retirez librement des champs — chaque matière peut avoir ses propres besoins.</p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '14px' }}>
+                  {Array.isArray(champsPersonnalisesLecon) && champsPersonnalisesLecon.map((champ, index) => (
+                    <div key={champ.id} style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>ÉNONCÉ DU CHAMP #{index + 1}</label>
+                          <input 
+                            type="text" 
+                            value={champ.label} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setChampsPersonnalisesLecon(prev => prev.map(c => c.id === champ.id ? { ...c, label: val } : c));
+                            }}
+                            style={{ ...styles.inputStyle, padding: '10px 12px', fontSize: '13px', fontWeight: '800', backgroundColor: '#f8fafc' }}
+                          />
+                        </div>
+
+                        {champsPersonnalisesLecon.length > 1 && (
+                          <button 
+                            type="button" 
+                            onClick={() => setChampASupprimer({ id: champ.id, contexte: 'lecon' })}
+                            style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', fontWeight: '900', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginTop: '16px' }}
+                          >
+                            −
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>CONTENU</label>
+                        <textarea 
+                          onClick={() => {
+                            setChampEnEditionPleinEcran({
+                              id: champ.id,
+                              contexte: 'lecon',
+                              label: champ.label,
+                              valeurTemporaire: (modalAssistant.valeursChampsLecon && modalAssistant.valeursChampsLecon[champ.id]) || ''
+                            });
+                          }}
+                          readOnly
+                          value={(modalAssistant.valeursChampsLecon && modalAssistant.valeursChampsLecon[champ.id]) || ''}
+                          placeholder="Cliquez pour écrire — général à toute la leçon"
+                          style={{ ...styles.inputStyle, height: '65px', resize: 'none', backgroundColor: '#fdfdfd', fontSize: '12px', cursor: 'pointer', color: '#334155' }} 
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    const newId = `champ_${Date.now()}`;
+                    setChampsPersonnalisesLecon(prev => [...(Array.isArray(prev) ? prev : []), { id: newId, label: 'Nouveau champ', type: 'textarea' }]);
+                    showToast("➕ Champ ajouté !");
+                  }} 
+                  className="bouton bouton-succes"
+                  style={{ width: '100%', marginBottom: '10px' }}
+                >
+                  + Ajouter un champ
+                </button>
+              </div>
+              )}
 
               <form onSubmit={gererValidationAssistant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {modalAssistant.niveauCible === 'programme_annuel' && (
@@ -2106,8 +2207,35 @@ export default function EnseignantDashboard() {
                     </div>
                     <div>
                       <label style={styles.label}>Leçons prévues</label>
-                      <input type="number" min="1" placeholder="ex. 2" value={modalAssistant.nombreLeconsPrevu || ''} onChange={(e) => setModalAssistant({...modalAssistant, nombreLeconsPrevu: e.target.value})} style={styles.inputStyle} />
+                      <input
+                        type="number" min="1" placeholder="ex. 2" value={modalAssistant.nombreLeconsPrevu || ''}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10) || 0;
+                          setModalAssistant(prev => {
+                            const planActuel = Array.isArray(prev.planLecons) ? prev.planLecons : [];
+                            const planAjuste = Array.from({ length: n }, (_, i) => planActuel[i] || '');
+                            return { ...prev, nombreLeconsPrevu: e.target.value, planLecons: planAjuste };
+                          });
+                        }}
+                        style={styles.inputStyle}
+                      />
                     </div>
+                    {Array.isArray(modalAssistant.planLecons) && modalAssistant.planLecons.length > 0 && (
+                      <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                        <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>Titres des leçons (facultatif — vous pourrez les nommer plus tard aussi)</label>
+                        {modalAssistant.planLecons.map((titre, i) => (
+                          <input
+                            key={i} type="text" placeholder={`Leçon ${i + 1} (facultatif)`} value={titre}
+                            onChange={(e) => setModalAssistant(prev => {
+                              const copie = [...prev.planLecons];
+                              copie[i] = e.target.value;
+                              return { ...prev, planLecons: copie };
+                            })}
+                            style={{ ...styles.inputStyle, marginBottom: '6px' }}
+                          />
+                        ))}
+                      </div>
+                    )}
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                       <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles, chacune avec sa propre période :</label>
                       <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Chaque classe garde son propre cycle en base — utile si les classes n'ont pas cours le même jour, la période peut varier de l'une à l'autre.</p>
@@ -2163,17 +2291,35 @@ export default function EnseignantDashboard() {
                     </div>
                     <div>
                       <label style={styles.label}>Nombre de séances</label>
-                      <input type="number" min="1" value={modalAssistant.nombreSeancesLecon} onChange={(e) => setModalAssistant({...modalAssistant, nombreSeancesLecon: e.target.value})} style={styles.inputStyle} required />
+                      <input
+                        type="number" min="1" value={modalAssistant.nombreSeancesLecon}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10) || 0;
+                          setModalAssistant(prev => {
+                            const planActuel = Array.isArray(prev.planSeances) ? prev.planSeances : [];
+                            const planAjuste = Array.from({ length: n }, (_, i) => planActuel[i] || '');
+                            return { ...prev, nombreSeancesLecon: e.target.value, planSeances: planAjuste };
+                          });
+                        }}
+                        style={styles.inputStyle} required
+                      />
                     </div>
-                    <div>
-                      <label style={styles.label}>Habiletés (générales à la leçon)</label>
-                      <textarea value={modalAssistant.habiletesLecon} onChange={(e) => setModalAssistant({...modalAssistant, habiletesLecon: e.target.value})} style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }} />
-                    </div>
-                    <div>
-                      <label style={styles.label}>Contenus pédagogiques (généraux à la leçon)</label>
-                      <textarea value={modalAssistant.contenusLecon} onChange={(e) => setModalAssistant({...modalAssistant, contenusLecon: e.target.value})} style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }} />
-                      <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Ces deux champs se rempliront automatiquement sur chaque nouvelle séance de cette leçon — modifiables séance par séance si besoin.</p>
-                    </div>
+                    {Array.isArray(modalAssistant.planSeances) && modalAssistant.planSeances.length > 0 && (
+                      <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                        <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>Titres des séances (facultatif — vous pourrez les nommer plus tard aussi)</label>
+                        {modalAssistant.planSeances.map((titre, i) => (
+                          <input
+                            key={i} type="text" placeholder={`Séance ${i + 1} (facultatif)`} value={titre}
+                            onChange={(e) => setModalAssistant(prev => {
+                              const copie = [...prev.planSeances];
+                              copie[i] = e.target.value;
+                              return { ...prev, planSeances: copie };
+                            })}
+                            style={{ ...styles.inputStyle, marginBottom: '6px' }}
+                          />
+                        ))}
+                      </div>
+                    )}
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                       <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Ajouter aussi cette leçon à :</label>
                       <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Seules les classes ayant déjà un cycle du même titre seront proposées.</p>
@@ -2424,7 +2570,10 @@ export default function EnseignantDashboard() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px', paddingLeft: '10px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <h4 style={{ fontSize: '13px', fontWeight: '800', color: '#334155', margin: 0 }}>📖 Leçons de ce cycle :</h4>
-                              <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'lecon', cycleIdCible: cycle.id })} className="bouton bouton-secondaire" style={{ padding: '4px 10px', fontSize: '11px', color: '#2563eb' }}>
+                              <button onClick={() => {
+                                const prochainTitre = (cycle.planLecons || [])[(cycle.lecons || []).length] || '';
+                                setModalAssistant(prev => ({ ...prev, ouvert: true, niveauCible: 'lecon', cycleIdCible: cycle.id, titreLecon: prochainTitre, valeursChampsLecon: {}, nombreSeancesLecon: '3', planSeances: [], classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [] }));
+                              }} className="bouton bouton-secondaire" style={{ padding: '4px 10px', fontSize: '11px', color: '#2563eb' }}>
                                 + Créer une Leçon
                               </button>
                             </div>
@@ -2481,7 +2630,10 @@ export default function EnseignantDashboard() {
                                       ))}
 
                                       <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => setModalAssistant(prev => ({ ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, dateSeance: new Date().toISOString().split('T')[0], titreSeance: '', valeursChamps: {}, habiletesLeconReference: lecon.habiletes || '', contenusLeconReference: lecon.contenus || '', classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [], datesParClasseCycle: {} }))} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px' }}>
+                                        <button onClick={() => {
+                                          const prochainTitre = (lecon.planSeances || [])[(lecon.seances || []).length] || '';
+                                          setModalAssistant(prev => ({ ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, dateSeance: new Date().toISOString().split('T')[0], titreSeance: prochainTitre, valeursChamps: {}, referenceLeconValeurs: lecon.contenuJson || {}, classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [], datesParClasseCycle: {} }));
+                                        }} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px' }}>
                                           + Ajouter une nouvelle séance
                                         </button>
                                         <button onClick={() => setModalChoixBibliotheque({ ouvert: true, cycleId: cycle.id, leconId: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px', color: '#7c3aed' }}>

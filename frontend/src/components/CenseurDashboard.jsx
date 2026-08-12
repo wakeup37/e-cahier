@@ -1,3 +1,6 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { supabase } from './AppRouter';
+
 export default function CenseurDashboard() {
 
   // =========================================================================
@@ -5,7 +8,7 @@ export default function CenseurDashboard() {
   // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
   const [userId, setUserId] = useState(null);
-  const [affiliationCenseur, setAffiliationCenseur] = useState(null); // ligne affiliations_etablissement (role CENSEUR, statut ACTIVE)
+  const [affiliationCenseur, setAffiliationCenseur] = useState(null);
   const [anneeActiveId, setAnneeActiveId] = useState(null);
 
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
@@ -23,7 +26,7 @@ export default function CenseurDashboard() {
   }, [affiliationCenseur?.etablissement_id]);
 
   // =========================================================================
-  // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
+  // ÉTATS DU PROFIL & DE CONFIGURATION GLOBALE
   // =========================================================================
   const [infosCenseur, setInfosCenseur] = useState({
     civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
@@ -47,52 +50,13 @@ export default function CenseurDashboard() {
     ouvert: false, titre: '', message: '', actionCallback: null
   });
 
-  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
-  const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
-    nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
-    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
-  });
-
-  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
-  const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
-    nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
-    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
-  });
-
-
-  // =========================================================================
-  // ÉTATS DU PROFIL — mêmes noms que l'original, alimentés par Supabase
-  // =========================================================================
-  const [infosCenseur, setInfosCenseur] = useState({
-    civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
-  });
-
-  const [modalProfilCenseurOuvert, setModalProfilCenseurOuvert] = useState(false);
-  const [formProfilCenseur, setFormProfilCenseur] = useState({ ...infosCenseur });
-  const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
-  const profilCenseurRef = useRef(null);
-
-  const [modalSecurite, setModalSecurite] = useState(false);
-  const [ancienMdp, setAncienMdp] = useState('');
-  const [nouveauMdp, setNouveauMdp] = useState('');
-  const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
-
-  const [menuBurgerCenseurOuvert, setMenuBurgerCenseurOuvert] = useState(false);
-  const menuBurgerCenseurRef = useRef(null);
-  const [modalDeconnexion, setModalDeconnexion] = useState(false);
-
-  const [modalConfirmation, setModalConfirmation] = useState({
-    ouvert: false, titre: '', message: '', actionCallback: null
-  });
-
-  // ecoleConfigGlobale : même forme que l'original, alimentée par etablissements + parametres_json
   const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
     nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
     anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
   });
 
   // =========================================================================
-  // DONNÉES SYNCHRONISÉES SUR SUPABASE (mêmes noms qu'avant)
+  // DONNÉES SYNCHRONISÉES SUR SUPABASE
   // =========================================================================
   const [programmesClasses, setProgrammesClasses] = useState({});
   const [notificationsCenseur, setNotificationsCenseur] = useState([]);
@@ -129,7 +93,7 @@ export default function CenseurDashboard() {
   const [uploadEnCours, setUploadEnCours] = useState(false);
 
   // =========================================================================
-  // ÉTATS INTERNES ET FILTRES (inchangés, purement UI)
+  // ÉTATS INTERNES ET FILTRES
   // =========================================================================
   const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
@@ -176,14 +140,12 @@ export default function CenseurDashboard() {
     }
     setUserId(user.id);
 
-    // 1. Profil
     const { data: profil } = await supabase
       .from('utilisateurs_profils')
       .select('*')
       .eq('user_id', user.id)
       .single();
 
-    // 2. Affiliation CENSEUR active + établissement
     const { data: affiliation, error: erreurAffiliation } = await supabase
       .from('affiliations_etablissement')
       .select('*, etablissements(*)')
@@ -212,7 +174,6 @@ export default function CenseurDashboard() {
       setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '', telephone: profil.telephone || '' }));
     }
 
-    // 3. Année scolaire active de l'établissement
     const { data: annee } = await supabase
       .from('annees_scolaires')
       .select('*')
@@ -221,9 +182,6 @@ export default function CenseurDashboard() {
       .maybeSingle();
     setAnneeActiveId(annee?.id || null);
 
-    // 3bis. Demandes d'affiliation d'enseignants en attente (le censeur ne
-    // peut approuver/refuser QUE les demandes de rôle ENSEIGNANT — devenir
-    // CHEF ou CENSEUR reste réservé au chef d'établissement).
     const { data: demandesEnseignants } = await supabase
       .from('demandes_affiliation')
       .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
@@ -233,7 +191,6 @@ export default function CenseurDashboard() {
       .order('created_at', { ascending: true });
     setDemandesAffiliationEnseignants(demandesEnseignants || []);
 
-    // Demande de départ déjà en cours pour ce censeur ?
     const { data: demandeDepartExistante } = await supabase
       .from('demandes_depart')
       .select('id')
@@ -253,45 +210,41 @@ export default function CenseurDashboard() {
       anneeOuverte: annee?.est_active ?? true,
     });
 
-    
+    const { data: affiliationsEnseignants } = await supabase
+      .from('affiliations_etablissement')
+      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+      .eq('etablissement_id', etablissementId)
+      .eq('role', 'ENSEIGNANT')
+      .eq('statut', 'ACTIVE');
 
-// 4. Enseignants affiliés (listeProfesseursEtablissement)
-const { data: affiliationsEnseignants } = await supabase
-  .from('affiliations_etablissement')
-  .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
-  .eq('etablissement_id', etablissementId)
-  .eq('role', 'ENSEIGNANT')
-  .eq('statut', 'ACTIVE');
+    const { data: matieresEnseignants } = await supabase
+      .from('matieres_enseignant')
+      .select('user_id, matiere_id, matieres(nom)')
+      .eq('etablissement_id', etablissementId);
 
-const { data: matieresEnseignants } = await supabase
-  .from('matieres_enseignant')
-  .select('user_id, matiere_id, matieres(nom)')
-  .eq('etablissement_id', etablissementId);
+    const { data: attributions } = await supabase
+      .from('attributions_classes')
+      .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
+      .eq('etablissement_id', etablissementId);
 
-const { data: attributions } = await supabase
-  .from('attributions_classes')
-  .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
-  .eq('etablissement_id', etablissementId);
-
-const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
-  const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
-  const matieresProfil = (matieresEnseignants || [])
-    .filter(m => m.user_id === a.user_id)
-    .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
-    .filter(m => m.nom);
-  return {
-    id: a.id,
-    userId: a.user_id,
-    nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
-    matiere: attrsDeCetEnseignant[0]?.matieres?.nom || matieresProfil.map(m => m.nom).join(', ') || 'Non définie',
-    matieresProfil,
-    classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
-    matricule: 'N/A',
-    contact: a.utilisateurs_profils?.telephone || 'Non défini',
-    email: 'N/A',
-  };
-});
-
+    const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
+      const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
+      const matieresProfil = (matieresEnseignants || [])
+        .filter(m => m.user_id === a.user_id)
+        .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
+        .filter(m => m.nom);
+      return {
+        id: a.id,
+        userId: a.user_id,
+        nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
+        matiere: attrsDeCetEnseignant[0]?.matieres?.nom || matieresProfil.map(m => m.nom).join(', ') || 'Non définie',
+        matieresProfil,
+        classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
+        matricule: 'N/A',
+        contact: a.utilisateurs_profils?.telephone || 'Non défini',
+        email: 'N/A',
+      };
+    });
 
     const nomsEnseignants = {};
     (affiliationsEnseignants || []).forEach(a => {
@@ -310,8 +263,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     setEnseignantsParClasse(groupeParClasse);
     setListeProfesseursEtablissementBrute(profsAvecClasses);
 
-    // 4bis. Classes de l'établissement (année active) + matières disponibles
-    // + demandes d'attribution soumises par les enseignants
     if (annee?.id) {
       const { data: classesData } = await supabase
         .from('classes')
@@ -341,7 +292,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     const { data: matieresData } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
     setMatieresDisponibles(matieresData || []);
 
-    // Documents d'établissement déjà stockés
     const { data: documentsData } = await supabase
       .from('documents_etablissement')
       .select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))')
@@ -354,7 +304,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       taille_octets: d.versions_document?.fichiers_metadonnees?.taille_octets,
     })));
 
-    // 5. Personnel administratif manuel (table personnel)
     const { data: personnel } = await supabase
       .from('personnel')
       .select('*')
@@ -364,7 +313,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
     })));
 
-    // 6. Demande de promotion en cours (demandes_changement_role)
     const { data: demande } = await supabase
       .from('demandes_changement_role')
       .select('*')
@@ -383,26 +331,21 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       });
     }
 
-    // 7. Séances en attente de visa (onglet Visa) — regroupées par classe pour coller au JSX existant
-    // [CORRECTIF] on récupère désormais "error" et on l'affiche s'il y en a une,
-    // au lieu de laisser la liste se vider silencieusement (ex. policy RLS).
-  const { data: seances, error: erreurSeances } = await supabase
-  .from('seances')
-  .select(`
-    id, date_prevue, statut, contenu_json,
-    statut_visa, envoyee_at, visee_at, observation_visa,
-    classes ( nom ),
-    lecons (
-      id, titre,
-      cycles (
-        id, titre, competence,
-        programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
-          utilisateurs_profils:proprietaire_user_id (nom, prenom) )
-      )
-    )
-  `)
-
-
+    const { data: seances, error: erreurSeances } = await supabase
+      .from('seances')
+      .select(`
+        id, date_prevue, statut, contenu_json,
+        statut_visa, envoyee_at, visee_at, observation_visa,
+        classes ( nom ),
+        lecons (
+          id, titre,
+          cycles (
+            id, titre, competence,
+            programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
+              utilisateurs_profils:proprietaire_user_id (nom, prenom) )
+          )
+        )
+      `)
       .in('statut', ['ENVOYEE', 'RECUE']);
 
     if (erreurSeances) {
@@ -450,7 +393,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     });
     setProgrammesClasses(groupe);
 
-    // 8. Archives pédagogiques (bibliotheque_etablissement)
     const { data: archive } = await supabase
       .from('bibliotheque_etablissement')
       .select('id, titre, created_at, contenu_snapshot_json, utilisateurs_profils:auteur_user_id (nom, prenom)')
@@ -472,12 +414,11 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
 
   useEffect(() => { chargerTout(); }, []);
 
-  // Enseignants affiliés — état brut séparé pour éviter un recalcul memo cassé pendant le chargement
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
   // =========================================================================
-  // LOGIQUE MÉTIER & ACTIONS — Supabase, mêmes noms qu'avant
+  // LOGIQUE MÉTIER & ACTIONS
   // =========================================================================
   const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();
@@ -492,7 +433,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast("✅ Profil mis à jour !");
   };
 
-  // Photo : reste locale pour l'instant, pas de colonne dédiée dans utilisateurs_profils
   const handleChangerPhotoProfil = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -529,8 +469,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast(`📨 Invitation envoyée !`);
   };
 
-  // --- Approuver / refuser une demande d'affiliation d'ENSEIGNANT reçue ---
-  // (rôle CENSEUR ou CHEF uniquement restent réservés au chef d'établissement)
   const approuverDemandeAffiliationEnseignant = async (demande) => {
     if (!affiliationCenseur) return;
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
@@ -565,7 +503,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast("❌ Demande refusée.");
   };
 
-  // --- Demande de départ du censeur — validée uniquement par le chef ---
   const soumettreDemandeDepartCenseur = async (e) => {
     e.preventDefault();
     if (!userId || !affiliationCenseur) return;
@@ -588,7 +525,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast("📤 Demande de départ transmise au chef d'établissement pour validation !");
   };
 
-  // --- Créer une classe pour l'année active ---
   const creerClasse = async (e) => {
     e.preventDefault();
     if (!nouvelleClasseNom.trim() || !affiliationCenseur || !anneeActiveId) {
@@ -615,14 +551,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast(`✅ Classe "${nouvelle.nom}" créée !`);
   };
 
-  // --- Créer toutes les classes d'un niveau en une fois ---
-  // Évite que chaque enseignant tape le nom d'une classe différemment
-  // (ex. "6ème A" vs "6e1" vs "sixième un") : le censeur fixe la convention
-  // une seule fois, tout le monde s'en sert ensuite.
-  // Deux modes : niveau simple (6ème, 5ème... : nombre de classes + style de
-  // numérotation) ou niveau avec séries (Seconde, Première, Terminale : les
-  // séries sont choisies parmi celles mémorisées pour l'établissement, avec
-  // un nombre de classes propre à chacune).
   const ALPHABET_CLASSES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
   const genererNomsLot = () => {
@@ -652,7 +580,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     return noms;
   };
 
-  // --- Gestion des séries mémorisées pour l'établissement ---
   const ajouterSerieEtablissement = async (e) => {
     e.preventDefault();
     if (!nouvelleSerieNom.trim() || !affiliationCenseur) return;
@@ -696,8 +623,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
 
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
-    // On relit la liste complète pour rester fiable (plutôt que de deviner
-    // ce qui a été réellement inséré vs ignoré comme doublon)
     const { data: classesRafraichies } = await supabase
       .from('classes')
       .select('id, nom, niveau')
@@ -711,8 +636,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
   };
 
-  // --- Générer plusieurs niveaux simples d'un coup (typiquement le premier
-  // cycle : 6ème, 5ème, 4ème, 3ème, chacun avec son propre nombre de classes) ---
   const ajouterLigneLotNiveaux = () => {
     setLotNiveauxMultiples(prev => [...prev, { niveau: '', nombre: '', style: 'alphabetique' }]);
   };
@@ -772,7 +695,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast(`✅ ${classesAGenerer.length} classe(s) créée(s) pour ${nombreNiveaux} niveau(x) !`);
   };
 
-  // --- Trouver ou créer une matière par son nom (catalogue global partagé) ---
   const trouverOuCreerMatiere = async (nomMatiere) => {
     const nom = nomMatiere.trim();
     if (!nom) return null;
@@ -780,7 +702,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     if (existante) return existante.id;
     const { data: nouvelle, error } = await supabase.from('matieres').insert({ nom }).select().single();
     if (error) {
-      // Conflit possible si créée entre-temps par quelqu'un d'autre — on la relit
       const { data: relue } = await supabase.from('matieres').select('id').eq('nom', nom).maybeSingle();
       if (relue) return relue.id;
       showToast("⚠️ Erreur matière : " + error.message);
@@ -790,10 +711,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     return nouvelle.id;
   };
 
-  // --- Attribution directe d'une classe à un enseignant, par matière ---
-  // --- Résout quelle matière utiliser pour une attribution : automatique si
-  // l'enseignant n'en a qu'une déclarée, à choisir s'il en a plusieurs,
-  // sinon secours en texte libre s'il n'en a aucune sur son profil ---
   const resoudreMatiereChoisie = (enseignant, matiereIdChoisie, matiereNomLibre) => {
     const matieresProfil = enseignant?.matieresProfil || [];
     if (matieresProfil.length === 1) return { nomMatiere: matieresProfil[0].nom, matiereIdDirect: matieresProfil[0].id };
@@ -835,7 +752,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     chargerTout();
   };
 
-  // --- Gestion des classes d'un enseignant, modifiable à tout moment ---
   const [modalGererClasses, setModalGererClasses] = useState({ ouvert: false, prof: null, attributions: [] });
   const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
 
@@ -893,10 +809,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     showToast("✅ Classe ajoutée !");
   };
 
-  // --- Traiter une proposition de classe soumise par un enseignant ---
-  // Si la proposition référence une classe qui n'existe pas encore
-  // (classe_id vide), on la crée maintenant avec le nom éventuellement
-  // corrigé par le censeur, puis on rattache la demande à cette classe.
   const approuverDemandeAttribution = async (demande) => {
     let classeId = demande.classe_id;
     const nomFinal = (demande.nomClasseEdite || demande.classe_nom_propose || '').trim();
@@ -904,7 +816,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     if (!classeId) {
       if (!nomFinal) { showToast("⚠️ Merci d'indiquer le nom de la classe avant d'accepter."); return; }
 
-      // Réutilise une classe existante du même nom si elle existe déjà (évite les doublons)
       const { data: classeExistante } = await supabase
         .from('classes')
         .select('id')
@@ -954,7 +865,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     });
   };
 
-  // --- Uploader un document d'établissement (réel : Storage + tables liées) ---
   const uploaderFichierAdministratifreel = async (e) => {
     e.preventDefault();
     if (!nomNouveauFichier.trim() || !fichierSelectionneObj || !affiliationCenseur?.etablissement_id || !userId) {
@@ -1053,10 +963,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       return;
     }
 
-    // Mutation externe : recherche de l'établissement cible par NOM (best-effort).
-    // ⚠️ Fragile si deux établissements portent le même nom — idéalement il
-    // faudrait demander le CODE établissement plutôt que le nom, comme pour
-    // "rejoindre un établissement" côté chef. À améliorer si ça pose problème.
     const { data: etablissementCible, error: erreurRecherche } = await supabase
       .from('etablissements')
       .select('id, nom')
@@ -1081,7 +987,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     setProfsSelectionnesRappel(prev => isChecked ? [...prev, nomProf] : prev.filter(n => n !== nomProf));
   };
 
-  // Rappels : pas encore de table dédiée dans le schéma (à ajouter si besoin réel) — reste un toast local
   const envoyerRappelMultipleManuel = () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
     showToast(`✉️ Rappel manuel envoyé avec succès à : ${profsSelectionnesRappel.join(', ')}.`);
@@ -1127,7 +1032,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     const prog = programmesClasses[classeKey];
     if (!prog || !affiliationCenseur) return;
 
-    // 1. Marquer la séance comme visée
     const { error: erreurVisa } = await supabase
       .from('seances')
       .update({ statut: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
@@ -1135,14 +1039,13 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
 
     if (erreurVisa) { showToast("⚠️ Erreur de visa : " + erreurVisa.message); return; }
 
-    // 2. Archiver dans la bibliothèque institutionnelle (double mémoire, §17)
     const { error: erreurArchive } = await supabase
       .from('bibliotheque_etablissement')
       .insert({
         etablissement_id: affiliationCenseur.etablissement_id,
         annee_scolaire_id: anneeActiveId,
         seance_origine_id: seanceAViser.id,
-        auteur_user_id: userId, // ⚠️ idéalement l'auteur réel de la séance, pas le censeur — à corriger si programmes_annuels expose proprietaire_user_id ici
+        auteur_user_id: userId,
         titre: seanceAViser.titre,
         contenu_snapshot_json: { matiere: prog.matiere, classe: classeKey, ...seanceAViser },
       });
@@ -1150,10 +1053,9 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
     if (erreurArchive) { showToast("⚠️ Visa enregistré, mais erreur d'archivage : " + erreurArchive.message); }
 
     showToast(`✅ Séance visée et archivée !`);
-    chargerTout(); // recharge visa + archives pour refléter le nouvel état
+    chargerTout();
   };
 
-  // --- Viser / retourner une fiche de leçon (distincte des séances qu'elle contient) ---
   const viserLecon = async (leconId) => {
     const { error } = await supabase
       .from('lecons')
@@ -1194,10 +1096,9 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
   };
 
   // =========================================================================
-  // VARIABLES DÉRIVÉES (inchangées, purement calculées côté client)
+  // VARIABLES DÉRIVÉES
   // =========================================================================
   const nombreClassesAutomatique = useMemo(() => Object.keys(programmesClasses || {}).length || 0, [programmesClasses]);
-
   const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
   const fichesFiltrees = useMemo(() => {
@@ -1260,7 +1161,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           
-          {/* SECTION PROFIL ÉPURÉE */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilCenseurRef}>
             <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
@@ -1301,13 +1201,11 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
             )}
           </div>
 
-          {/* LOGO CENTRAL (E-cahier ! 📖) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
             <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
-          {/* NOTIFICATIONS & MENU BURGER (S'OUVRENT DANS LE BON SENS) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ position: 'relative' }} ref={notifCenseurRef}>
               <button onClick={() => setNotifCenseurOuvert(!notifCenseurOuvert)} style={styles.navDarkBtn}>
@@ -1355,7 +1253,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
         </div>
       </header>
 
-      {/* --- STYLE UNIVERSEL DES BOUTONS HARMONIEUX ET MODERNES --- */}
       <style>{`
         .bouton {
           padding: 8px 16px;
@@ -1414,7 +1311,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
-        {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
         {modalGererClasses.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '460px' }}>
@@ -1516,7 +1412,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Voulez-vous vraiment vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={() => { setModalDeconnexion(false); localStorage.removeItem('app_censeur_statut'); window.location.reload(); }} className="bouton bouton-danger">Oui</button>
+                <button onClick={async () => { setModalDeconnexion(false); await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-danger">Oui</button>
               </div>
             </div>
           </div>
@@ -1653,9 +1549,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 1 : VISA & FILE D'ATTENTE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'visa' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -1751,9 +1645,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 2 : ARCHIVES PÉDAGOGIQUES */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -1790,9 +1682,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 3 : ANNUAIRE & PERSONNEL */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -1895,9 +1785,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET : CLASSES & ATTRIBUTIONS */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'classes' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
@@ -1912,7 +1800,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
               <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e3a8a', marginBottom: '12px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNouveauLotAvecSeries(e.target.checked)} />
+                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNewLotAvecSeries(e.target.checked)} />
                 Ce niveau a des séries (ex. Seconde, Première, Terminale : A, C, D...)
               </label>
 
@@ -2196,9 +2084,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET : DOCUMENTS D'ÉTABLISSEMENT */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'documents' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📤 Documents d'Établissement</h2>
@@ -2237,9 +2123,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 4 : SUIVI & RAPPELS MANUELS MULTIPLES */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'suivi' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -2292,9 +2176,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 5 : PROFIL ÉCOLE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -2307,9 +2189,9 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
               <div><label style={styles.label}>Code Établissement</label><p style={{...styles.pInfo, color: '#2563eb'}}>{ecoleConfigGlobale.codeEtablissement}</p></div>
               <div><label style={styles.label}>Type d'Établissement</label><p style={styles.pInfo}>{ecoleConfigGlobale.typeEtablissement}</p></div>
               <div><label style={styles.label}>Situation Géographique</label><p style={styles.pInfo}>{ecoleConfigGlobale.situationGeo}</p></div>
-             <div><label style={styles.label}>Effectif Classes</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
-<div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{listeProfesseursEtablissement.length} enseignant(s)</p></div>
-</div>
+              <div><label style={styles.label}>Effectif Classes</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
+              <div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{listeProfesseursEtablissement.length} enseignant(s)</p></div>
+            </div>
 
             <div style={{ backgroundColor: '#fef2f2', padding: '20px', borderRadius: '16px', border: '1px solid #fecaca' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#991b1b', marginBottom: '8px' }}>🚪 Quitter cet établissement</h3>
@@ -2331,9 +2213,7 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 6 : ÉVOLUTION DE CARRIÈRE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'evolution' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -2384,9 +2264,6 @@ const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
   );
 }
 
-// =========================================================================
-// 8. STYLES SÉCURISÉS ET HARMONISÉS
-// =========================================================================
 const styles = {
   container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },

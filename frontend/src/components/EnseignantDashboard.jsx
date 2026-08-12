@@ -127,9 +127,10 @@ export default function EnseignantDashboard() {
 
   // --- PROFIL (Supabase) ---
   const [infosEnseignant, setInfosEnseignant] = useState({
-    civilite: 'M.', nom: '', prenoms: '', ville: '', matiere: '', photoProfil: '',
+    civilite: 'M.', nom: '', prenoms: '', ville: '', matiere: '', matiereIds: [], photoProfil: '',
     etablissementSaisi: '', classesSelectionneesEnCours: [], emailSecurite: '', telephone: ''
   });
+  const [matieresCatalogue, setMatieresCatalogue] = useState([]);
 
   const [modalProfilOuvert, setModalProfilOuvert] = useState(false);
   const [formProfil, setFormProfil] = useState({ ...infosEnseignant });
@@ -291,6 +292,14 @@ export default function EnseignantDashboard() {
     const { data: profil } = await supabase
       .from('utilisateurs_profils').select('*').eq('user_id', user.id).single();
 
+    const { data: catalogueMatieres } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
+    setMatieresCatalogue(catalogueMatieres || []);
+
+    const { data: mesMatieres } = await supabase
+      .from('matieres_enseignant').select('matiere_id, matieres(nom)').eq('user_id', user.id);
+    const matiereIdsActuels = (mesMatieres || []).map(m => m.matiere_id);
+    const nomsMatieresActuelles = (mesMatieres || []).map(m => m.matieres?.nom).filter(Boolean);
+
     const { data: affiliationsData } = await supabase
       .from('affiliations_etablissement')
       .select('id, statut, etablissement_id, etablissements(nom)')
@@ -333,8 +342,9 @@ export default function EnseignantDashboard() {
       setInfosEnseignant(prev => ({
         ...prev, nom: profil.nom, prenoms: profil.prenom,
         emailSecurite: user.email, etablissementSaisi: premiereEcole, telephone: profil.telephone || '',
+        matiere: nomsMatieresActuelles.join(', '), matiereIds: matiereIdsActuels,
       }));
-      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '' }));
+      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '', matiereIds: matiereIdsActuels }));
     }
 
     // Séances de l'enseignant (tous statuts), regroupées par classe pour coller au JSX
@@ -468,7 +478,21 @@ export default function EnseignantDashboard() {
     const { error } = await supabase
       .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms, telephone: formProfil.telephone || null }).eq('user_id', userId);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-    setInfosEnseignant({ ...formProfil });
+
+    // Synchronise les matières déclarées : on remplace l'ensemble par la
+    // sélection actuelle (simple et sûr — un enseignant en a rarement plus
+    // de 2 ou 3, pas besoin d'un diff plus fin)
+    const { error: erreurSuppression } = await supabase.from('matieres_enseignant').delete().eq('user_id', userId);
+    if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); return; }
+    if (formProfil.matiereIds.length > 0) {
+      const { error: erreurInsertion } = await supabase
+        .from('matieres_enseignant')
+        .insert(formProfil.matiereIds.map(matiere_id => ({ user_id: userId, matiere_id })));
+      if (erreurInsertion) { showToast("⚠️ Erreur matières : " + erreurInsertion.message); return; }
+    }
+
+    const nomsChoisis = matieresCatalogue.filter(m => formProfil.matiereIds.includes(m.id)).map(m => m.nom);
+    setInfosEnseignant({ ...formProfil, matiere: nomsChoisis.join(', ') });
     setModalProfilOuvert(false);
     showToast("✅ Profil mis à jour avec succès !");
   };
@@ -1731,8 +1755,30 @@ export default function EnseignantDashboard() {
                 </div>
 
                 <div>
-                  <label style={styles.label}>Matière enseignée</label>
-                  <input type="text" value={formProfil.matiere} onChange={(e) => setFormProfil({...formProfil, matiere: e.target.value})} style={styles.inputStyle} required />
+                  <label style={styles.label}>Matière(s) enseignée(s)</label>
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si vous enseignez plus d'une matière.</p>
+                  {matieresCatalogue.length === 0 ? (
+                    <p style={{ fontSize: '11px', color: '#991b1b' }}>Aucune matière au catalogue pour l'instant — demandez à votre censeur d'en créer une.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {matieresCatalogue.map(m => {
+                        const estCochee = formProfil.matiereIds.includes(m.id);
+                        return (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                            <input
+                              type="checkbox"
+                              checked={estCochee}
+                              onChange={() => {
+                                const updated = estCochee ? formProfil.matiereIds.filter(id => id !== m.id) : [...formProfil.matiereIds, m.id];
+                                setFormProfil({ ...formProfil, matiereIds: updated });
+                              }}
+                            />
+                            {m.nom}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div>

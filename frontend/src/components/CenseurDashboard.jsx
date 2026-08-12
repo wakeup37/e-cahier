@@ -90,10 +90,12 @@ export default function CenseurDashboard() {
   const [nouveauLotAvecSeries, setNouveauLotAvecSeries] = useState(false);
   const [nouveauLotNombre, setNouveauLotNombre] = useState('');
   const [nouveauLotStyle, setNouveauLotStyle] = useState('alphabetique');
-  const [nouveauLotSeries, setNouveauLotSeries] = useState('');
+  const [seriesEtablissement, setSeriesEtablissement] = useState([]);
+  const [nouvelleSerieNom, setNouvelleSerieNom] = useState('');
+  const [lotSeriesChoisies, setLotSeriesChoisies] = useState({});
   const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
-  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classeId: '', matiereNom: '' });
+  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
   const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
   const [nomNouveauFichier, setNomNouveauFichier] = useState('');
   const [categorieNouveauFichier, setCategorieNouveauFichier] = useState('Administratif');
@@ -228,7 +230,7 @@ export default function CenseurDashboard() {
     // 4. Enseignants affiliés (listeProfesseursEtablissement)
     const { data: affiliationsEnseignants } = await supabase
       .from('affiliations_etablissement')
-      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone, matieres_enseignant(matiere_id, matieres(nom)))')
       .eq('etablissement_id', etablissementId)
       .eq('role', 'ENSEIGNANT')
       .eq('statut', 'ACTIVE');
@@ -240,11 +242,15 @@ export default function CenseurDashboard() {
 
     const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
+      const matieresProfil = (a.utilisateurs_profils?.matieres_enseignant || [])
+        .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
+        .filter(m => m.nom);
       return {
         id: a.id,
         userId: a.user_id,
         nomComplet: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
-        matiere: attrsDeCetEnseignant[0]?.matieres?.nom || 'Non définie',
+        matiere: attrsDeCetEnseignant[0]?.matieres?.nom || matieresProfil.map(m => m.nom).join(', ') || 'Non définie',
+        matieresProfil,
         classes: attrsDeCetEnseignant.map(at => at.classes?.nom).filter(Boolean),
         matricule: 'N/A',
         contact: a.utilisateurs_profils?.telephone || 'Non défini',
@@ -264,6 +270,13 @@ export default function CenseurDashboard() {
         .is('deleted_at', null)
         .order('nom', { ascending: true });
       setClassesEtablissement(classesData || []);
+
+      const { data: seriesData } = await supabase
+        .from('series_etablissement')
+        .select('id, nom')
+        .eq('etablissement_id', etablissementId)
+        .order('nom', { ascending: true });
+      setSeriesEtablissement(seriesData || []);
 
       const { data: demandesAttrib } = await supabase
         .from('demandes_attributions_classes')
@@ -542,8 +555,9 @@ export default function CenseurDashboard() {
   // (ex. "6ème A" vs "6e1" vs "sixième un") : le censeur fixe la convention
   // une seule fois, tout le monde s'en sert ensuite.
   // Deux modes : niveau simple (6ème, 5ème... : nombre de classes + style de
-  // numérotation) ou niveau avec séries (Seconde, Première, Terminale : nom
-  // de série libre + nombre de classes par série, ex. "A:3, C:2, D:1").
+  // numérotation) ou niveau avec séries (Seconde, Première, Terminale : les
+  // séries sont choisies parmi celles mémorisées pour l'établissement, avec
+  // un nombre de classes propre à chacune).
   const ALPHABET_CLASSES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
   const genererNomsLot = () => {
@@ -560,18 +574,42 @@ export default function CenseurDashboard() {
     }
 
     const noms = [];
-    nouveauLotSeries.split(',').forEach(entree => {
-      const [serieBrut, nombreBrut] = entree.split(':');
-      const serie = (serieBrut || '').trim();
-      if (!serie) return;
-      const nombre = parseInt((nombreBrut || '1').trim(), 10) || 1;
+    seriesEtablissement.forEach(serie => {
+      const nombreBrut = lotSeriesChoisies[serie.id];
+      if (nombreBrut === undefined || nombreBrut === '') return;
+      const nombre = parseInt(nombreBrut, 10) || 1;
       if (nombre <= 1) {
-        noms.push(`${niveau}${nouveauLotSeparateur}${serie}`);
+        noms.push(`${niveau}${nouveauLotSeparateur}${serie.nom}`);
       } else {
-        for (let i = 1; i <= nombre; i++) noms.push(`${niveau}${nouveauLotSeparateur}${serie}${i}`);
+        for (let i = 1; i <= nombre; i++) noms.push(`${niveau}${nouveauLotSeparateur}${serie.nom}${i}`);
       }
     });
     return noms;
+  };
+
+  // --- Gestion des séries mémorisées pour l'établissement ---
+  const ajouterSerieEtablissement = async (e) => {
+    e.preventDefault();
+    if (!nouvelleSerieNom.trim() || !affiliationCenseur) return;
+    const { data, error } = await supabase
+      .from('series_etablissement')
+      .insert({ etablissement_id: affiliationCenseur.etablissement_id, nom: nouvelleSerieNom.trim() })
+      .select().single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette série existe déjà.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    setSeriesEtablissement(prev => [...prev, data].sort((a, b) => a.nom.localeCompare(b.nom)));
+    setNouvelleSerieNom('');
+    showToast(`✅ Série "${data.nom}" mémorisée pour l'établissement !`);
+  };
+
+  const retirerSerieEtablissement = async (serieId) => {
+    const { error } = await supabase.from('series_etablissement').delete().eq('id', serieId);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setSeriesEtablissement(prev => prev.filter(s => s.id !== serieId));
+    setLotSeriesChoisies(prev => { const copie = { ...prev }; delete copie[serieId]; return copie; });
   };
 
   const creerClassesEnLot = async (e) => {
@@ -604,7 +642,7 @@ export default function CenseurDashboard() {
       .order('nom', { ascending: true });
     setClassesEtablissement(classesRafraichies || []);
 
-    setNouveauLotNiveau(''); setNouveauLotNombre(''); setNouveauLotSeries('');
+    setNouveauLotNiveau(''); setNouveauLotNombre(''); setLotSeriesChoisies({});
     showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
   };
 
@@ -688,35 +726,53 @@ export default function CenseurDashboard() {
   };
 
   // --- Attribution directe d'une classe à un enseignant, par matière ---
+  // --- Résout quelle matière utiliser pour une attribution : automatique si
+  // l'enseignant n'en a qu'une déclarée, à choisir s'il en a plusieurs,
+  // sinon secours en texte libre s'il n'en a aucune sur son profil ---
+  const resoudreMatiereChoisie = (enseignant, matiereIdChoisie, matiereNomLibre) => {
+    const matieresProfil = enseignant?.matieresProfil || [];
+    if (matieresProfil.length === 1) return { nomMatiere: matieresProfil[0].nom, matiereIdDirect: matieresProfil[0].id };
+    if (matieresProfil.length > 1) {
+      const choisie = matieresProfil.find(m => m.id === matiereIdChoisie);
+      return { nomMatiere: choisie?.nom || '', matiereIdDirect: choisie?.id || null };
+    }
+    return { nomMatiere: matiereNomLibre, matiereIdDirect: null };
+  };
+
   const attribuerClasseDirectement = async (e) => {
     e.preventDefault();
-    if (!formAttribution.enseignantId || !formAttribution.classeId || !formAttribution.matiereNom.trim() || !affiliationCenseur || !anneeActiveId) {
-      showToast("⚠️ Merci de remplir l'enseignant, la classe et la matière.");
+    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
+    const { nomMatiere, matiereIdDirect } = resoudreMatiereChoisie(enseignantChoisi, formAttribution.matiereIdChoisie, formAttribution.matiereNom);
+
+    if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !nomMatiere.trim() || !affiliationCenseur || !anneeActiveId) {
+      showToast("⚠️ Merci de choisir l'enseignant, au moins une classe, et une matière.");
       return;
     }
-    const matiereId = await trouverOuCreerMatiere(formAttribution.matiereNom);
+    const matiereId = matiereIdDirect || await trouverOuCreerMatiere(nomMatiere);
     if (!matiereId) return;
 
-    const { error } = await supabase.from('attributions_classes').insert({
+    const lignes = formAttribution.classesIds.map(classeId => ({
       enseignant_id: formAttribution.enseignantId,
-      classe_id: formAttribution.classeId,
+      classe_id: classeId,
       etablissement_id: affiliationCenseur.etablissement_id,
       annee_scolaire_id: anneeActiveId,
       matiere_id: matiereId,
-    });
+    }));
+
+    const { error } = await supabase.from('attributions_classes').insert(lignes);
     if (error) {
-      if (error.code === '23505') showToast("⚠️ Cette attribution existe déjà.");
+      if (error.code === '23505') showToast("⚠️ Une ou plusieurs de ces attributions existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
-    showToast("✅ Classe attribuée !");
-    setFormAttribution({ enseignantId: '', classeId: '', matiereNom: '' });
+    showToast(`✅ ${lignes.length} classe(s) attribuée(s) !`);
+    setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
     chargerTout();
   };
 
   // --- Gestion des classes d'un enseignant, modifiable à tout moment ---
   const [modalGererClasses, setModalGererClasses] = useState({ ouvert: false, prof: null, attributions: [] });
-  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '' });
+  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
 
   const ouvrirGestionClasses = async (prof) => {
     const { data } = await supabase
@@ -745,11 +801,12 @@ export default function CenseurDashboard() {
 
   const ajouterAttributionEnseignant = async (e) => {
     e.preventDefault();
-    if (!formAjoutAttribution.classeId || !formAjoutAttribution.matiereNom.trim() || !modalGererClasses.prof) {
+    const { nomMatiere, matiereIdDirect } = resoudreMatiereChoisie(modalGererClasses.prof, formAjoutAttribution.matiereIdChoisie, formAjoutAttribution.matiereNom);
+    if (!formAjoutAttribution.classeId || !nomMatiere.trim() || !modalGererClasses.prof) {
       showToast("⚠️ Merci de choisir une classe et une matière.");
       return;
     }
-    const matiereId = await trouverOuCreerMatiere(formAjoutAttribution.matiereNom);
+    const matiereId = matiereIdDirect || await trouverOuCreerMatiere(nomMatiere);
     if (!matiereId) return;
 
     const { data: nouvelle, error } = await supabase.from('attributions_classes').insert({
@@ -766,7 +823,7 @@ export default function CenseurDashboard() {
       return;
     }
     setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, nouvelle] }));
-    setFormAjoutAttribution({ classeId: '', matiereNom: '' });
+    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
     chargerTout();
     showToast("✅ Classe ajoutée !");
   };
@@ -1292,7 +1349,27 @@ export default function CenseurDashboard() {
                   <option value="">— Classe —</option>
                   {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                 </select>
-                <input type="text" list="liste-matieres-censeur" placeholder="Matière" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                {(() => {
+                  const matieresProf = modalGererClasses.prof?.matieresProfil || [];
+                  if (matieresProf.length === 1) {
+                    return (
+                      <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
+                        📚 {matieresProf[0].nom}
+                      </div>
+                    );
+                  }
+                  if (matieresProf.length > 1) {
+                    return (
+                      <select value={formAjoutAttribution.matiereIdChoisie} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required>
+                        <option value="">— Quelle matière ? —</option>
+                        {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                      </select>
+                    );
+                  }
+                  return (
+                    <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée)" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                  );
+                })()}
                 <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
               </form>
             </div>
@@ -1755,10 +1832,50 @@ export default function CenseurDashboard() {
                     </div>
                   </>
                 ) : (
-                  <div style={{ flex: '2 1 260px' }}>
-                    <label style={{ ...styles.label, fontSize: '10px' }}>Séries et nombre de classes (ex. A:3, C:2, D:1)</label>
-                    <input type="text" placeholder="ex. A:3, C:2, D:1" value={nouveauLotSeries} onChange={(e) => setNouveauLotSeries(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
-                    <p style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>Les noms de séries sont libres — utilisez ceux de votre établissement (A, C, D... ou autre chose).</p>
+                  <div style={{ flex: '1 1 100%' }}>
+                    <label style={{ ...styles.label, fontSize: '10px' }}>Séries de l'établissement</label>
+
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                      <input type="text" placeholder="Nouvelle série (ex. G2, F4, A...)" value={nouvelleSerieNom} onChange={(e) => setNouvelleSerieNom(e.target.value)} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} disabled={!anneeActiveId} />
+                      <button type="button" onClick={ajouterSerieEtablissement} className="bouton bouton-secondaire" style={{ flexShrink: 0, fontSize: '12px' }} disabled={!anneeActiveId}>+ Mémoriser</button>
+                    </div>
+
+                    {seriesEtablissement.length === 0 ? (
+                      <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic' }}>Aucune série mémorisée pour l'instant — ajoutez-en une ci-dessus (elle restera disponible pour toujours, sur tous les niveaux).</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {seriesEtablissement.map(serie => {
+                          const estCochee = lotSeriesChoisies[serie.id] !== undefined;
+                          return (
+                            <div key={serie.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', flexWrap: 'wrap' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', flex: '1 1 100px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={estCochee}
+                                  onChange={() => setLotSeriesChoisies(prev => {
+                                    const copie = { ...prev };
+                                    if (estCochee) delete copie[serie.id]; else copie[serie.id] = '1';
+                                    return copie;
+                                  })}
+                                  disabled={!anneeActiveId}
+                                />
+                                {serie.nom}
+                              </label>
+                              {estCochee && (
+                                <input
+                                  type="number" min="1" max="26" placeholder="Nombre"
+                                  value={lotSeriesChoisies[serie.id]}
+                                  onChange={(e) => setLotSeriesChoisies(prev => ({ ...prev, [serie.id]: e.target.value }))}
+                                  style={{ ...styles.inputStyle, flex: '1 1 90px', margin: 0 }}
+                                  disabled={!anneeActiveId}
+                                />
+                              )}
+                              <button type="button" onClick={() => retirerSerieEtablissement(serie.id)} className="bouton bouton-danger" style={{ fontSize: '10px', padding: '4px 8px', flexShrink: 0 }}>Oublier cette série</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1838,21 +1955,66 @@ export default function CenseurDashboard() {
             </div>
 
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '12px' }}>🎯 Attribuer une classe à un enseignant</h3>
-              <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
-                  <option value="">— Choisir un enseignant —</option>
-                  {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
-                </select>
-                <select value={formAttribution.classeId} onChange={(e) => setFormAttribution({ ...formAttribution, classeId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId}>
-                  <option value="">— Choisir une classe —</option>
-                  {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                </select>
-                <input type="text" list="liste-matieres-censeur" placeholder="Matière" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
-                <datalist id="liste-matieres-censeur">
-                  {matieresDisponibles.map(m => <option key={m.id} value={m.nom} />)}
-                </datalist>
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>🎯 Attribuer une ou plusieurs classes à un enseignant</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>La matière s'affiche automatiquement depuis le profil de l'enseignant — s'il ne l'a pas encore renseignée, elle reste modifiable ici en dépannage.</p>
+              <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
+                    <option value="">— Choisir un enseignant —</option>
+                    {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                  </select>
+                  {(() => {
+                    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
+                    const matieresProf = enseignantChoisi?.matieresProfil || [];
+                    if (matieresProf.length === 1) {
+                      return (
+                        <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
+                          📚 {matieresProf[0].nom}
+                        </div>
+                      );
+                    }
+                    if (matieresProf.length > 1) {
+                      return (
+                        <select value={formAttribution.matiereIdChoisie} onChange={(e) => setFormAttribution({ ...formAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
+                          <option value="">— Quelle matière ? —</option>
+                          {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                        </select>
+                      );
+                    }
+                    return (
+                      <>
+                        <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId} />
+                        <datalist id="liste-matieres-censeur">
+                          {matieresDisponibles.map(m => <option key={m.id} value={m.nom} />)}
+                        </datalist>
+                      </>
+                    );
+                  })()}
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
+                </div>
+
+                <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px', maxHeight: '160px', overflowY: 'auto' }}>
+                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>Classes (plusieurs possibles)</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {classesEtablissement.map(c => {
+                      const estCoche = formAttribution.classesIds.includes(c.id);
+                      return (
+                        <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                          <input
+                            type="checkbox"
+                            checked={estCoche}
+                            onChange={() => {
+                              const updated = estCoche ? formAttribution.classesIds.filter(id => id !== c.id) : [...formAttribution.classesIds, c.id];
+                              setFormAttribution({ ...formAttribution, classesIds: updated });
+                            }}
+                            disabled={!anneeActiveId}
+                          />
+                          {c.nom}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </form>
             </div>
 

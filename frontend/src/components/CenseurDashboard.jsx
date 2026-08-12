@@ -235,13 +235,7 @@ export default function CenseurDashboard() {
       anneeOuverte: annee?.est_active ?? true,
     });
 
-    // 4. Enseignants affiliés (listeProfesseursEtablissement)
-    const { data: affiliationsEnseignants } = await supabase
-  .from('affiliations_etablissement')
-  .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
-  .eq('etablissement_id', etablissementId)
-  .eq('role', 'ENSEIGNANT')
-  .eq('statut', 'ACTIVE');
+    
 
 // 4. Enseignants affiliés (listeProfesseursEtablissement)
 const { data: affiliationsEnseignants } = await supabase

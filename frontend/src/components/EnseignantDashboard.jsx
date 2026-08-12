@@ -259,9 +259,9 @@ export default function EnseignantDashboard() {
     titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }],
     titreCycle: '', competenceCycle: '',
     dateDebutCycle: new Date().toISOString().split('T')[0], dateFinCycle: new Date().toISOString().split('T')[0], nombreLeconsPrevu: '',
-    titreLecon: '', nombreSeancesLecon: '3', titreSeance: '',
+    titreLecon: '', nombreSeancesLecon: '3', habiletesLecon: '', contenusLecon: '', titreSeance: '',
     dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
-    valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}
+    valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, habiletesLeconReference: '', contenusLeconReference: ''
   });
 
   const [modalEdition, setModalEdition] = useState({ ouvert: false, type: null, cycleId: null, leconId: null, seanceId: null, donnees: {} });
@@ -714,7 +714,7 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
-    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
+    const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon, habiletesLecon, contenusLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
     // --- Branche NON câblée sur Supabase (reste locale, voir note en tête de fichier) ---
@@ -739,9 +739,9 @@ export default function EnseignantDashboard() {
     }
 
     // --- Branche CYCLE : vraie création Supabase, sûre multi-établissements ---
-    // Chaque classe cochée garde SON PROPRE cycle en base (dans son propre
-    // programme_annuel) — les classes d'un même établissement partagent le
-    // même cycle réel, celles d'un autre établissement en ont un distinct.
+    // Chaque classe cochée reçoit désormais SON PROPRE cycle en base, avec sa
+    // propre période — même au sein d'un même établissement, deux classes
+    // n'ont pas forcément cours les mêmes jours, la période peut varier.
     if (niveauCible === 'cycle') {
       const ciblesCycle = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
         ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
@@ -750,37 +750,38 @@ export default function EnseignantDashboard() {
         return;
       }
 
-      const cycleParProgramme = {};
-      const resolutions = [];
+      const etablissementsConcernes = new Set();
+      let compteurCrees = 0;
+
       for (const classeCible of ciblesCycle) {
         const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
         const programmeAnnuelId = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
         if (!programmeAnnuelId) continue;
+        etablissementsConcernes.add(etablissementId || 'SANS_AFFILIATION');
 
-        if (!cycleParProgramme[programmeAnnuelId]) {
-          const { data, error } = await supabase
-            .from('cycles').insert({
-              programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS',
-              competence: competenceCycle || null, date_debut: dateDebutCycle || null, date_fin: dateFinCycle || null,
-              nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
-            }).select().single();
-          if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
-          cycleParProgramme[programmeAnnuelId] = data;
-        }
-        resolutions.push({ classeCible, cycle: cycleParProgramme[programmeAnnuelId] });
-      }
+        const periode = (modalAssistant.periodesParClasseCycle && modalAssistant.periodesParClasseCycle[classeCible]) || {};
 
-      resolutions.forEach(({ classeCible, cycle }) => {
+        const { data: nouveauCycle, error } = await supabase
+          .from('cycles').insert({
+            programme_annuel_id: programmeAnnuelId, titre: titreCycle || 'Nouveau Cycle', statut: 'EN_COURS',
+            competence: competenceCycle || null,
+            date_debut: periode.debut || dateDebutCycle || null,
+            date_fin: periode.fin || dateFinCycle || null,
+            nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
+          }).select().single();
+        if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+
+        compteurCrees++;
         if (!programmesClasses[classeCible]) initialiserProgrammeClasse(classeCible);
         setProgrammesClasses(prev => {
           const progCible = prev[classeCible] || { anneeScolaire: '', cycles: [] };
-          const cycleLocal = { id: cycle.id, titre: cycle.titre, competence: cycle.competence || '', dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '', nombreLeconsPrevu: cycle.nombre_lecons_prevu || null, statut: 'En cours', soumisAuCenseur: false, lecons: [] };
+          const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: nouveauCycle.date_debut || '', dateFin: nouveauCycle.date_fin || '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, statut: 'En cours', soumisAuCenseur: false, lecons: [] };
           return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
         });
-      });
+      }
 
-      const nbEtablissements = Object.keys(cycleParProgramme).length;
-      showToast(`✨ Cycle créé pour ${resolutions.length} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
+      const nbEtablissements = etablissementsConcernes.size;
+      showToast(`✨ Cycle créé pour ${compteurCrees} classe(s) (${nbEtablissements} établissement${nbEtablissements > 1 ? 's' : ''} concerné${nbEtablissements > 1 ? 's' : ''}) !`);
     }
 
     // --- Branche LEÇON : vraie création Supabase, multi-classes ---
@@ -805,14 +806,21 @@ export default function EnseignantDashboard() {
         }
 
         const { data: nouvelleLecon, error } = await supabase
-          .from('lecons').insert({ cycle_id: cycleCorrespondant.id, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS' }).select().single();
+          .from('lecons').insert({
+            cycle_id: cycleCorrespondant.id, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS',
+            habiletes: habiletesLecon || null, contenus: contenusLecon || null,
+          }).select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
 
         compteurCreees++;
         setProgrammesClasses(prev => {
           const progClasse = prev[classeCible];
           const cyclesMaj = (progClasse?.cycles || []).map(c => c.id !== cycleCorrespondant.id ? c : {
-            ...c, lecons: [...(c.lecons || []), { id: nouvelleLecon.id, titre: nouvelleLecon.titre, nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3, statut: 'En cours', soumisAuCenseur: false, seances: [] }]
+            ...c, lecons: [...(c.lecons || []), {
+              id: nouvelleLecon.id, titre: nouvelleLecon.titre, nombreSeancesPrevues: parseInt(nombreSeancesLecon) || 3,
+              habiletes: nouvelleLecon.habiletes || '', contenus: nouvelleLecon.contenus || '',
+              statut: 'En cours', soumisAuCenseur: false, seances: [],
+            }]
           });
           return { ...prev, [classeCible]: { ...progClasse, cycles: cyclesMaj } };
         });
@@ -877,9 +885,9 @@ export default function EnseignantDashboard() {
     setModalAssistant({
       ouvert: false, niveauCible: 'programme', cycleIdCible: null, leconIdCible: null,
       titreCycle: '', competenceCycle: '', dateDebutCycle: '', dateFinCycle: '', nombreLeconsPrevu: '',
-      titreLecon: '', nombreSeancesLecon: '3', titreSeance: '',
+      titreLecon: '', nombreSeancesLecon: '3', habiletesLecon: '', contenusLecon: '', titreSeance: '',
       dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
-      valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {},
+      valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, habiletesLeconReference: '', contenusLeconReference: '',
       titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }]
     });
   };
@@ -2001,6 +2009,25 @@ export default function EnseignantDashboard() {
 
                       <div>
                         <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', display: 'block', marginBottom: '4px' }}>CONTENU</label>
+                        {modalAssistant.niveauCible === 'seance' && (champ.id === 'habilites' || champ.id === 'contenus') && (modalAssistant.habiletesLeconReference || modalAssistant.contenusLeconReference) && (
+                          (() => {
+                            const reference = champ.id === 'habilites' ? modalAssistant.habiletesLeconReference : modalAssistant.contenusLeconReference;
+                            if (!reference) return null;
+                            return (
+                              <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '8px 10px', marginBottom: '8px' }}>
+                                <p style={{ fontSize: '10px', color: '#1e3a8a', fontWeight: '800', margin: '0 0 4px 0' }}>📋 Proposé par la leçon (facultatif, à adapter ou ignorer) :</p>
+                                <p style={{ fontSize: '11px', color: '#334155', margin: '0 0 6px 0', whiteSpace: 'pre-wrap' }}>{reference}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => setModalAssistant(prev => ({ ...prev, valeursChamps: { ...(prev.valeursChamps || {}), [champ.id]: reference } }))}
+                                  style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                >
+                                  ↳ Reprendre ce texte pour cette séance
+                                </button>
+                              </div>
+                            );
+                          })()
+                        )}
                         <textarea 
                           onClick={() => {
                             setChampEnEditionPleinEcran({
@@ -2011,6 +2038,7 @@ export default function EnseignantDashboard() {
                           }}
                           readOnly
                           value={(modalAssistant.valeursChamps && modalAssistant.valeursChamps[champ.id]) || ''}
+                          placeholder="Propre à cette séance — cliquez pour écrire, ou reprenez la proposition ci-dessus"
                           style={{ ...styles.inputStyle, height: '65px', resize: 'none', backgroundColor: '#fdfdfd', fontSize: '12px', cursor: 'pointer', color: '#334155' }} 
                         />
                       </div>
@@ -2076,38 +2104,51 @@ export default function EnseignantDashboard() {
                       <input type="text" value={modalAssistant.competenceCycle} onChange={(e) => setModalAssistant({...modalAssistant, competenceCycle: e.target.value})} style={styles.inputStyle} />
                       <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Apparaîtra sur toutes les fiches (leçons et séances) de ce cycle.</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={styles.label}>Début</label>
-                        <input type="date" value={modalAssistant.dateDebutCycle || ''} onChange={(e) => setModalAssistant({...modalAssistant, dateDebutCycle: e.target.value})} style={styles.inputStyle} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={styles.label}>Fin</label>
-                        <input type="date" value={modalAssistant.dateFinCycle || ''} onChange={(e) => setModalAssistant({...modalAssistant, dateFinCycle: e.target.value})} style={styles.inputStyle} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={styles.label}>Leçons prévues</label>
-                        <input type="number" min="1" placeholder="ex. 2" value={modalAssistant.nombreLeconsPrevu || ''} onChange={(e) => setModalAssistant({...modalAssistant, nombreLeconsPrevu: e.target.value})} style={styles.inputStyle} />
-                      </div>
+                    <div>
+                      <label style={styles.label}>Leçons prévues</label>
+                      <input type="number" min="1" placeholder="ex. 2" value={modalAssistant.nombreLeconsPrevu || ''} onChange={(e) => setModalAssistant({...modalAssistant, nombreLeconsPrevu: e.target.value})} style={styles.inputStyle} />
                     </div>
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles (une ou plusieurs écoles) :</label>
-                      <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Chaque classe garde son propre cycle en base, même si elles appartiennent à des écoles différentes.</p>
+                      <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Classes cibles, chacune avec sa propre période :</label>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 8px 0' }}>Chaque classe garde son propre cycle en base — utile si les classes n'ont pas cours le même jour, la période peut varier de l'une à l'autre.</p>
                       {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
                         const estCoche = Array.isArray(modalAssistant.classesCiblesCycle) && modalAssistant.classesCiblesCycle.includes(cl);
+                        const periode = (modalAssistant.periodesParClasseCycle && modalAssistant.periodesParClasseCycle[cl]) || {};
                         return (
-                          <label key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', border: '1px solid #e2e8f0', padding: '8px 10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
-                            <input
-                              type="checkbox"
-                              checked={estCoche}
-                              onChange={() => {
-                                const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
-                                const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
-                                setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
-                              }}
-                            />
-                            {cl}
-                          </label>
+                          <div key={cl} style={{ border: '1px solid #e2e8f0', padding: '8px 10px', borderRadius: '8px', backgroundColor: '#fff', marginBottom: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={estCoche}
+                                onChange={() => {
+                                  const ciblesActuelles = Array.isArray(modalAssistant.classesCiblesCycle) ? modalAssistant.classesCiblesCycle : [];
+                                  const updated = estCoche ? ciblesActuelles.filter(c => c !== cl) : [...ciblesActuelles, cl];
+                                  setModalAssistant(prev => ({ ...prev, classesCiblesCycle: updated }));
+                                }}
+                              />
+                              {cl}
+                            </label>
+                            {estCoche && (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                <div style={{ flex: 1 }}>
+                                  <label style={{ ...styles.label, fontSize: '10px' }}>Début</label>
+                                  <input
+                                    type="date" value={periode.debut || ''}
+                                    onChange={(e) => setModalAssistant(prev => ({ ...prev, periodesParClasseCycle: { ...(prev.periodesParClasseCycle || {}), [cl]: { ...periode, debut: e.target.value } } }))}
+                                    style={{ ...styles.inputStyle, margin: 0 }}
+                                  />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <label style={{ ...styles.label, fontSize: '10px' }}>Fin</label>
+                                  <input
+                                    type="date" value={periode.fin || ''}
+                                    onChange={(e) => setModalAssistant(prev => ({ ...prev, periodesParClasseCycle: { ...(prev.periodesParClasseCycle || {}), [cl]: { ...periode, fin: e.target.value } } }))}
+                                    style={{ ...styles.inputStyle, margin: 0 }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -2123,6 +2164,15 @@ export default function EnseignantDashboard() {
                     <div>
                       <label style={styles.label}>Nombre de séances</label>
                       <input type="number" min="1" value={modalAssistant.nombreSeancesLecon} onChange={(e) => setModalAssistant({...modalAssistant, nombreSeancesLecon: e.target.value})} style={styles.inputStyle} required />
+                    </div>
+                    <div>
+                      <label style={styles.label}>Habiletés (générales à la leçon)</label>
+                      <textarea value={modalAssistant.habiletesLecon} onChange={(e) => setModalAssistant({...modalAssistant, habiletesLecon: e.target.value})} style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }} />
+                    </div>
+                    <div>
+                      <label style={styles.label}>Contenus pédagogiques (généraux à la leçon)</label>
+                      <textarea value={modalAssistant.contenusLecon} onChange={(e) => setModalAssistant({...modalAssistant, contenusLecon: e.target.value})} style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }} />
+                      <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Ces deux champs se rempliront automatiquement sur chaque nouvelle séance de cette leçon — modifiables séance par séance si besoin.</p>
                     </div>
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                       <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>🏫 Ajouter aussi cette leçon à :</label>
@@ -2431,7 +2481,7 @@ export default function EnseignantDashboard() {
                                       ))}
 
                                       <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => setModalAssistant({ ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px' }}>
+                                        <button onClick={() => setModalAssistant(prev => ({ ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, dateSeance: new Date().toISOString().split('T')[0], titreSeance: '', valeursChamps: {}, habiletesLeconReference: lecon.habiletes || '', contenusLeconReference: lecon.contenus || '', classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [], datesParClasseCycle: {} }))} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px' }}>
                                           + Ajouter une nouvelle séance
                                         </button>
                                         <button onClick={() => setModalChoixBibliotheque({ ouvert: true, cycleId: cycle.id, leconId: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px', color: '#7c3aed' }}>

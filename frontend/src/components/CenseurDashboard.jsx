@@ -12,21 +12,44 @@ export default function CenseurDashboard() {
   const [anneeActiveId, setAnneeActiveId] = useState(null);
 
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
+  
+  // USE-EFFECT SÉCURISÉ POUR LA PRÉSENCE (Évite l'écran blanc)
   useEffect(() => {
     if (!affiliationCenseur?.etablissement_id) return;
-    const topic = `presence-etablissement-${affiliationCenseur.etablissement_id}`;
-    const interval = setInterval(() => {
-      const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
-      if (canal) {
-        const etat = canal.presenceState();
-        setPersonnesEnLigne(Object.values(etat).flat());
-      }
-    }, 3000);
-    return () => clearInterval(interval);
+    try {
+      const topic = `presence-etablissement-${affiliationCenseur.etablissement_id}`;
+      const interval = setInterval(() => {
+        try {
+          const canal = supabase.getChannels().find(c => c.topic === `realtime:${topic}`);
+          if (canal) {
+            const etat = canal.presenceState();
+            setPersonnesEnLigne(Object.values(etat).flat());
+          }
+        } catch (e) {
+          console.warn("Erreur lecture présence", e);
+        }
+      }, 3000);
+      return () => clearInterval(interval);
+    } catch (err) {
+      console.warn("Erreur initialisation présence", err);
+    }
   }, [affiliationCenseur?.etablissement_id]);
 
   // =========================================================================
-  // ÉTATS DU PROFIL & DE CONFIGURATION GLOBALE
+  // NOUVEAU : SYSTÈME DE NOTIFICATIONS IN-APP
+  // =========================================================================
+  const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
+    if (!destinataireUserId) return;
+    await supabase.from('notifications').insert({
+      user_id: destinataireUserId,
+      type,
+      payload_json: { message, lien_cible: lienCible, etablissement_id: etablissementId },
+      canaux: ['in_app'],
+    });
+  };
+
+  // =========================================================================
+  // ÉTATS DU PROFIL & CONFIGURATION GLOBALE
   // =========================================================================
   const [infosCenseur, setInfosCenseur] = useState({
     civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
@@ -114,7 +137,7 @@ export default function CenseurDashboard() {
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
 
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
-  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]);
+  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]); // stocke maintenant les userId
 
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
 
@@ -358,9 +381,12 @@ export default function CenseurDashboard() {
       const classeNom = sc.classes?.nom || 'Classe inconnue';
       const cycle = sc.lecons?.cycles;
       const programme = cycle?.programmes_annuels;
+      
+      // INTÉGRATION DE TON CODE (enseignantUserId inclus)
       if (!groupe[classeNom]) {
         groupe[classeNom] = {
           enseignant: `${programme?.utilisateurs_profils?.prenom || ''} ${programme?.utilisateurs_profils?.nom || ''}`.trim() || 'Inconnu',
+          enseignantUserId: programme?.proprietaire_user_id || null,
           matiere: programme?.matieres?.nom || 'Non définie',
           anneeScolaire: annee?.intitule || '',
           cycles: [],
@@ -983,13 +1009,25 @@ export default function CenseurDashboard() {
     showToast("🚀 Demande de mutation envoyée !");
   };
 
-  const toggleSelectionRappel = (nomProf, isChecked) => {
-    setProfsSelectionnesRappel(prev => isChecked ? [...prev, nomProf] : prev.filter(n => n !== nomProf));
+  const toggleSelectionRappel = (profUserId, isChecked) => {
+    setProfsSelectionnesRappel(prev => isChecked ? [...prev, profUserId] : prev.filter(id => id !== profUserId));
   };
 
-  const envoyerRappelMultipleManuel = () => {
+  // NOUVEAU : ENVOI RÉEL DE NOTIFICATIONS DE RAPPEL AUX ENSEIGNANTS !
+  const envoyerRappelMultipleManuel = async () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
-    showToast(`✉️ Rappel manuel envoyé avec succès à : ${profsSelectionnesRappel.join(', ')}.`);
+    
+    for (const profId of profsSelectionnesRappel) {
+      await envoyerNotification(
+        profId,
+        'ALERT',
+        "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission. Merci de régulariser la situation.",
+        '/enseignant',
+        affiliationCenseur.etablissement_id
+      );
+    }
+    
+    showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
     setProfsSelectionnesRappel([]);
   };
 
@@ -1028,6 +1066,7 @@ export default function CenseurDashboard() {
     showToast("🗑️ Membre retiré.");
   };
 
+  // NOUVEAU : VISA SÉANCE + NOTIFICATION AU PROFESSEUR
   const viserEtArchiverSeance = async (classeKey, cycleId, leconId, seanceAViser) => {
     const prog = programmesClasses[classeKey];
     if (!prog || !affiliationCenseur) return;
@@ -1052,31 +1091,62 @@ export default function CenseurDashboard() {
 
     if (erreurArchive) { showToast("⚠️ Visa enregistré, mais erreur d'archivage : " + erreurArchive.message); }
 
+    // NOTIFICATION !
+    await envoyerNotification(
+      prog.enseignantUserId,
+      'INFO',
+      `Votre séance "${seanceAViser.titre}" en classe de ${classeKey} a été visée et archivée par le censeur.`,
+      '/enseignant',
+      affiliationCenseur.etablissement_id
+    );
+
     showToast(`✅ Séance visée et archivée !`);
     chargerTout();
   };
 
-  const viserLecon = async (leconId) => {
+  // NOUVEAU : VISA LEÇON + NOTIFICATION AU PROFESSEUR
+  const viserLecon = async (leconId, enseignantUserId, leconTitre) => {
     const { error } = await supabase
       .from('lecons')
       .update({ statut_visa: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
       .eq('id', leconId);
     if (error) { showToast("⚠️ Erreur de visa : " + error.message); return; }
+    
+    // NOTIFICATION !
+    await envoyerNotification(
+      enseignantUserId,
+      'SUCCESS',
+      `Votre fiche de leçon "${leconTitre}" a été visée par le censeur.`,
+      '/enseignant',
+      affiliationCenseur.etablissement_id
+    );
+
     showToast("✅ Fiche de leçon visée !");
     chargerTout();
   };
 
-  const retournerLecon = (leconId) => {
+  // NOUVEAU : RETOUR LEÇON + NOTIFICATION AU PROFESSEUR
+  const retournerLecon = (leconId, enseignantUserId, leconTitre) => {
     setModalConfirmation({
       ouvert: true,
       titre: 'Retourner cette fiche de leçon ?',
-      message: "L'enseignant devra la corriger avant de pouvoir la renvoyer.",
+      message: "L'enseignant devra la corriger avant de pouvoir la renvoyer. Une notification lui sera envoyée.",
       actionCallback: async () => {
         const { error } = await supabase
           .from('lecons')
           .update({ statut_visa: 'RETOURNEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
           .eq('id', leconId);
         if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        
+        // NOTIFICATION !
+        await envoyerNotification(
+          enseignantUserId,
+          'ALERT',
+          `⚠️ Votre fiche de leçon "${leconTitre}" a été retournée par le censeur pour corrections.`,
+          '/enseignant',
+          affiliationCenseur.etablissement_id
+        );
+
         showToast("↩️ Fiche de leçon retournée à l'enseignant.");
         chargerTout();
       },
@@ -1611,8 +1681,8 @@ export default function CenseurDashboard() {
                                       <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{lc.titre}</p>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                      <button onClick={() => retournerLecon(lc.id)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
-                                      <button onClick={() => viserLecon(lc.id)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
+                                      <button onClick={() => retournerLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
+                                      <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
                                     </div>
                                   </div>
                                 )}
@@ -1800,7 +1870,7 @@ export default function CenseurDashboard() {
               <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e3a8a', marginBottom: '12px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNewLotAvecSeries(e.target.checked)} />
+                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNouveauLotAvecSeries(e.target.checked)} />
                 Ce niveau a des séries (ex. Seconde, Première, Terminale : A, C, D...)
               </label>
 
@@ -2145,14 +2215,15 @@ export default function CenseurDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {listeProfesseursEtablissement.map((prof, idx) => {
-                  const estCoche = profsSelectionnesRappel.includes(prof.nomComplet);
+                  // Le tableau contient maintenant les userId des profs
+                  const estCoche = profsSelectionnesRappel.includes(prof.userId);
                   return (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: estCoche ? '1px solid #3b82f6' : '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <input 
                           type="checkbox" 
                           checked={estCoche} 
-                          onChange={(e) => toggleSelectionRappel(prof.nomComplet, e.target.checked)} 
+                          onChange={(e) => toggleSelectionRappel(prof.userId, e.target.checked)} 
                           style={{ width: '18px', height: '18px', cursor: 'pointer' }} 
                         />
                         <div>
@@ -2161,7 +2232,14 @@ export default function CenseurDashboard() {
                         </div>
                       </div>
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
+                          await envoyerNotification(
+                            prof.userId,
+                            'ALERT',
+                            "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission.",
+                            '/enseignant',
+                            affiliationCenseur.etablissement_id
+                          );
                           showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
                         }} 
                         className="bouton bouton-secondaire" 

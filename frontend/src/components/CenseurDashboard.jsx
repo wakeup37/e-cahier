@@ -196,7 +196,7 @@ export default function CenseurDashboard() {
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
   const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]); // stocke maintenant les userId
 
-  const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 4000); };
+  const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 8000); };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1206,6 +1206,7 @@ export default function CenseurDashboard() {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
 
     let echecs = 0;
+    let dernierMessageErreur = '';
     for (const profId of profsSelectionnesRappel) {
       const { error } = await envoyerNotification(
         profId,
@@ -1214,11 +1215,11 @@ export default function CenseurDashboard() {
         '/enseignant',
         affiliationCenseur.etablissement_id
       );
-      if (error) echecs++;
+      if (error) { echecs++; dernierMessageErreur = error.message; }
     }
 
     if (echecs > 0) {
-      showToast(`⚠️ ${echecs} rappel(s) sur ${profsSelectionnesRappel.length} n'ont pas pu être envoyés (voir la console pour le détail — probablement un droit d'accès à corriger côté Supabase).`);
+      showToast(`⚠️ ${echecs} rappel(s) sur ${profsSelectionnesRappel.length} n'ont pas pu être envoyés. Erreur Supabase : ${dernierMessageErreur}`);
     } else {
       showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
     }

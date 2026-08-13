@@ -506,6 +506,18 @@ export default function ChefEtablissementDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
 
+  const fichesPedagogiquesParClasse = useMemo(() => {
+    const groupes = {};
+    fichesFiltrees.forEach(fiche => {
+      const classe = fiche.classe || 'Sans classe';
+      if (!groupes[classe]) groupes[classe] = [];
+      groupes[classe].push(fiche);
+    });
+    return Object.entries(groupes).sort(([a], [b]) => a.localeCompare(b));
+  }, [fichesFiltrees]);
+  const [classesOuvertesFiches, setClassesOuvertesFiches] = useState({});
+  const toggleClasseFiches = (classeNom) => setClassesOuvertesFiches(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
+
   const statistiquesReseau = useMemo(() => ({
     totalClasses: nombreClassesReel,
     totalPersonnesConnectees: 1 + nombreCenseursActifs + listeProfesseursEtablissement.length + personnelAdministratifManuel.length,
@@ -1570,28 +1582,54 @@ export default function ChefEtablissementDashboard() {
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {fichesPedagogiquesEcole.map(fiche => (
-                <div key={fiche.id} style={styles.itemRow}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere}</span>
-                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+            {fichesPedagogiquesParClasse.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche pour l'instant.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {fichesPedagogiquesParClasse.map(([classe, fiches]) => {
+                  const estOuverte = !!classesOuvertesFiches[classe];
+                  return (
+                    <div key={classe} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                      <button
+                        onClick={() => toggleClasseFiches(classe)}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', backgroundColor: estOuverte ? '#e0f2fe' : '#f8fafc', border: 'none', cursor: 'pointer', outline: 'none' }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🏫 {classe}</span>
+                          <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{fiches.length} fiche{fiches.length > 1 ? 's' : ''}</span>
+                        </span>
+                        <span style={{ fontSize: '16px', color: '#2563eb' }}>{estOuverte ? '▲' : '▼'}</span>
+                      </button>
+
+                      {estOuverte && (
+                        <div style={{ padding: '14px 16px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {fiches.map(fiche => (
+                            <div key={fiche.id} style={styles.itemRow}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                  <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere}</span>
+                                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+                                </div>
+                                <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong></p>
+                              </div>
+                              <div>
+                                <button
+                                  onClick={() => telechargerDocumentPDF(`Fiche : ${fiche.titre}`, `<p><strong>Matière :</strong> ${fiche.matiere}</p><p><strong>Enseignant :</strong> ${fiche.enseignant}</p><p><strong>Classe :</strong> ${fiche.classe}</p><p><strong>Détails :</strong> Fiche validée et approuvée le ${fiche.dateValidation}.</p>`)}
+                                  className="bouton bouton-principal"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                >
+                                  📥 Télécharger / Voir (PDF)
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong></p>
-                  </div>
-                  <div>
-                    <button 
-                      onClick={() => telechargerDocumentPDF(`Fiche : ${fiche.titre}`, `<p><strong>Matière :</strong> ${fiche.matiere}</p><p><strong>Enseignant :</strong> ${fiche.enseignant}</p><p><strong>Classe :</strong> ${fiche.classe}</p><p><strong>Détails :</strong> Fiche validée et approuvée le ${fiche.dateValidation}.</p>`)} 
-                      className="bouton bouton-principal" 
-                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                    >
-                      📥 Télécharger / Voir (PDF)
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

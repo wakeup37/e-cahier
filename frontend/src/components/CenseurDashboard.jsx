@@ -159,7 +159,7 @@ export default function CenseurDashboard() {
   const [seriesChoisiesSecondCycle, setSeriesChoisiesSecondCycle] = useState({});
   const [separateurSecondCycle, setSeparateurSecondCycle] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
-  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
+  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
   const [matiereProgrammeOuverte, setMatiereProgrammeOuverte] = useState(null);
   const [brouillonProgrammeMatiere, setBrouillonProgrammeMatiere] = useState({ niveaux: [], series: [] });
   const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
@@ -176,6 +176,8 @@ export default function CenseurDashboard() {
 
   const [classesOuvertesVisa, setClassesOuvertesVisa] = useState({});
   const toggleClasseVisa = (classeNom) => setClassesOuvertesVisa(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
+  const [classesOuvertesArchive, setClassesOuvertesArchive] = useState({});
+  const toggleClasseArchive = (classeNom) => setClassesOuvertesArchive(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
 
   const [filtreArchiveClasse, setFiltreArchiveClasse] = useState('TOUTES');
   const [filtreArchiveMatiere, setFiltreArchiveMatiere] = useState('TOUTES');
@@ -859,35 +861,48 @@ export default function CenseurDashboard() {
     });
   };
 
-  const resoudreMatiereChoisie = (enseignant, matiereIdChoisie, matiereNomLibre) => {
-    const matieresProfil = enseignant?.matieresProfil || [];
-    if (matieresProfil.length === 1) return { nomMatiere: matieresProfil[0].nom, matiereIdDirect: matieresProfil[0].id };
-    if (matieresProfil.length > 1) {
-      const choisie = matieresProfil.find(m => m.id === matiereIdChoisie);
-      return { nomMatiere: choisie?.nom || '', matiereIdDirect: choisie?.id || null };
-    }
-    return { nomMatiere: matiereNomLibre, matiereIdDirect: null };
-  };
-
   const attribuerClasseDirectement = async (e) => {
     e.preventDefault();
     const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
-    const { nomMatiere, matiereIdDirect } = resoudreMatiereChoisie(enseignantChoisi, formAttribution.matiereIdChoisie, formAttribution.matiereNom);
+    const matieresProfDeclarees = enseignantChoisi?.matieresProfil || [];
 
-    if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !nomMatiere.trim() || !affiliationCenseur || !anneeActiveId) {
-      showToast("⚠️ Merci de choisir l'enseignant, au moins une classe, et une matière.");
+    if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !affiliationCenseur || !anneeActiveId) {
+      showToast("⚠️ Merci de choisir l'enseignant et au moins une classe.");
       return;
     }
-    const matiereId = matiereIdDirect || await trouverOuCreerMatiere(nomMatiere);
-    if (!matiereId) return;
 
-    const lignes = formAttribution.classesIds.map(classeId => ({
-      enseignant_id: formAttribution.enseignantId,
-      classe_id: classeId,
-      etablissement_id: affiliationCenseur.etablissement_id,
-      annee_scolaire_id: anneeActiveId,
-      matiere_id: matiereId,
-    }));
+    let matiereIds = [];
+    if (matieresProfDeclarees.length > 0) {
+      if (formAttribution.matiereIdsChoisies.length === 0) {
+        showToast("⚠️ Merci de cocher au moins une matière.");
+        return;
+      }
+      matiereIds = formAttribution.matiereIdsChoisies;
+    } else {
+      const noms = formAttribution.matiereNom.split(',').map(n => n.trim()).filter(Boolean);
+      if (noms.length === 0) {
+        showToast("⚠️ Merci d'indiquer au moins une matière (séparez par une virgule s'il y en a plusieurs).");
+        return;
+      }
+      for (const nom of noms) {
+        const id = await trouverOuCreerMatiere(nom);
+        if (id) matiereIds.push(id);
+      }
+      if (matiereIds.length === 0) return;
+    }
+
+    const lignes = [];
+    formAttribution.classesIds.forEach(classeId => {
+      matiereIds.forEach(matiereId => {
+        lignes.push({
+          enseignant_id: formAttribution.enseignantId,
+          classe_id: classeId,
+          etablissement_id: affiliationCenseur.etablissement_id,
+          annee_scolaire_id: anneeActiveId,
+          matiere_id: matiereId,
+        });
+      });
+    });
 
     const { error } = await supabase.from('attributions_classes').insert(lignes);
     if (error) {
@@ -895,20 +910,20 @@ export default function CenseurDashboard() {
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
-    showToast(`✅ ${lignes.length} classe(s) attribuée(s) !`);
+    showToast(`✅ ${lignes.length} attribution(s) créée(s) (${formAttribution.classesIds.length} classe(s) × ${matiereIds.length} matière(s)) !`);
 
     await envoyerNotification(
       formAttribution.enseignantId, 'CLASSE_ATTRIBUEE',
-      `🏫 On vous a attribué ${lignes.length} classe(s)`,
+      `🏫 On vous a attribué ${lignes.length} attribution(s) de classe/matière`,
       'classes', affiliationCenseur.etablissement_id
     );
 
-    setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
+    setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
     chargerTout();
   };
 
   const [modalGererClasses, setModalGererClasses] = useState({ ouvert: false, prof: null, attributions: [] });
-  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
+  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
 
   const ouvrirGestionClasses = async (prof) => {
     const { data } = await supabase
@@ -917,7 +932,7 @@ export default function CenseurDashboard() {
       .eq('enseignant_id', prof.userId)
       .eq('etablissement_id', affiliationCenseur.etablissement_id);
     setModalGererClasses({ ouvert: true, prof, attributions: data || [] });
-    setFormAjoutAttribution({ classeId: '', matiereNom: '' });
+    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
   };
 
   const retirerAttributionEnseignant = (attribution) => {
@@ -937,38 +952,60 @@ export default function CenseurDashboard() {
 
   const ajouterAttributionEnseignant = async (e) => {
     e.preventDefault();
-    const { nomMatiere, matiereIdDirect } = resoudreMatiereChoisie(modalGererClasses.prof, formAjoutAttribution.matiereIdChoisie, formAjoutAttribution.matiereNom);
-    if (!formAjoutAttribution.classeId || !nomMatiere.trim() || !modalGererClasses.prof) {
-      showToast("⚠️ Merci de choisir une classe et une matière.");
+    if (!formAjoutAttribution.classeId || !modalGererClasses.prof) {
+      showToast("⚠️ Merci de choisir une classe.");
       return;
     }
-    const matiereId = matiereIdDirect || await trouverOuCreerMatiere(nomMatiere);
-    if (!matiereId) return;
+    const matieresProfDeclarees = modalGererClasses.prof?.matieresProfil || [];
 
-    const { data: nouvelle, error } = await supabase.from('attributions_classes').insert({
+    let matiereIds = [];
+    if (matieresProfDeclarees.length > 0) {
+      if (formAjoutAttribution.matiereIdsChoisies.length === 0) {
+        showToast("⚠️ Merci de cocher au moins une matière.");
+        return;
+      }
+      matiereIds = formAjoutAttribution.matiereIdsChoisies;
+    } else {
+      const noms = formAjoutAttribution.matiereNom.split(',').map(n => n.trim()).filter(Boolean);
+      if (noms.length === 0) {
+        showToast("⚠️ Merci d'indiquer au moins une matière (séparez par une virgule s'il y en a plusieurs).");
+        return;
+      }
+      for (const nom of noms) {
+        const id = await trouverOuCreerMatiere(nom);
+        if (id) matiereIds.push(id);
+      }
+      if (matiereIds.length === 0) return;
+    }
+
+    const lignes = matiereIds.map(matiereId => ({
       enseignant_id: modalGererClasses.prof.userId,
       classe_id: formAjoutAttribution.classeId,
       etablissement_id: affiliationCenseur.etablissement_id,
       annee_scolaire_id: anneeActiveId,
       matiere_id: matiereId,
-    }).select('id, classe_id, matiere_id, classes(nom), matieres(nom)').single();
+    }));
+
+    const { data: nouvelles, error } = await supabase.from('attributions_classes').insert(lignes).select('id, classe_id, matiere_id, classes(nom), matieres(nom)');
 
     if (error) {
-      if (error.code === '23505') showToast("⚠️ Cette attribution existe déjà.");
+      if (error.code === '23505') showToast("⚠️ Une ou plusieurs de ces attributions existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
-    setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, nouvelle] }));
+    setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, ...(nouvelles || [])] }));
 
-    await envoyerNotification(
-      modalGererClasses.prof.userId, 'CLASSE_ATTRIBUEE',
-      `🏫 On vous a attribué la classe "${nouvelle.classes?.nom}" en ${nouvelle.matieres?.nom}`,
-      'classes', affiliationCenseur.etablissement_id
-    );
+    for (const nouvelle of (nouvelles || [])) {
+      await envoyerNotification(
+        modalGererClasses.prof.userId, 'CLASSE_ATTRIBUEE',
+        `🏫 On vous a attribué la classe "${nouvelle.classes?.nom}" en ${nouvelle.matieres?.nom}`,
+        'classes', affiliationCenseur.etablissement_id
+      );
+    }
 
-    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
+    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
     chargerTout();
-    showToast("✅ Classe ajoutée !");
+    showToast(`✅ ${lignes.length} matière(s) ajoutée(s) !`);
   };
 
   const approuverDemandeAttribution = async (demande) => {
@@ -1577,8 +1614,8 @@ export default function CenseurDashboard() {
                 </div>
               )}
 
-              <form onSubmit={ajouterAttributionEnseignant} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
-                <select value={formAjoutAttribution.classeId} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, classeId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required>
+              <form onSubmit={ajouterAttributionEnseignant} style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                <select value={formAjoutAttribution.classeId} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, classeId: e.target.value, matiereIdsChoisies: [] })} style={styles.inputStyle} required>
                   <option value="">— Classe —</option>
                   {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                 </select>
@@ -1586,29 +1623,36 @@ export default function CenseurDashboard() {
                   const classeChoisie = classesEtablissement.find(c => c.id === formAjoutAttribution.classeId);
                   const matieresProfBrut = modalGererClasses.prof?.matieresProfil || [];
                   const matieresProf = classeChoisie ? matieresProfBrut.filter(m => matiereApplicableAClasse(m, classeChoisie)) : matieresProfBrut;
-                  if (matieresProf.length === 1) {
+                  if (matieresProf.length > 0) {
                     return (
-                      <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
-                        📚 {matieresProf[0].nom}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {matieresProf.map(m => {
+                          const estCochee = formAjoutAttribution.matiereIdsChoisies.includes(m.id);
+                          return (
+                            <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '5px 8px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '11px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
+                              <input
+                                type="checkbox"
+                                checked={estCochee}
+                                onChange={() => {
+                                  const updated = estCochee ? formAjoutAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAjoutAttribution.matiereIdsChoisies, m.id];
+                                  setFormAjoutAttribution({ ...formAjoutAttribution, matiereIdsChoisies: updated });
+                                }}
+                              />
+                              📚 {m.nom}
+                            </label>
+                          );
+                        })}
                       </div>
                     );
                   }
-                  if (matieresProf.length > 1) {
-                    return (
-                      <select value={formAjoutAttribution.matiereIdChoisie} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required>
-                        <option value="">— Quelle matière ? —</option>
-                        {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-                      </select>
-                    );
-                  }
                   if (matieresProfBrut.length > 0 && classeChoisie) {
-                    return <p style={{ flex: '1 1 140px', fontSize: '11px', color: '#991b1b', margin: 0, alignSelf: 'center' }}>Aucune matière déclarée ne correspond à cette classe.</p>;
+                    return <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière déclarée ne correspond à cette classe.</p>;
                   }
                   return (
-                    <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée)" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                    <input type="text" list="liste-matieres-censeur" placeholder="Matière(s) — séparées par une virgule si plusieurs (non renseignées)" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={styles.inputStyle} required />
                   );
                 })()}
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
+                <button type="submit" className="bouton bouton-principal" style={{ alignSelf: 'flex-start' }}>+ Ajouter</button>
               </form>
             </div>
           </div>
@@ -1914,31 +1958,43 @@ export default function CenseurDashboard() {
             {fichesFiltrees.length === 0 ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche archivée trouvée.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {fichesParClasse.map(([classe, fiches]) => (
-                  <div key={classe}>
-                    <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#1e3a8a', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      🏫 {classe}
-                      <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{fiches.length}</span>
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {fiches.map((fiche, index) => (
-                        <div key={index} style={styles.itemRow}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                              <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere || 'Matière'}</span>
-                              <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {fichesParClasse.map(([classe, fiches]) => {
+                  const estOuverte = !!classesOuvertesArchive[classe];
+                  return (
+                    <div key={classe} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
+                      <button
+                        onClick={() => toggleClasseArchive(classe)}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', backgroundColor: estOuverte ? '#e0f2fe' : '#f8fafc', border: 'none', cursor: 'pointer', outline: 'none' }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🏫 {classe}</span>
+                          <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{fiches.length} fiche{fiches.length > 1 ? 's' : ''}</span>
+                        </span>
+                        <span style={{ fontSize: '16px', color: '#2563eb' }}>{estOuverte ? '▲' : '▼'}</span>
+                      </button>
+
+                      {estOuverte && (
+                        <div style={{ padding: '14px 16px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {fiches.map((fiche, index) => (
+                            <div key={index} style={styles.itemRow}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                  <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere || 'Matière'}</span>
+                                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+                                </div>
+                                <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong> | Archivé le : {fiche.dateValidation}</p>
+                              </div>
+                              <div>
+                                <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a' }}>📥 Télécharger (PDF)</button>
+                              </div>
                             </div>
-                            <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong> | Archivé le : {fiche.dateValidation}</p>
-                          </div>
-                          <div>
-                            <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a' }}>📥 Télécharger (PDF)</button>
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2231,7 +2287,7 @@ export default function CenseurDashboard() {
 
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>🎯 Attribuer une ou plusieurs classes à un enseignant</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>La matière s'affiche automatiquement depuis le profil de l'enseignant — s'il ne l'a pas encore renseignée, elle reste modifiable ici en dépannage. Cochez d'abord les classes pour ne voir que les matières compatibles avec leur niveau/série.</p>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Les matières proposées viennent du profil de l'enseignant, filtrées par le niveau/série des classes cochées — cochez-en plusieurs pour un enseignant polyvalent (ex. Maths + Physique-Chimie).</p>
               <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px', maxHeight: '160px', overflowY: 'auto' }}>
                   <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>1. Classes (plusieurs possibles)</p>
@@ -2245,7 +2301,7 @@ export default function CenseurDashboard() {
                             checked={estCoche}
                             onChange={() => {
                               const updated = estCoche ? formAttribution.classesIds.filter(id => id !== c.id) : [...formAttribution.classesIds, c.id];
-                              setFormAttribution({ ...formAttribution, classesIds: updated });
+                              setFormAttribution({ ...formAttribution, classesIds: updated, matiereIdsChoisies: [] });
                             }}
                             disabled={!anneeActiveId}
                           />
@@ -2256,49 +2312,59 @@ export default function CenseurDashboard() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
-                    <option value="">— 2. Choisir un enseignant —</option>
-                    {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
-                  </select>
-                  {(() => {
-                    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
-                    const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
-                    const matieresProfBrut = enseignantChoisi?.matieresProfil || [];
-                    const matieresProf = classesSelectionnees.length === 0
-                      ? matieresProfBrut
-                      : matieresProfBrut.filter(m => classesSelectionnees.every(cl => matiereApplicableAClasse(m, cl)));
-                    if (matieresProf.length === 1) {
-                      return (
-                        <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
-                          📚 {matieresProf[0].nom}
-                        </div>
-                      );
-                    }
-                    if (matieresProf.length > 1) {
-                      return (
-                        <select value={formAttribution.matiereIdChoisie} onChange={(e) => setFormAttribution({ ...formAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
-                          <option value="">— Quelle matière ? —</option>
-                          {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-                        </select>
-                      );
-                    }
-                    if (matieresProfBrut.length > 0 && classesSelectionnees.length > 0) {
-                      return (
-                        <p style={{ flex: '1 1 200px', fontSize: '11px', color: '#991b1b', margin: 0, alignSelf: 'center' }}>Aucune matière déclarée par cet enseignant ne correspond au niveau/série de la sélection.</p>
-                      );
-                    }
+                <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value, matiereIdsChoisies: [] })} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId}>
+                  <option value="">— 2. Choisir un enseignant —</option>
+                  {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                </select>
+
+                {(() => {
+                  const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
+                  const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
+                  const matieresProfBrut = enseignantChoisi?.matieresProfil || [];
+                  const matieresProf = classesSelectionnees.length === 0
+                    ? matieresProfBrut
+                    : matieresProfBrut.filter(m => classesSelectionnees.every(cl => matiereApplicableAClasse(m, cl)));
+
+                  if (matieresProf.length > 0) {
                     return (
-                      <>
-                        <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId} />
-                        <datalist id="liste-matieres-censeur">
-                          {matieresPourClasse(classesSelectionnees).map(m => <option key={m.id} value={m.nom} />)}
-                        </datalist>
-                      </>
+                      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
+                        <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>3. Matière(s) — plusieurs possibles</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {matieresProf.map(m => {
+                            const estCochee = formAttribution.matiereIdsChoisies.includes(m.id);
+                            return (
+                              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={estCochee}
+                                  onChange={() => {
+                                    const updated = estCochee ? formAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAttribution.matiereIdsChoisies, m.id];
+                                    setFormAttribution({ ...formAttribution, matiereIdsChoisies: updated });
+                                  }}
+                                  disabled={!anneeActiveId}
+                                />
+                                📚 {m.nom}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
-                  })()}
-                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
-                </div>
+                  }
+                  if (matieresProfBrut.length > 0 && classesSelectionnees.length > 0) {
+                    return <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière déclarée par cet enseignant ne correspond au niveau/série de la sélection.</p>;
+                  }
+                  return (
+                    <div>
+                      <input type="text" list="liste-matieres-censeur" placeholder="Matière(s) — séparées par une virgule si plusieurs (non renseignées sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={styles.inputStyle} required disabled={!anneeActiveId} />
+                      <datalist id="liste-matieres-censeur">
+                        {matieresPourClasse(classesSelectionnees).map(m => <option key={m.id} value={m.nom} />)}
+                      </datalist>
+                    </div>
+                  );
+                })()}
+
+                <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId}>Attribuer</button>
               </form>
             </div>
 

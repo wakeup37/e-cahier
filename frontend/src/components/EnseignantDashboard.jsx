@@ -198,6 +198,8 @@ export default function EnseignantDashboard() {
   // contenu réel est relu depuis la table seances au chargement.
   const [bibliotheque, setBibliotheque] = useState([]);
   const [filtreBiblioTexte, setFiltreBiblioTexte] = useState('');
+  const [classesOuvertesBiblio, setClassesOuvertesBiblio] = useState({});
+  const toggleClasseBiblio = (classeNom) => setClassesOuvertesBiblio(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
 
   const chargerBibliotheque = async (uid) => {
     const idUtilisateur = uid || userId;
@@ -244,19 +246,42 @@ export default function EnseignantDashboard() {
   };
 
   const [modalChoixBibliotheque, setModalChoixBibliotheque] = useState({ ouvert: false, cycleId: null, leconId: null });
+  const [modalReutiliserBiblio, setModalReutiliserBiblio] = useState({ ouvert: false, item: null, classeChoisie: '', cycleChoisi: '', leconChoisi: '' });
 
-  const utiliserFicheDeLaBibliotheque = (item) => {
+  const utiliserFicheDeLaBibliotheque = (item, options = {}) => {
     const { titre, lieu, ...autresChamps } = item.contenuJson || {};
-    const { cycleId, leconId } = modalChoixBibliotheque;
+    const cycleId = options.cycleId !== undefined ? options.cycleId : modalChoixBibliotheque.cycleId;
+    const leconId = options.leconId !== undefined ? options.leconId : modalChoixBibliotheque.leconId;
+    const classeNom = options.classeNom || classeSelectionneeVue;
     setModalChoixBibliotheque({ ouvert: false, cycleId: null, leconId: null });
+    setModalReutiliserBiblio({ ouvert: false, item: null, classeChoisie: '', cycleChoisi: '', leconChoisi: '' });
     setModalAssistant(prev => ({
       ...prev,
       ouvert: true, niveauCible: 'seance',
       cycleIdCible: cycleId, leconIdCible: leconId,
       titreSeance: titre || item.nom, lieuSeance: lieu || '', valeursChamps: autresChamps,
-      classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [],
+      classesCiblesCycle: classeNom ? [classeNom] : [],
       datesParClasseCycle: {}, dateSeance: new Date().toISOString().split('T')[0],
     }));
+  };
+
+  // Ouvre le sélecteur classe → cycle → leçon pour réutiliser une fiche
+  // directement depuis l'onglet Bibliothèque (hors contexte d'une leçon déjà ouverte).
+  const ouvrirReutiliserBiblio = (item) => {
+    setModalReutiliserBiblio({ ouvert: true, item, classeChoisie: '', cycleChoisi: '', leconChoisi: '' });
+  };
+
+  const telechargerFichePDFDepuisBiblio = (item) => {
+    let champsHtml = '<table>';
+    const contenu = item.contenuJson || {};
+    if (Array.isArray(champsPersonnalises)) {
+      champsPersonnalises.forEach(champ => {
+        const valeur = contenu[champ.id] || 'N/A';
+        champsHtml += `<tr><th>${champ.label}</th><td>${String(valeur).replace(/\n/g, '<br>')}</td></tr>`;
+      });
+    }
+    champsHtml += '</table>';
+    telechargerPDFEntite(`Fiche (Bibliothèque) - ${item.nom}`, `Classe d'origine : ${item.classeOrigine || 'N/A'}${item.dateOrigine ? ` | Créée le ${item.dateOrigine}` : ''}`, champsHtml);
   };
 
   // --- PROGRAMMES (Supabase en lecture, écriture partielle) ---
@@ -353,7 +378,7 @@ export default function EnseignantDashboard() {
     const { data: profil } = await supabase
       .from('utilisateurs_profils').select('*').eq('user_id', user.id).single();
 
-    const { data: catalogueMatieres } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
+    const { data: catalogueMatieres } = await supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true });
     setMatieresCatalogue(catalogueMatieres || []);
 
     const { data: mesMatieres } = await supabase
@@ -1050,37 +1075,66 @@ export default function EnseignantDashboard() {
     if (type === 'seance' && seanceId) {
       // Retrouve la date prévue de cette séance dans le mirroir local, pour
       // décider si elle arrive maintenant ou est programmée pour plus tard.
+      // On en profite pour repérer si c'est la PREMIÈRE séance envoyée de
+      // cette leçon : si oui, la fiche de cycle et la fiche de leçon
+      // partent groupées avec elle ; les séances suivantes de la même
+      // leçon arrivent ensuite chacune individuellement.
       let dateSeance = null;
-      (prog.cycles || []).forEach(c => (c.lecons || []).forEach(l => (l.seances || []).forEach(s => {
-        if (s.id === seanceId) dateSeance = s.date;
-      })));
+      let leconCible = null;
+      (prog.cycles || []).forEach(c => (c.lecons || []).forEach(l => {
+        if (l.id === leconId) leconCible = l;
+        (l.seances || []).forEach(s => { if (s.id === seanceId) dateSeance = s.date; });
+      }));
+
+      const estPremiereSeanceDeLaLecon = !!leconCible && !leconCible.soumisAuCenseur;
 
       const aujourdHui = new Date().toISOString().slice(0, 10);
       const arriveMaintenant = !dateSeance || dateSeance <= aujourdHui;
       const statutCible = arriveMaintenant ? 'ENVOYEE' : 'PROGRAMMEE';
 
-     const { error } = await supabase
-  .from('seances')
-  .update({ 
-    statut: statutCible, 
-    envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
-    statut_visa: 'SOUMISE'
-  })
-  .eq('id', seanceId);
+      const { error } = await supabase
+        .from('seances')
+        .update({
+          statut: statutCible,
+          envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
+          statut_visa: 'SOUMISE'
+        })
+        .eq('id', seanceId);
 
       if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
+      // Si c'est la première séance de cette leçon, on envoie aussi la
+      // fiche de leçon en même temps (le censeur reçoit cycle + leçon +
+      // première séance groupés, sans clic supplémentaire).
+      let erreurLecon = null;
+      if (estPremiereSeanceDeLaLecon && arriveMaintenant) {
+        const { error: erreurMajLecon } = await supabase
+          .from('lecons')
+          .update({ statut_visa: 'ENVOYEE', envoyee_at: new Date().toISOString() })
+          .eq('id', leconId);
+        erreurLecon = erreurMajLecon;
+      }
+
       const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {
         ...c,
+        soumisAuCenseur: true,
         lecons: (c.lecons || []).map(l => l.id !== leconId ? l : {
-          ...l, seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true, statutReel: statutCible } : s)
+          ...l,
+          soumisAuCenseur: (estPremiereSeanceDeLaLecon && arriveMaintenant && !erreurLecon) ? true : l.soumisAuCenseur,
+          seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true, statutReel: statutCible } : s)
         })
       });
       setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
 
-      showToast(arriveMaintenant
-        ? "🚀 Fiche envoyée — visible chez le censeur dès maintenant !"
-        : `📅 Fiche programmée — elle arrivera automatiquement chez le censeur le ${dateSeance}, pas avant.`);
+      if (!arriveMaintenant) {
+        showToast(`📅 Fiche programmée — elle arrivera automatiquement chez le censeur le ${dateSeance}, pas avant.`);
+      } else if (estPremiereSeanceDeLaLecon && !erreurLecon) {
+        showToast("🚀 Séance envoyée avec la fiche de cycle et la fiche de leçon (première séance de cette leçon) !");
+      } else if (estPremiereSeanceDeLaLecon && erreurLecon) {
+        showToast("🚀 Séance envoyée, mais la fiche de leçon n'a pas pu être jointe : " + erreurLecon.message);
+      } else {
+        showToast("🚀 Séance envoyée — visible chez le censeur dès maintenant !");
+      }
       return;
     }
 
@@ -1345,6 +1399,43 @@ export default function EnseignantDashboard() {
     if (!filtreBiblioTexte) return bibliotheque;
     return bibliotheque.filter(b => b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
   }, [bibliotheque, filtreBiblioTexte]);
+
+  // Fiches rangées par classe d'origine — les fiches sans classe connue
+  // (mode sans affiliation ou fiche libre) vont dans un groupe "Sans classe".
+  const bibliothequeParClasse = useMemo(() => {
+    const groupes = {};
+    bibliothequeFiltree.forEach(b => {
+      const classe = b.classeOrigine || 'Sans classe';
+      if (!groupes[classe]) groupes[classe] = [];
+      groupes[classe].push(b);
+    });
+    return Object.entries(groupes).sort(([a], [b]) => a.localeCompare(b));
+  }, [bibliothequeFiltree]);
+
+  // Regroupe le catalogue de matières par cycle pour l'affichage — plus
+  // lisible qu'une longue liste plate maintenant que le catalogue couvre
+  // tout le programme (général + technique).
+  const NIVEAUX_PREMIER_CYCLE_ENS = ['6ème', '5ème', '4ème', '3ème'];
+  const NIVEAUX_SECOND_CYCLE_ENS = ['Seconde', 'Première', 'Terminale'];
+  const matieresCatalogueParCycle = useMemo(() => {
+    const universelles = [];
+    const premierCycle = [];
+    const secondCycle = [];
+    matieresCatalogue.forEach(m => {
+      const niveaux = m.niveaux_applicables || [];
+      if (niveaux.length === 0) { universelles.push(m); return; }
+      const aPremier = niveaux.some(n => NIVEAUX_PREMIER_CYCLE_ENS.includes(n));
+      const aSecond = niveaux.some(n => NIVEAUX_SECOND_CYCLE_ENS.includes(n));
+      if (aPremier) premierCycle.push(m);
+      if (aSecond) secondCycle.push(m);
+      if (!aPremier && !aSecond) universelles.push(m);
+    });
+    return [
+      { titre: 'Premier cycle (6ème → 3ème)', matieres: premierCycle },
+      { titre: 'Second cycle (Seconde → Terminale)', matieres: secondCycle },
+      { titre: 'Autres / toutes classes', matieres: universelles },
+    ].filter(groupe => groupe.matieres.length > 0);
+  }, [matieresCatalogue]);
 
   if (chargementInitial) {
     return (
@@ -1986,23 +2077,30 @@ export default function EnseignantDashboard() {
                   {matieresCatalogue.length === 0 ? (
                     <p style={{ fontSize: '11px', color: '#991b1b' }}>Aucune matière au catalogue pour l'instant — demandez à votre censeur d'en créer une.</p>
                   ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {matieresCatalogue.map(m => {
-                        const estCochee = formProfil.matiereIds.includes(m.id);
-                        return (
-                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
-                            <input
-                              type="checkbox"
-                              checked={estCochee}
-                              onChange={() => {
-                                const updated = estCochee ? formProfil.matiereIds.filter(id => id !== m.id) : [...formProfil.matiereIds, m.id];
-                                setFormProfil({ ...formProfil, matiereIds: updated });
-                              }}
-                            />
-                            {m.nom}
-                          </label>
-                        );
-                      })}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {matieresCatalogueParCycle.map(groupe => (
+                        <div key={groupe.titre}>
+                          <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', margin: '0 0 6px 0' }}>{groupe.titre}</p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {groupe.matieres.map(m => {
+                              const estCochee = formProfil.matiereIds.includes(m.id);
+                              return (
+                                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={estCochee}
+                                    onChange={() => {
+                                      const updated = estCochee ? formProfil.matiereIds.filter(id => id !== m.id) : [...formProfil.matiereIds, m.id];
+                                      setFormProfil({ ...formProfil, matiereIds: updated });
+                                    }}
+                                  />
+                                  {m.nom}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2645,6 +2743,80 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {modalReutiliserBiblio.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '480px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>♻️ Réutiliser « {modalReutiliserBiblio.item?.nom} »</h3>
+                <button onClick={() => setModalReutiliserBiblio({ ouvert: false, item: null, classeChoisie: '', cycleChoisi: '', leconChoisi: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Choisissez la classe, le cycle puis la leçon où créer une nouvelle séance à partir de cette fiche — vous pourrez ensuite l'adapter, choisir la date et l'envoyer, exactement comme une fiche neuve.</p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={styles.label}>1. Classe</label>
+                  <select
+                    value={modalReutiliserBiblio.classeChoisie}
+                    onChange={(e) => setModalReutiliserBiblio(prev => ({ ...prev, classeChoisie: e.target.value, cycleChoisi: '', leconChoisi: '' }))}
+                    style={styles.inputStyle}
+                  >
+                    <option value="">— Choisir une classe —</option>
+                    {classesActivesValidees.map(cl => <option key={cl} value={cl}>{cl}</option>)}
+                  </select>
+                </div>
+
+                {modalReutiliserBiblio.classeChoisie && (
+                  <div>
+                    <label style={styles.label}>2. Cycle</label>
+                    {(programmesClasses[modalReutiliserBiblio.classeChoisie]?.cycles || []).length === 0 ? (
+                      <p style={{ fontSize: '12px', color: '#991b1b', fontStyle: 'italic' }}>Aucun cycle dans cette classe pour l'instant — créez-en un d'abord depuis le Programme Annuel.</p>
+                    ) : (
+                      <select
+                        value={modalReutiliserBiblio.cycleChoisi}
+                        onChange={(e) => setModalReutiliserBiblio(prev => ({ ...prev, cycleChoisi: e.target.value, leconChoisi: '' }))}
+                        style={styles.inputStyle}
+                      >
+                        <option value="">— Choisir un cycle —</option>
+                        {(programmesClasses[modalReutiliserBiblio.classeChoisie]?.cycles || []).map(c => <option key={c.id} value={c.id}>{c.titre}</option>)}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {modalReutiliserBiblio.cycleChoisi && (
+                  <div>
+                    <label style={styles.label}>3. Leçon</label>
+                    {((programmesClasses[modalReutiliserBiblio.classeChoisie]?.cycles || []).find(c => c.id === modalReutiliserBiblio.cycleChoisi)?.lecons || []).length === 0 ? (
+                      <p style={{ fontSize: '12px', color: '#991b1b', fontStyle: 'italic' }}>Aucune leçon dans ce cycle pour l'instant — créez-en une d'abord.</p>
+                    ) : (
+                      <select
+                        value={modalReutiliserBiblio.leconChoisi}
+                        onChange={(e) => setModalReutiliserBiblio(prev => ({ ...prev, leconChoisi: e.target.value }))}
+                        style={styles.inputStyle}
+                      >
+                        <option value="">— Choisir une leçon —</option>
+                        {((programmesClasses[modalReutiliserBiblio.classeChoisie]?.cycles || []).find(c => c.id === modalReutiliserBiblio.cycleChoisi)?.lecons || []).map(l => <option key={l.id} value={l.id}>{l.titre}</option>)}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                  <button type="button" onClick={() => setModalReutiliserBiblio({ ouvert: false, item: null, classeChoisie: '', cycleChoisi: '', leconChoisi: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button
+                    type="button"
+                    disabled={!modalReutiliserBiblio.leconChoisi}
+                    onClick={() => utiliserFicheDeLaBibliotheque(modalReutiliserBiblio.item, { cycleId: modalReutiliserBiblio.cycleChoisi, leconId: modalReutiliserBiblio.leconChoisi, classeNom: modalReutiliserBiblio.classeChoisie })}
+                    className="bouton bouton-principal"
+                  >
+                    Continuer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ONGLET : PROGRAMME ANNUEL */}
         {activeTab === 'cycles' && (
           <div>
@@ -2881,7 +3053,7 @@ export default function EnseignantDashboard() {
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Bibliothèque & Base de Données Permanente</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Vos fiches enregistrées, réutilisables à tout moment (bouton "💾 Enregistrer" sur chaque séance). Pour les réutiliser : ouvrez la classe cible, la leçon concernée, puis "♻️ Réutiliser une fiche".</p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Vos fiches enregistrées, rangées par classe. Téléchargez-les en PDF, ou réutilisez-les directement pour créer une nouvelle séance.</p>
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
@@ -2891,21 +3063,44 @@ export default function EnseignantDashboard() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
               {bibliothequeFiltree.length === 0 ? (
                 <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucune fiche enregistrée pour l'instant.</p>
               ) : (
-                bibliothequeFiltree.map(b => (
-                  <div key={b.id} style={styles.itemRow}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                        {b.classeOrigine && <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{b.classeOrigine}</span>}
-                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{b.nom}</strong>
-                      </div>
-                      {b.dateOrigine && <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Créée le {b.dateOrigine}</p>}
+                bibliothequeParClasse.map(([classe, fiches]) => {
+                  const estOuverte = !!classesOuvertesBiblio[classe];
+                  return (
+                    <div key={classe} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
+                      <button
+                        onClick={() => toggleClasseBiblio(classe)}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', backgroundColor: estOuverte ? '#e0f2fe' : '#f8fafc', border: 'none', cursor: 'pointer', outline: 'none' }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🏫 {classe}</span>
+                          <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{fiches.length} fiche{fiches.length > 1 ? 's' : ''}</span>
+                        </span>
+                        <span style={{ fontSize: '16px', color: '#2563eb' }}>{estOuverte ? '▲' : '▼'}</span>
+                      </button>
+
+                      {estOuverte && (
+                        <div style={{ padding: '14px 16px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {fiches.map(b => (
+                            <div key={b.id} style={styles.itemRow}>
+                              <div style={{ flex: 1 }}>
+                                <strong style={{ fontSize: '14px', color: '#0f172a' }}>{b.nom}</strong>
+                                {b.dateOrigine && <p style={{ fontSize: '12px', color: '#475569', margin: '2px 0 0 0' }}>Créée le {b.dateOrigine}</p>}
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button onClick={() => telechargerFichePDFDepuisBiblio(b)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>📥 Télécharger</button>
+                                <button onClick={() => ouvrirReutiliserBiblio(b)} className="bouton bouton-principal" style={{ fontSize: '11px', padding: '6px 10px' }}>♻️ Réutiliser</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

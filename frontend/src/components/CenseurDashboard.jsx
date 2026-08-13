@@ -64,13 +64,15 @@ export default function CenseurDashboard() {
   // NOUVEAU : SYSTÈME DE NOTIFICATIONS IN-APP
   // =========================================================================
   const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
-    if (!destinataireUserId) return;
-    await supabase.from('notifications').insert({
+    if (!destinataireUserId) return { error: null };
+    const { error } = await supabase.from('notifications').insert({
       user_id: destinataireUserId,
       type,
       payload_json: { message, lien_cible: lienCible, etablissement_id: etablissementId },
       canaux: ['in_app'],
     });
+    if (error) console.error('envoyerNotification a échoué :', error);
+    return { error };
   };
 
   // Cloche : lecture + temps réel des notifications de l'utilisateur connecté
@@ -1202,18 +1204,24 @@ export default function CenseurDashboard() {
 
   const envoyerRappelMultipleManuel = async () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
-    
+
+    let echecs = 0;
     for (const profId of profsSelectionnesRappel) {
-      await envoyerNotification(
+      const { error } = await envoyerNotification(
         profId,
         'ALERT',
         "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission. Merci de régulariser la situation.",
         '/enseignant',
         affiliationCenseur.etablissement_id
       );
+      if (error) echecs++;
     }
-    
-    showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
+
+    if (echecs > 0) {
+      showToast(`⚠️ ${echecs} rappel(s) sur ${profsSelectionnesRappel.length} n'ont pas pu être envoyés (voir la console pour le détail — probablement un droit d'accès à corriger côté Supabase).`);
+    } else {
+      showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
+    }
     setProfsSelectionnesRappel([]);
   };
 
@@ -1276,11 +1284,6 @@ export default function CenseurDashboard() {
 
     if (erreurArchive) { showToast("⚠️ Visa enregistré, mais erreur d'archivage : " + erreurArchive.message); }
 
-    await envoyerNotification(
-      userId, 'FICHE_VISEE',
-      `✍️ Vous avez visé la séance "${seanceAViser.titre}" (${classeKey})`,
-      'visa', affiliationCenseur.etablissement_id
-    );
     if (prog.enseignantUserId) {
       await envoyerNotification(
         prog.enseignantUserId, 'FICHE_VISEE',
@@ -2599,14 +2602,18 @@ export default function CenseurDashboard() {
                       </div>
                       <button 
                         onClick={async () => {
-                          await envoyerNotification(
+                          const { error } = await envoyerNotification(
                             prof.userId,
                             'ALERT',
                             "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission.",
                             '/enseignant',
                             affiliationCenseur.etablissement_id
                           );
-                          showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
+                          if (error) {
+                            showToast(`⚠️ Échec de l'envoi à ${prof.nomComplet} : ${error.message}`);
+                          } else {
+                            showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
+                          }
                         }} 
                         className="bouton bouton-secondaire" 
                       >

@@ -1068,6 +1068,37 @@ export default function EnseignantDashboard() {
   };
 
   // --- Envoi au censeur : vraie mise à jour Supabase pour une séance, local sinon ---
+  // --- Notifications sortantes (l'enseignant est ici l'auteur de l'action ;
+  // seul le destinataire — le censeur — doit être notifié, jamais lui-même) ---
+  const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
+    if (!destinataireUserId) return { error: null };
+    const { error } = await supabase.from('notifications').insert({
+      user_id: destinataireUserId,
+      type,
+      payload_json: { message, lien_cible: lienCible, etablissement_id: etablissementId },
+      canaux: ['in_app'],
+    });
+    if (error) console.error('envoyerNotification a échoué :', error);
+    return { error };
+  };
+
+  // Notifie le censeur actif de l'établissement propriétaire de la classe
+  // qu'une nouvelle fiche vient d'arriver dans sa file d'attente (onglet Visa).
+  const notifierCenseurNouvelleFiche = async (classeNom, message) => {
+    const { etablissementId } = await resoudreContexteClasse(classeNom);
+    if (!etablissementId) return;
+    const { data: censeur } = await supabase
+      .from('affiliations_etablissement')
+      .select('user_id')
+      .eq('etablissement_id', etablissementId)
+      .eq('role', 'CENSEUR')
+      .eq('statut', 'ACTIVE')
+      .maybeSingle();
+    if (censeur?.user_id) {
+      await envoyerNotification(censeur.user_id, 'NOUVELLE_FICHE', message, 'visa', etablissementId);
+    }
+  };
+
   const soumettreAuCenseur = async (type, cycleId, leconId = null, seanceId = null) => {
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) return;
@@ -1129,10 +1160,13 @@ export default function EnseignantDashboard() {
       if (!arriveMaintenant) {
         showToast(`📅 Fiche programmée — elle arrivera automatiquement chez le censeur le ${dateSeance}, pas avant.`);
       } else if (estPremiereSeanceDeLaLecon && !erreurLecon) {
+        await notifierCenseurNouvelleFiche(classeSelectionneeVue, `📥 Nouvelle fiche reçue : cycle + leçon + 1ère séance (${classeSelectionneeVue})`);
         showToast("🚀 Séance envoyée avec la fiche de cycle et la fiche de leçon (première séance de cette leçon) !");
       } else if (estPremiereSeanceDeLaLecon && erreurLecon) {
+        await notifierCenseurNouvelleFiche(classeSelectionneeVue, `📥 Nouvelle séance reçue (${classeSelectionneeVue})`);
         showToast("🚀 Séance envoyée, mais la fiche de leçon n'a pas pu être jointe : " + erreurLecon.message);
       } else {
+        await notifierCenseurNouvelleFiche(classeSelectionneeVue, `📥 Nouvelle séance reçue (${classeSelectionneeVue})`);
         showToast("🚀 Séance envoyée — visible chez le censeur dès maintenant !");
       }
       return;
@@ -1160,6 +1194,7 @@ export default function EnseignantDashboard() {
         ...c, lecons: (c.lecons || []).map(l => l.id === leconId ? { ...l, soumisAuCenseur: true } : l)
       });
       setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+      await notifierCenseurNouvelleFiche(classeSelectionneeVue, `📥 Nouvelle fiche de leçon reçue (${classeSelectionneeVue})`);
       showToast("🚀 Fiche de leçon envoyée au censeur !");
       return;
     }

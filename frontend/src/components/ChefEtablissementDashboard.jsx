@@ -80,8 +80,9 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // Envoie une notification à TOUS les membres actifs de l'établissement
-  // (chef inclus) — utilisé pour l'ouverture/fermeture d'année.
+  // Envoie une notification à TOUS les membres actifs de l'établissement,
+  // SAUF l'auteur de l'action lui-même — utilisé pour l'ouverture/fermeture
+  // d'année (celui qui déclenche l'action ne se notifie pas lui-même).
   const envoyerNotificationATousLesMembres = async (etablissementId, type, message, lienCible) => {
     const { data: membres } = await supabase
       .from('affiliations_etablissement')
@@ -89,6 +90,7 @@ export default function ChefEtablissementDashboard() {
       .eq('etablissement_id', etablissementId)
       .eq('statut', 'ACTIVE');
     for (const m of (membres || [])) {
+      if (m.user_id === userId) continue;
       await envoyerNotification(m.user_id, type, message, lienCible, etablissementId);
     }
   };

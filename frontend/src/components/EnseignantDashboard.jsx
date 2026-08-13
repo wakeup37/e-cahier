@@ -1,6 +1,37 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase } from './AppRouter';
 
+// =========================================================================
+// DASHBOARD ENSEIGNANT — BRANCHÉ SUR SUPABASE (passe partielle, assumée)
+// Mêmes noms de fonctions/variables que l'original : le JSX n'a pas eu
+// besoin d'être modifié.
+//
+// RÉELLEMENT BRANCHÉ SUR SUPABASE :
+//   - infosEnseignant (profil) → utilisateurs_profils
+//   - affiliations (liste des établissements) → affiliations_etablissement
+//   - programmesClasses (lecture) → seances/lecons/cycles/programmes_annuels
+//   - gererValidationAssistant : branches 'cycle', 'lecon', 'seance' (PAS 'programme_annuel')
+//   - soumettreAuCenseur : uniquement pour une séance (statut → ENVOYEE)
+//
+// RESTE VOLONTAIREMENT EN LOCAL POUR CETTE PASSE (localStorage, comme avant) :
+//   - rapportsSeances, demandesDepart, demandePromotionCenseur,
+//     propositionsCenseur, notifications, modeSansAffiliation (paiement),
+//     classesSansAffiliation, executerDuplicationIntelligente,
+//     sauvegarderEdition (modification d'un élément existant),
+//     la branche 'programme_annuel'
+//     du générateur, marquerLeconTerminee/marquerCycleTermine,
+//     soumettreAuCenseur pour type 'cycle'/'lecon'/'programme'
+//   → Ces actions modifient encore uniquement l'état local en mémoire :
+//     elles fonctionnent pendant la session mais ne survivent pas à un
+//     rechargement de page. À câbler dans une passe suivante.
+//
+// LIMITE ARCHITECTURALE À CONNAÎTRE : le "mode sans affiliation" (classes
+// personnelles) n'a pas d'équivalent dans le schéma actuel — la table
+// "classes" exige un établissement. Les séances créées en mode sans
+// affiliation sont donc enregistrées avec classe_id = null (autorisé),
+// ce qui fonctionne mais ne "range" pas la séance dans une classe réelle.
+// =========================================================================
+
 export default function EnseignantDashboard() {
 
   // =========================================================================
@@ -8,7 +39,9 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
   const [userId, setUserId] = useState(null);
+  // Cache : etablissement_id (ou 'SANS_AFFILIATION') -> programme_annuel_id
   const programmesAnnuelsCache = useRef({});
+  // Cache : "etablissementId|classeNom" -> classe_id réel (table classes)
   const classesIdCache = useRef({});
 
   // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS & DEMANDES DE DÉPART ---
@@ -43,6 +76,10 @@ export default function EnseignantDashboard() {
         aff.classes.forEach(cl => { if (!classes.includes(cl)) classes.push(cl); });
       }
     });
+    // Les classes personnelles (mode sans affiliation) s'AJOUTENT à celles
+    // des établissements affiliés — elles ne les remplacent plus. Un
+    // enseignant peut ainsi être affilié à une école ET gérer en parallèle
+    // des classes personnelles pour une autre école qui n'utilise pas l'app.
     if (modeSansAffiliation) {
       (classesSansAffiliation || []).forEach(cl => { if (!classes.includes(cl)) classes.push(cl); });
     }
@@ -81,7 +118,9 @@ export default function EnseignantDashboard() {
   const [methodePaiement, setMethodePaiement] = useState('wave');
 
   // =========================================================================
-  // NOTIFICATIONS SUPABASE (CHARGEMENT + TEMPS RÉEL)
+  // NOTIFICATIONS (cloche) — même principe que Censeur/ChefEtablissement :
+  // chargement des non lues dans chargerTout() + abonnement Realtime pour
+  // une réception instantanée, sans recharger la page.
   // =========================================================================
   const [notifications, setNotifications] = useState([]);
   const [notifOuvert, setNotifOuvert] = useState(false);
@@ -105,10 +144,14 @@ export default function EnseignantDashboard() {
     return () => { supabase.removeChannel(canal); };
   }, [userId]);
 
+  // Onglets réellement navigables sur ce dashboard — un lien reçu du
+  // censeur/chef (ex. 'visa', 'classes', 'profil_ecole') ne correspond à
+  // aucun de ces onglets ; dans ce cas on retombe simplement sur le
+  // programme annuel plutôt que de naviguer vers un onglet inexistant.
+  const ONGLETS_ENSEIGNANT = ['cycles', 'bibliotheque', 'affiliation', 'rapports'];
+
   const marquerNotificationLue = async (notif) => {
-    if (notif.lienCible) {
-      setActiveTab(notif.lienCible);
-    }
+    if (notif.lienCible) setActiveTab(ONGLETS_ENSEIGNANT.includes(notif.lienCible) ? notif.lienCible : 'cycles');
     setNotifOuvert(false);
     await supabase.from('notifications').update({ lue_at: new Date().toISOString() }).eq('id', notif.id);
     setNotifications(prev => prev.filter(x => x.id !== notif.id));
@@ -150,6 +193,9 @@ export default function EnseignantDashboard() {
 
   const [classeSelectionneeVue, setClasseSelectionneeVue] = useState(null);
 
+  // --- BIBLIOTHÈQUE PERSONNELLE — vraie table Supabase (bibliotheque_personnelle).
+  // Chaque ligne pointe vers une séance déjà créée (reference_id) ; le
+  // contenu réel est relu depuis la table seances au chargement.
   const [bibliotheque, setBibliotheque] = useState([]);
   const [filtreBiblioTexte, setFiltreBiblioTexte] = useState('');
 
@@ -213,6 +259,7 @@ export default function EnseignantDashboard() {
     }));
   };
 
+  // --- PROGRAMMES (Supabase en lecture, écriture partielle) ---
   const [programmesClasses, setProgrammesClasses] = useState({});
 
   const [champsPersonnalises, setChampsPersonnalises] = useState(() => {
@@ -254,6 +301,9 @@ export default function EnseignantDashboard() {
   const toggleCycle = (cycleId) => setCyclesOuverts(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
   const toggleLecon = (leconId) => setLeconsOuvertes(prev => ({ ...prev, [leconId]: !prev[leconId] }));
 
+  // En arrivant sur une classe qui a déjà un programme, ses cycles s'ouvrent
+  // automatiquement (on voit tout de suite les leçons) — les leçons, elles,
+  // restent repliées par défaut pour ne pas surcharger l'écran de séances.
   useEffect(() => {
     if (!classeSelectionneeVue) return;
     const cycles = programmesClasses?.[classeSelectionneeVue]?.cycles;
@@ -336,6 +386,8 @@ export default function EnseignantDashboard() {
     }));
     setAffiliations(affiliationsFormatees);
 
+    // Demandes de départ déjà soumises (pour ne pas en permettre une deuxième
+    // pendant que la première est encore en attente)
     const { data: demandesDepartData } = await supabase
       .from('demandes_depart')
       .select('id, affiliation_id, motif, statut, created_at')
@@ -344,6 +396,21 @@ export default function EnseignantDashboard() {
     setDemandesDepart((demandesDepartData || []).map(d => ({
       id: d.id, ecoleId: d.affiliation_id, motif: d.motif,
       dateDemande: new Date(d.created_at).toLocaleDateString(), statut: 'En attente de validation',
+    })));
+
+    // Notifications non lues (cloche)
+    const { data: notifs } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', user.id)
+      .is('lue_at', null)
+      .order('created_at', { ascending: false });
+    setNotifications((notifs || []).map(n => ({
+      id: n.id,
+      texte: n.payload_json?.message || '',
+      date: new Date(n.created_at).toLocaleDateString(),
+      lu: false,
+      lienCible: n.payload_json?.lien_cible,
     })));
 
     if (profil) {
@@ -356,6 +423,10 @@ export default function EnseignantDashboard() {
       setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '', matiereIds: matiereIdsActuels }));
     }
 
+    // Programme complet de l'enseignant : on part des CYCLES (visibles même
+    // sans aucune leçon/séance encore remplie), puis on descend vers les
+    // leçons, puis les séances — plus aucune dépendance à l'existence d'une
+    // séance pour qu'un cycle ou une leçon reste visible après rechargement.
     const { data: programmesPossedes } = await supabase
       .from('programmes_annuels').select('id').eq('proprietaire_user_id', user.id);
     const idsProgrammes = (programmesPossedes || []).map(p => p.id);
@@ -424,33 +495,25 @@ export default function EnseignantDashboard() {
 
     setProgrammesClasses(groupe);
 
-    // Notifications non lues (cloche)
-    const { data: notifs } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', user.id)
-      .is('lue_at', null)
-      .order('created_at', { ascending: false });
-    setNotifications((notifs || []).map(n => ({
-      id: n.id,
-      texte: n.payload_json?.message || '',
-      date: new Date(n.created_at).toLocaleDateString(),
-      lu: false,
-      lienCible: n.payload_json?.lien_cible,
-    })));
-
     setChargementInitial(false);
   };
 
   useEffect(() => { chargerTout(); }, []);
 
+  // =========================================================================
+  // HELPERS DE RÉSOLUTION DE CONTEXTE (établissement / année / classe réelle)
+  // =========================================================================
   const resoudreContexteClasse = async (classeNom) => {
+    // Une classe personnelle (créée en mode sans affiliation) n'est jamais
+    // rattachée à un établissement réel — même si l'enseignant est par
+    // ailleurs affilié à une autre école.
     const estClassePersonnelle = Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeNom);
     if (estClassePersonnelle) return { etablissementId: null, anneeScolaireId: null, classeId: null };
 
     const affiliation = affiliations.find(a => a.statut === 'Validée' && a.classes.includes(classeNom));
     if (!affiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null };
 
+    // On retrouve l'établissement_id réel depuis la table (le formatage local ne le garde pas)
     const { data: aff } = await supabase
       .from('affiliations_etablissement').select('etablissement_id').eq('id', affiliation.id).single();
     const etablissementId = aff?.etablissement_id;
@@ -474,7 +537,7 @@ export default function EnseignantDashboard() {
     const cle = etablissementId || 'SANS_AFFILIATION';
     if (programmesAnnuelsCache.current[cle]) return { id: programmesAnnuelsCache.current[cle], erreur: null };
 
-    const affiliationCorrespondante = affiliations.find(a => a.statut === 'Validée');
+    const affiliationCorrespondante = affiliations.find(a => a.statut === 'Validée'); // simplification : 1er établissement actif trouvé
     let affiliationId = null;
     if (etablissementId && affiliationCorrespondante) {
       const { data } = await supabase
@@ -508,6 +571,9 @@ export default function EnseignantDashboard() {
     return { id: nouveau.id, erreur: null };
   };
 
+  // =========================================================================
+  // LOGIQUE MÉTIER — Supabase pour les parties clés, reste en local sinon
+  // =========================================================================
   const handleEnregistrerProfil = async (e) => {
     e.preventDefault();
     if (!userId) return;
@@ -515,6 +581,9 @@ export default function EnseignantDashboard() {
       .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms, telephone: formProfil.telephone || null }).eq('user_id', userId);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
+    // Synchronise les matières déclarées : on remplace l'ensemble par la
+    // sélection actuelle (simple et sûr — un enseignant en a rarement plus
+    // de 2 ou 3, pas besoin d'un diff plus fin)
     const { error: erreurSuppression } = await supabase.from('matieres_enseignant').delete().eq('user_id', userId);
     if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); return; }
     if (formProfil.matiereIds.length > 0) {
@@ -530,6 +599,7 @@ export default function EnseignantDashboard() {
     showToast("✅ Profil mis à jour avec succès !");
   };
 
+  // Photo : reste locale (pas de colonne dédiée dans utilisateurs_profils pour l'instant)
   const handleChangerPhotoProfil = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -538,6 +608,8 @@ export default function EnseignantDashboard() {
     reader.readAsDataURL(file);
   };
 
+  // Reste local pour cette passe (pas de table dédiée à la promotion enseignant->censeur
+  // distincte de demandes_changement_role — à unifier avec le dashboard censeur ensuite)
   const envoyerDemandePromotionCenseur = (e) => {
     e.preventDefault();
     setDemandePromotionCenseur({
@@ -553,6 +625,8 @@ export default function EnseignantDashboard() {
     e.preventDefault();
     if (!modalDepart.ecoleId || !userId) return;
 
+    // On retrouve l'établissement réel de cette affiliation (le formatage
+    // local ne garde que le nom de l'école, pas son id).
     const { data: aff } = await supabase
       .from('affiliations_etablissement')
       .select('etablissement_id, role')
@@ -585,6 +659,7 @@ export default function EnseignantDashboard() {
     showToast("📤 Demande de départ transmise pour validation !");
   };
 
+  // --- Proposer une classe (de l'année en cours) au censeur de cet établissement ---
   const ouvrirModalProposerClasse = async (affiliation) => {
     const { data: annee } = await supabase
       .from('annees_scolaires')
@@ -628,6 +703,9 @@ export default function EnseignantDashboard() {
       return;
     }
 
+    // Si le nom tapé correspond exactement à une classe déjà créée par le
+    // censeur, on la référence directement. Sinon, c'est une PROPOSITION de
+    // nouvelle classe : le censeur pourra en corriger le nom avant validation.
     const classeExistante = modalProposerClasse.classesDisponibles.find(c => c.nom.toLowerCase() === classeNom.trim().toLowerCase());
 
     const { error } = await supabase.from('demandes_attributions_classes').insert({
@@ -654,6 +732,7 @@ export default function EnseignantDashboard() {
     showToast(`🗑️ Classe "${classeNom}" supprimée avec succès !`);
   };
 
+  // Reste en local pour cette passe (voir note en tête de fichier)
   const executerDuplicationIntelligente = (e) => {
     e.preventDefault();
     const { itemSource, typeSource, classesCibles, datesParClasse } = modalDuplicationIntelligente;
@@ -732,11 +811,19 @@ export default function EnseignantDashboard() {
     setProgrammesClasses(prev => ({ ...(prev || {}), [classe]: { anneeScolaire: '2025-2026', cycles: [] } }));
   };
 
+  // =========================================================================
+  // ASSISTANT DE CRÉATION — Supabase pour 'cycle'/'lecon'/'seance', local pour 'programme_annuel'
+  // =========================================================================
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
     const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
+    // --- Branche PROGRAMME ANNUEL COMPLET : vraie création Supabase ---
+    // Le professeur trace d'abord le squelette de son année (une suite de
+    // cycles, juste titre + compétence + nombre de leçons prévu). Chaque
+    // cycle devient un vrai cycle en base pour chaque classe cible — les
+    // leçons/séances se rempliront ensuite au fil de l'année, cycle par cycle.
     if (niveauCible === 'programme_annuel') {
       if (!Array.isArray(classesCiblesCycle) || classesCiblesCycle.length === 0) {
         showToast("⚠️ Veuillez sélectionner au moins une classe cible pour ce programme.");
@@ -753,7 +840,7 @@ export default function EnseignantDashboard() {
       for (const classeCible of classesCiblesCycle) {
         const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
         const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
-        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable'})`); continue; }
+        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
 
         for (const cp of listeCycles) {
           const numeroCycle = (programmesClasses[classeCible]?.cycles?.length || 0) + 1;
@@ -789,6 +876,10 @@ export default function EnseignantDashboard() {
       return;
     }
 
+    // --- Branche CYCLE : vraie création Supabase, sûre multi-établissements ---
+    // Chaque classe cochée reçoit désormais SON PROPRE cycle en base, avec sa
+    // propre période — même au sein d'un même établissement, deux classes
+    // n'ont pas forcément cours les mêmes jours, la période peut varier.
     if (niveauCible === 'cycle') {
       const ciblesCycle = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
         ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
@@ -804,7 +895,7 @@ export default function EnseignantDashboard() {
       for (const classeCible of ciblesCycle) {
         const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
         const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
-        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable'})`); continue; }
+        if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
         etablissementsConcernes.add(etablissementId || 'SANS_AFFILIATION');
 
         const periode = (modalAssistant.periodesParClasseCycle && modalAssistant.periodesParClasseCycle[classeCible]) || {};
@@ -841,6 +932,11 @@ export default function EnseignantDashboard() {
       }
     }
 
+    // --- Branche LEÇON : vraie création Supabase, multi-classes ---
+    // La liaison entre établissements se fait par titre de cycle (aucun
+    // identifiant technique commun n'existe entre deux bases d'écoles
+    // différentes) — seules les classes ayant déjà un cycle du même titre
+    // reçoivent la nouvelle leçon.
     else if (niveauCible === 'lecon') {
       const ciblesLecon = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
         ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
@@ -882,6 +978,8 @@ export default function EnseignantDashboard() {
       showToast(`✨ Leçon créée pour ${compteurCreees} classe(s) !`);
     }
 
+    // --- Branche SÉANCE : vraie création Supabase, multi-classes + une date
+    // propre à chaque classe (même logique de liaison par titre que ci-dessus) ---
     else if (niveauCible === 'seance') {
       const ciblesSeance = Array.isArray(classesCiblesCycle) && classesCiblesCycle.length > 0
         ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
@@ -944,11 +1042,14 @@ export default function EnseignantDashboard() {
     });
   };
 
+  // --- Envoi au censeur : vraie mise à jour Supabase pour une séance, local sinon ---
   const soumettreAuCenseur = async (type, cycleId, leconId = null, seanceId = null) => {
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) return;
 
     if (type === 'seance' && seanceId) {
+      // Retrouve la date prévue de cette séance dans le mirroir local, pour
+      // décider si elle arrive maintenant ou est programmée pour plus tard.
       let dateSeance = null;
       (prog.cycles || []).forEach(c => (c.lecons || []).forEach(l => (l.seances || []).forEach(s => {
         if (s.id === seanceId) dateSeance = s.date;
@@ -958,14 +1059,14 @@ export default function EnseignantDashboard() {
       const arriveMaintenant = !dateSeance || dateSeance <= aujourdHui;
       const statutCible = arriveMaintenant ? 'ENVOYEE' : 'PROGRAMMEE';
 
-      const { error } = await supabase
-        .from('seances')
-        .update({ 
-          statut: statutCible, 
-          envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
-          statut_visa: 'SOUMISE'
-        })
-        .eq('id', seanceId);
+     const { error } = await supabase
+  .from('seances')
+  .update({ 
+    statut: statutCible, 
+    envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
+    statut_visa: 'SOUMISE'
+  })
+  .eq('id', seanceId);
 
       if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
@@ -983,6 +1084,8 @@ export default function EnseignantDashboard() {
       return;
     }
 
+    // --- Branche LEÇON : vraie création Supabase — obligatoirement précédée
+    // d'au moins une séance déjà envoyée (jamais une leçon "vide" chez le censeur) ---
     if (type === 'lecon' && leconId) {
       const { data: seancesDeLaLecon } = await supabase
         .from('seances').select('id, statut').eq('lecon_id', leconId);
@@ -1056,6 +1159,7 @@ export default function EnseignantDashboard() {
     setModalEdition({ ouvert: true, type, cycleId, leconId, seanceId, donnees });
   };
 
+  // Reste en local pour cette passe
   const sauvegarderEdition = (e) => {
     e.preventDefault();
     const { type, cycleId, leconId, seanceId, donnees } = modalEdition;
@@ -1094,6 +1198,7 @@ export default function EnseignantDashboard() {
     showToast("✅ Modification enregistrée (local uniquement pour l'instant) !");
   };
 
+  // --- Demande d'affiliation : vraie insertion Supabase ---
   const soumettreDemandeAffiliation = async (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim() || !userId) return;
@@ -1102,7 +1207,7 @@ export default function EnseignantDashboard() {
       .from('etablissements').select('id, nom').eq('code', nouvelleEcoleSaisie.trim()).maybeSingle();
 
     if (erreurRecherche || !etablissementCible) {
-      showToast("⚠️ Établissement introuvable. Vérifiez le nom exact.");
+      showToast("⚠️ Établissement introuvable. Vérifiez le nom exact (idéalement demandez le code établissement).");
       return;
     }
 
@@ -1254,6 +1359,7 @@ export default function EnseignantDashboard() {
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           
+          {/* SECTION PROFIL ÉPURÉE */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilRef}>
             <button onClick={() => setProfilOuvert(!profilOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
@@ -1308,26 +1414,28 @@ export default function EnseignantDashboard() {
             )}
           </div>
 
+          {/* LOGO CENTRAL (ENTRE PROFIL ET NOTIFICATIONS) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
             <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
+          {/* MENU BURGER & NOTIFICATIONS SÉCURISÉS DANS LE BON SENS */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             
             <div style={{ position: 'relative' }} ref={notifRef}>
               <button onClick={() => setNotifOuvert(!notifOuvert)} style={styles.navDarkBtn}>
                 <span>🔔</span>
-                {Array.isArray(notifications) && notifications.length > 0 && <span style={styles.pastilleAlerte}>{notifications.length}</span>}
+                {notifications.length > 0 && <span style={styles.pastilleAlerte}>{notifications.length}</span>}
               </button>
               {notifOuvert && (
                 <div style={{ ...styles.notificationDropdown, right: 0, left: 'auto' }}>
                   <div style={styles.dropdownHeader}>Notifications & Validations</div>
-                  {Array.isArray(notifications) && notifications.length === 0 ? (
+                  {notifications.length === 0 ? (
                     <p style={{ fontSize: '11px', color: '#94a3b8', padding: '8px', fontStyle: 'italic' }}>Aucune nouvelle notification.</p>
                   ) : (
-                    Array.isArray(notifications) && notifications.map(n => (
-                      <div key={n.id} onClick={() => marquerNotificationLue(n)} style={styles.notifItem}>
+                    notifications.map(n => (
+                      <div key={n.id} onClick={() => marquerNotificationLue(n)} style={{ ...styles.notifItem, cursor: 'pointer' }}>
                         <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#334155', lineHeight: '1.4' }}>{n.texte}</p>
                         <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
                       </div>
@@ -1389,6 +1497,7 @@ export default function EnseignantDashboard() {
         </div>
       </header>
 
+      {/* --- STYLE UNIVERSEL DES BOUTONS HARMONIEUX ET MODERNES --- */}
       <style>{`
         .bouton {
           padding: 8px 16px;
@@ -1447,6 +1556,7 @@ export default function EnseignantDashboard() {
       <main style={styles.mainContentBody}>
         {message && <div style={styles.toastSuccess}>{message}</div>}
 
+        {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
         {modalConfirmation.ouvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
@@ -2535,6 +2645,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {/* ONGLET : PROGRAMME ANNUEL */}
         {activeTab === 'cycles' && (
           <div>
             {!classeSelectionneeVue ? (
@@ -2576,6 +2687,8 @@ export default function EnseignantDashboard() {
                           <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
                         </div>
 
+                        {/* BOUTON SUPPRESSION CLASSE SÉCURISÉ PAR MODALE — uniquement sur les
+                            classes personnelles, jamais sur une classe affiliée à un établissement */}
                         {Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(cl) && (
                           <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
                             <button 
@@ -2763,11 +2876,12 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {/* ONGLET : BIBLIOTHÈQUE */}
         {activeTab === 'bibliotheque' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Bibliothèque & Base de Données Permanente</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Vos fiches enregistrées, réutilisables à tout moment (bouton "💾 Enregistrer" sur chaque séance).</p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Vos fiches enregistrées, réutilisables à tout moment (bouton "💾 Enregistrer" sur chaque séance). Pour les réutiliser : ouvrez la classe cible, la leçon concernée, puis "♻️ Réutiliser une fiche".</p>
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
@@ -2797,6 +2911,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {/* ONGLET : RAPPORTS DE SÉANCE */}
         {activeTab === 'rapports' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -2828,6 +2943,7 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {/* ONGLET : ÉCOLES & BOUTON QUITTER L'ÉTABLISSEMENT */}
         {activeTab === 'affiliation' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>

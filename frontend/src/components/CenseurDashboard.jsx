@@ -48,6 +48,32 @@ export default function CenseurDashboard() {
     });
   };
 
+  // Cloche : lecture + temps réel des notifications de l'utilisateur connecté
+  useEffect(() => {
+    if (!userId) return;
+    const canal = supabase
+      .channel(`notifications-${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, (payload) => {
+        const n = payload.new;
+        setNotificationsCenseur(prev => [{
+          id: n.id,
+          texte: n.payload_json?.message || '',
+          date: new Date(n.created_at).toLocaleDateString(),
+          lu: false,
+          lienCible: n.payload_json?.lien_cible,
+        }, ...prev]);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(canal); };
+  }, [userId]);
+
+  const marquerNotificationLue = async (notif) => {
+    setActiveTab(notif.lienCible || 'visa');
+    setNotifCenseurOuvert(false);
+    await supabase.from('notifications').update({ lue_at: new Date().toISOString() }).eq('id', notif.id);
+    setNotificationsCenseur(prev => prev.filter(x => x.id !== notif.id));
+  };
+
   // =========================================================================
   // ÉTATS DU PROFIL & CONFIGURATION GLOBALE
   // =========================================================================
@@ -382,7 +408,6 @@ export default function CenseurDashboard() {
       const cycle = sc.lecons?.cycles;
       const programme = cycle?.programmes_annuels;
       
-      // INTÉGRATION DE TON CODE (enseignantUserId inclus)
       if (!groupe[classeNom]) {
         groupe[classeNom] = {
           enseignant: `${programme?.utilisateurs_profils?.prenom || ''} ${programme?.utilisateurs_profils?.nom || ''}`.trim() || 'Inconnu',
@@ -433,6 +458,21 @@ export default function CenseurDashboard() {
       titre: a.titre,
       dateValidation: new Date(a.created_at).toLocaleDateString(),
       details: a.contenu_snapshot_json,
+    })));
+
+    // Notifications non lues (cloche)
+    const { data: notifs } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', user.id)
+      .is('lue_at', null)
+      .order('created_at', { ascending: false });
+    setNotificationsCenseur((notifs || []).map(n => ({
+      id: n.id,
+      texte: n.payload_json?.message || '',
+      date: new Date(n.created_at).toLocaleDateString(),
+      lu: false,
+      lienCible: n.payload_json?.lien_cible,
     })));
 
     setChargementInitial(false);
@@ -515,6 +555,12 @@ export default function CenseurDashboard() {
       return;
     }
 
+    await envoyerNotification(
+      demande.user_id, 'DEMANDE_AFFILIATION_ACCEPTEE',
+      `✅ Votre demande pour rejoindre l'établissement en tant qu'enseignant a été acceptée !`,
+      'professeurs', affiliationCenseur.etablissement_id
+    );
+
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
     showToast("✅ Demande approuvée, l'enseignant a maintenant accès à l'établissement !");
   };
@@ -525,6 +571,13 @@ export default function CenseurDashboard() {
       .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
       .eq('id', demande.id);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    await envoyerNotification(
+      demande.user_id, 'DEMANDE_AFFILIATION_REFUSEE',
+      `❌ Votre demande pour rejoindre l'établissement en tant qu'enseignant a été refusée.`,
+      'professeurs', affiliationCenseur.etablissement_id
+    );
+
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
     showToast("❌ Demande refusée.");
   };
@@ -774,6 +827,13 @@ export default function CenseurDashboard() {
       return;
     }
     showToast(`✅ ${lignes.length} classe(s) attribuée(s) !`);
+
+    await envoyerNotification(
+      formAttribution.enseignantId, 'CLASSE_ATTRIBUEE',
+      `🏫 On vous a attribué ${lignes.length} classe(s)`,
+      'classes', affiliationCenseur.etablissement_id
+    );
+
     setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
     chargerTout();
   };
@@ -830,6 +890,13 @@ export default function CenseurDashboard() {
       return;
     }
     setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, nouvelle] }));
+
+    await envoyerNotification(
+      modalGererClasses.prof.userId, 'CLASSE_ATTRIBUEE',
+      `🏫 On vous a attribué la classe "${nouvelle.classes?.nom}" en ${nouvelle.matieres?.nom}`,
+      'classes', affiliationCenseur.etablissement_id
+    );
+
     setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdChoisie: '' });
     chargerTout();
     showToast("✅ Classe ajoutée !");
@@ -869,6 +936,13 @@ export default function CenseurDashboard() {
       .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId, classe_id: classeId })
       .eq('id', demande.id);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    await envoyerNotification(
+      demande.enseignant_id, 'PROPOSITION_ACCEPTEE',
+      `✅ Votre proposition de classe "${nomFinal}" a été acceptée !`,
+      'classes', demande.etablissement_id
+    );
+
     setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
     showToast("✅ Proposition acceptée, la classe est attribuée !");
     chargerTout();
@@ -885,6 +959,13 @@ export default function CenseurDashboard() {
           .update({ statut: 'REFUSEE', traitee_par_user_id: userId })
           .eq('id', demande.id);
         if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+        await envoyerNotification(
+          demande.enseignant_id, 'PROPOSITION_REFUSEE',
+          `❌ Votre proposition de classe a été refusée.`,
+          'classes', demande.etablissement_id
+        );
+
         setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
         showToast("❌ Proposition refusée.");
       },
@@ -1013,7 +1094,6 @@ export default function CenseurDashboard() {
     setProfsSelectionnesRappel(prev => isChecked ? [...prev, profUserId] : prev.filter(id => id !== profUserId));
   };
 
-  // NOUVEAU : ENVOI RÉEL DE NOTIFICATIONS DE RAPPEL AUX ENSEIGNANTS !
   const envoyerRappelMultipleManuel = async () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
     
@@ -1066,7 +1146,6 @@ export default function CenseurDashboard() {
     showToast("🗑️ Membre retiré.");
   };
 
-  // NOUVEAU : VISA SÉANCE + NOTIFICATION AU PROFESSEUR
   const viserEtArchiverSeance = async (classeKey, cycleId, leconId, seanceAViser) => {
     const prog = programmesClasses[classeKey];
     if (!prog || !affiliationCenseur) return;
@@ -1091,20 +1170,23 @@ export default function CenseurDashboard() {
 
     if (erreurArchive) { showToast("⚠️ Visa enregistré, mais erreur d'archivage : " + erreurArchive.message); }
 
-    // NOTIFICATION !
     await envoyerNotification(
-      prog.enseignantUserId,
-      'INFO',
-      `Votre séance "${seanceAViser.titre}" en classe de ${classeKey} a été visée et archivée par le censeur.`,
-      '/enseignant',
-      affiliationCenseur.etablissement_id
+      userId, 'FICHE_VISEE',
+      `✍️ Vous avez visé la séance "${seanceAViser.titre}" (${classeKey})`,
+      'visa', affiliationCenseur.etablissement_id
     );
+    if (prog.enseignantUserId) {
+      await envoyerNotification(
+        prog.enseignantUserId, 'FICHE_VISEE',
+        `✅ Votre séance "${seanceAViser.titre}" (${classeKey}) a été visée par le censeur`,
+        'visa', affiliationCenseur.etablissement_id
+      );
+    }
 
     showToast(`✅ Séance visée et archivée !`);
     chargerTout();
   };
 
-  // NOUVEAU : VISA LEÇON + NOTIFICATION AU PROFESSEUR
   const viserLecon = async (leconId, enseignantUserId, leconTitre) => {
     const { error } = await supabase
       .from('lecons')
@@ -1112,7 +1194,6 @@ export default function CenseurDashboard() {
       .eq('id', leconId);
     if (error) { showToast("⚠️ Erreur de visa : " + error.message); return; }
     
-    // NOTIFICATION !
     await envoyerNotification(
       enseignantUserId,
       'SUCCESS',
@@ -1125,7 +1206,6 @@ export default function CenseurDashboard() {
     chargerTout();
   };
 
-  // NOUVEAU : RETOUR LEÇON + NOTIFICATION AU PROFESSEUR
   const retournerLecon = (leconId, enseignantUserId, leconTitre) => {
     setModalConfirmation({
       ouvert: true,
@@ -1138,7 +1218,6 @@ export default function CenseurDashboard() {
           .eq('id', leconId);
         if (error) { showToast("⚠️ Erreur : " + error.message); return; }
         
-        // NOTIFICATION !
         await envoyerNotification(
           enseignantUserId,
           'ALERT',
@@ -1168,7 +1247,8 @@ export default function CenseurDashboard() {
   // =========================================================================
   // VARIABLES DÉRIVÉES
   // =========================================================================
-  const nombreClassesAutomatique = useMemo(() => Object.keys(programmesClasses || {}).length || 0, [programmesClasses]);
+  const nombreClassesAutomatique = classesEtablissement.length;
+
   const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
   const fichesFiltrees = useMemo(() => {
@@ -1279,16 +1359,20 @@ export default function CenseurDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ position: 'relative' }} ref={notifCenseurRef}>
               <button onClick={() => setNotifCenseurOuvert(!notifCenseurOuvert)} style={styles.navDarkBtn}>
-                <span>🔔</span>{(notificationsCenseur || []).filter(n => !n.lu).length > 0 && <span style={styles.pastilleAlerte}>{(notificationsCenseur || []).filter(n => !n.lu).length}</span>}
+                <span>🔔</span>{(notificationsCenseur || []).length > 0 && <span style={styles.pastilleAlerte}>{(notificationsCenseur || []).length}</span>}
               </button>
               {notifCenseurOuvert && (
                 <div style={{ ...styles.notificationDropdown, right: 0, left: 'auto' }}>
                   <div style={styles.dropdownHeader}>Notifications</div>
-                  {(notificationsCenseur || []).map(n => (
-                    <div key={n.id} onClick={() => { setActiveTab('visa'); setNotifCenseurOuvert(false); }} style={styles.notifItem}>
-                      <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#334155' }}>{n.texte}</p><span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
-                    </div>
-                  ))}
+                  {(notificationsCenseur || []).length === 0 ? (
+                    <p style={{ fontSize: '11px', color: '#94a3b8', padding: '8px', fontStyle: 'italic' }}>Aucune nouvelle notification.</p>
+                  ) : (
+                    (notificationsCenseur || []).map(n => (
+                      <div key={n.id} onClick={() => marquerNotificationLue(n)} style={styles.notifItem}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#334155' }}>{n.texte}</p><span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.date}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -1619,7 +1703,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 1 : VISA & FILE D'ATTENTE */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'visa' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -1661,7 +1747,7 @@ export default function CenseurDashboard() {
                         </div>
                         {nombreFichesEnAttente > 0 && (
                           <span style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '11px', fontWeight: '900', padding: '2px 8px', borderRadius: '999px', flexShrink: 0 }}>
-                            {nombreFichesEnAttente} nouvelle{nombreFichesEnAttente > 1 ? 's' : ''}
+                            +{nombreFichesEnAttente} fiche{nombreFichesEnAttente > 1 ? 's' : ''}
                           </span>
                         )}
                       </div>
@@ -1715,7 +1801,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 2 : ARCHIVES PÉDAGOGIQUES */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -1752,7 +1840,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 3 : ANNUAIRE & PERSONNEL */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -1855,7 +1945,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET : CLASSES & ATTRIBUTIONS */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'classes' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
@@ -2154,7 +2246,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET : DOCUMENTS D'ÉTABLISSEMENT */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'documents' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📤 Documents d'Établissement</h2>
@@ -2193,7 +2287,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 4 : SUIVI & RAPPELS MANUELS MULTIPLES */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'suivi' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -2215,7 +2311,6 @@ export default function CenseurDashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {listeProfesseursEtablissement.map((prof, idx) => {
-                  // Le tableau contient maintenant les userId des profs
                   const estCoche = profsSelectionnesRappel.includes(prof.userId);
                   return (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: estCoche ? '1px solid #3b82f6' : '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
@@ -2254,7 +2349,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 5 : PROFIL ÉCOLE */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -2291,7 +2388,9 @@ export default function CenseurDashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------------------------------ */}
         {/* ONGLET 6 : ÉVOLUTION DE CARRIÈRE */}
+        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'evolution' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -2342,6 +2441,9 @@ export default function CenseurDashboard() {
   );
 }
 
+// =========================================================================
+// 8. STYLES SÉCURISÉS ET HARMONISÉS
+// =========================================================================
 const styles = {
   container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },

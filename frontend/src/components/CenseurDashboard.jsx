@@ -1,6 +1,31 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from './AppRouter';
 
+// Catalogue fixe des séries du second cycle (Seconde/Première/Terminale) —
+// remplace l'ancien système de séries mémorisées à la volée pour ce niveau.
+// Chaque série est taguée GENERAL ou TECHNIQUE pour permettre au censeur de
+// ne voir que les séries pertinentes selon le type de son établissement.
+const SERIES_SECOND_CYCLE = [
+  { code: 'A', label: 'A — Littéraire', type: 'GENERAL' },
+  { code: 'B', label: 'B — Sciences Économiques et Sociales', type: 'GENERAL' },
+  { code: 'C', label: 'C — Scientifique (Maths-Physique)', type: 'GENERAL' },
+  { code: 'D', label: 'D — Scientifique (Maths-SVT)', type: 'GENERAL' },
+  { code: 'E', label: 'E — Mathématiques et Techniques', type: 'GENERAL' },
+  { code: 'F1', label: 'F1 — Construction / Fabrication Mécanique', type: 'TECHNIQUE' },
+  { code: 'F2', label: 'F2 — Électronique', type: 'TECHNIQUE' },
+  { code: 'F3', label: 'F3 — Électrotechnique', type: 'TECHNIQUE' },
+  { code: 'F4', label: 'F4 — Génie Civil', type: 'TECHNIQUE' },
+  { code: 'G1', label: 'G1 — Techniques Administratives et Bureautique', type: 'TECHNIQUE' },
+  { code: 'G2', label: 'G2 — Techniques Quantitatives', type: 'TECHNIQUE' },
+  { code: 'G3', label: 'G3 — Techniques Commerciales', type: 'TECHNIQUE' },
+  { code: 'H1', label: 'H1 — Informatique (option 1)', type: 'TECHNIQUE' },
+  { code: 'H2', label: 'H2 — Informatique (option 2)', type: 'TECHNIQUE' },
+];
+
+const NIVEAUX_PREMIER_CYCLE = ['6ème', '5ème', '4ème', '3ème'];
+const NIVEAUX_SECOND_CYCLE = ['Seconde', 'Première', 'Terminale'];
+const TOUS_NIVEAUX = [...NIVEAUX_PREMIER_CYCLE, ...NIVEAUX_SECOND_CYCLE];
+
 export default function CenseurDashboard() {
 
   // =========================================================================
@@ -101,7 +126,7 @@ export default function CenseurDashboard() {
 
   const [ecoleConfigGlobale, setEcoleConfigGlobale] = useState({
     nomEcole: '', typeEtablissement: '', codeEtablissement: '', situationGeo: '',
-    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true
+    anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true, typeEnseignement: 'GENERAL'
   });
 
   // =========================================================================
@@ -126,15 +151,17 @@ export default function CenseurDashboard() {
   const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
   const [nouvelleClasseNiveau, setNouvelleClasseNiveau] = useState('');
   const [nouveauLotNiveau, setNouveauLotNiveau] = useState('');
-  const [nouveauLotAvecSeries, setNouveauLotAvecSeries] = useState(false);
   const [nouveauLotNombre, setNouveauLotNombre] = useState('');
   const [nouveauLotStyle, setNouveauLotStyle] = useState('alphabetique');
-  const [seriesEtablissement, setSeriesEtablissement] = useState([]);
-  const [nouvelleSerieNom, setNouvelleSerieNom] = useState('');
-  const [lotSeriesChoisies, setLotSeriesChoisies] = useState({});
   const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
+  // --- Second cycle (Seconde/Première/Terminale) : catalogue fixe de séries ---
+  const [niveauSecondCycle, setNiveauSecondCycle] = useState('Seconde');
+  const [seriesChoisiesSecondCycle, setSeriesChoisiesSecondCycle] = useState({});
+  const [separateurSecondCycle, setSeparateurSecondCycle] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
   const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdChoisie: '' });
+  const [matiereProgrammeOuverte, setMatiereProgrammeOuverte] = useState(null);
+  const [brouillonProgrammeMatiere, setBrouillonProgrammeMatiere] = useState({ niveaux: [], series: [] });
   const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
   const [nomNouveauFichier, setNomNouveauFichier] = useState('');
   const [categorieNouveauFichier, setCategorieNouveauFichier] = useState('Administratif');
@@ -257,6 +284,7 @@ export default function CenseurDashboard() {
       nombreEleves: etab?.parametres_json?.nombreEleves || '',
       nombreEnseignants: etab?.parametres_json?.nombreEnseignants || '',
       anneeOuverte: annee?.est_active ?? true,
+      typeEnseignement: etab?.parametres_json?.typeEnseignement || 'GENERAL',
     });
 
     const { data: affiliationsEnseignants } = await supabase
@@ -268,7 +296,7 @@ export default function CenseurDashboard() {
 
     const { data: matieresEnseignants } = await supabase
       .from('matieres_enseignant')
-      .select('user_id, matiere_id, matieres(nom)')
+      .select('user_id, matiere_id, matieres(nom, niveaux_applicables, series_applicables)')
       .eq('etablissement_id', etablissementId);
 
     const { data: attributions } = await supabase
@@ -280,7 +308,7 @@ export default function CenseurDashboard() {
       const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
       const matieresProfil = (matieresEnseignants || [])
         .filter(m => m.user_id === a.user_id)
-        .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom }))
+        .map(m => ({ id: m.matiere_id, nom: m.matieres?.nom, niveauxApplicables: m.matieres?.niveaux_applicables || [], seriesApplicables: m.matieres?.series_applicables || [] }))
         .filter(m => m.nom);
       return {
         id: a.id,
@@ -315,19 +343,12 @@ export default function CenseurDashboard() {
     if (annee?.id) {
       const { data: classesData } = await supabase
         .from('classes')
-        .select('id, nom, niveau')
+        .select('id, nom, niveau, serie')
         .eq('etablissement_id', etablissementId)
         .eq('annee_scolaire_id', annee.id)
         .is('deleted_at', null)
         .order('nom', { ascending: true });
       setClassesEtablissement(classesData || []);
-
-      const { data: seriesData } = await supabase
-        .from('series_etablissement')
-        .select('id, nom')
-        .eq('etablissement_id', etablissementId)
-        .order('nom', { ascending: true });
-      setSeriesEtablissement(seriesData || []);
 
       const { data: demandesAttrib } = await supabase
         .from('demandes_attributions_classes')
@@ -338,7 +359,7 @@ export default function CenseurDashboard() {
       setDemandesAttributionsRecues((demandesAttrib || []).map(d => ({ ...d, nomClasseEdite: d.classes?.nom || d.classe_nom_propose || '' })));
     }
 
-    const { data: matieresData } = await supabase.from('matieres').select('id, nom').order('nom', { ascending: true });
+    const { data: matieresData } = await supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true });
     setMatieresDisponibles(matieresData || []);
 
     const { data: documentsData } = await supabase
@@ -635,59 +656,19 @@ export default function CenseurDashboard() {
   const genererNomsLot = () => {
     const niveau = nouveauLotNiveau.trim();
     if (!niveau) return [];
-
-    if (!nouveauLotAvecSeries) {
-      const nombre = parseInt(nouveauLotNombre, 10);
-      if (!nombre || nombre < 1) return [];
-      const suffixes = nouveauLotStyle === 'alphabetique'
-        ? ALPHABET_CLASSES.slice(0, nombre).split('')
-        : Array.from({ length: nombre }, (_, i) => String(i + 1));
-      return suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
-    }
-
-    const noms = [];
-    seriesEtablissement.forEach(serie => {
-      const nombreBrut = lotSeriesChoisies[serie.id];
-      if (nombreBrut === undefined || nombreBrut === '') return;
-      const nombre = parseInt(nombreBrut, 10) || 1;
-      if (nombre <= 1) {
-        noms.push(`${niveau}${nouveauLotSeparateur}${serie.nom}`);
-      } else {
-        for (let i = 1; i <= nombre; i++) noms.push(`${niveau}${nouveauLotSeparateur}${serie.nom}${i}`);
-      }
-    });
-    return noms;
-  };
-
-  const ajouterSerieEtablissement = async (e) => {
-    e.preventDefault();
-    if (!nouvelleSerieNom.trim() || !affiliationCenseur) return;
-    const { data, error } = await supabase
-      .from('series_etablissement')
-      .insert({ etablissement_id: affiliationCenseur.etablissement_id, nom: nouvelleSerieNom.trim() })
-      .select().single();
-    if (error) {
-      if (error.code === '23505') showToast("⚠️ Cette série existe déjà.");
-      else showToast("⚠️ Erreur : " + error.message);
-      return;
-    }
-    setSeriesEtablissement(prev => [...prev, data].sort((a, b) => a.nom.localeCompare(b.nom)));
-    setNouvelleSerieNom('');
-    showToast(`✅ Série "${data.nom}" mémorisée pour l'établissement !`);
-  };
-
-  const retirerSerieEtablissement = async (serieId) => {
-    const { error } = await supabase.from('series_etablissement').delete().eq('id', serieId);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-    setSeriesEtablissement(prev => prev.filter(s => s.id !== serieId));
-    setLotSeriesChoisies(prev => { const copie = { ...prev }; delete copie[serieId]; return copie; });
+    const nombre = parseInt(nouveauLotNombre, 10);
+    if (!nombre || nombre < 1) return [];
+    const suffixes = nouveauLotStyle === 'alphabetique'
+      ? ALPHABET_CLASSES.slice(0, nombre).split('')
+      : Array.from({ length: nombre }, (_, i) => String(i + 1));
+    return suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
   };
 
   const creerClassesEnLot = async (e) => {
     e.preventDefault();
     if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
     const noms = genererNomsLot();
-    if (noms.length === 0) { showToast("⚠️ Merci de compléter le formulaire (niveau + nombre, ou niveau + séries)."); return; }
+    if (noms.length === 0) { showToast("⚠️ Merci de compléter le formulaire (niveau + nombre)."); return; }
 
     const lignes = noms.map(nom => ({
       etablissement_id: affiliationCenseur.etablissement_id,
@@ -704,15 +685,63 @@ export default function CenseurDashboard() {
 
     const { data: classesRafraichies } = await supabase
       .from('classes')
-      .select('id, nom, niveau')
+      .select('id, nom, niveau, serie')
       .eq('etablissement_id', affiliationCenseur.etablissement_id)
       .eq('annee_scolaire_id', anneeActiveId)
       .is('deleted_at', null)
       .order('nom', { ascending: true });
     setClassesEtablissement(classesRafraichies || []);
 
-    setNouveauLotNiveau(''); setNouveauLotNombre(''); setLotSeriesChoisies({});
+    setNouveauLotNiveau(''); setNouveauLotNombre('');
     showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
+  };
+
+  // --- Second cycle (Seconde/Première/Terminale) : niveau → séries → nombre par série ---
+  const genererNomsSecondCycle = () => {
+    const items = [];
+    Object.entries(seriesChoisiesSecondCycle).forEach(([code, nombreBrut]) => {
+      if (nombreBrut === undefined || nombreBrut === '') return;
+      const nombre = parseInt(nombreBrut, 10) || 1;
+      if (nombre <= 1) {
+        items.push({ nom: `${niveauSecondCycle}${separateurSecondCycle}${code}`, serie: code });
+      } else {
+        for (let i = 1; i <= nombre; i++) items.push({ nom: `${niveauSecondCycle}${separateurSecondCycle}${code}${i}`, serie: code });
+      }
+    });
+    return items;
+  };
+
+  const creerClassesSecondCycle = async (e) => {
+    e.preventDefault();
+    if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
+    const items = genererNomsSecondCycle();
+    if (items.length === 0) { showToast("⚠️ Choisissez au moins une série avec un nombre de classes."); return; }
+
+    const lignes = items.map(({ nom, serie }) => ({
+      etablissement_id: affiliationCenseur.etablissement_id,
+      annee_scolaire_id: anneeActiveId,
+      nom,
+      niveau: niveauSecondCycle,
+      serie,
+    }));
+
+    const { error } = await supabase
+      .from('classes')
+      .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    const { data: classesRafraichies } = await supabase
+      .from('classes')
+      .select('id, nom, niveau, serie')
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('annee_scolaire_id', anneeActiveId)
+      .is('deleted_at', null)
+      .order('nom', { ascending: true });
+    setClassesEtablissement(classesRafraichies || []);
+
+    setSeriesChoisiesSecondCycle({});
+    showToast(`✅ ${noms.length} classe(s) créée(s) pour ${niveauSecondCycle} !`);
   };
 
   const ajouterLigneLotNiveaux = () => {
@@ -762,7 +791,7 @@ export default function CenseurDashboard() {
 
     const { data: classesRafraichies } = await supabase
       .from('classes')
-      .select('id, nom, niveau')
+      .select('id, nom, niveau, serie')
       .eq('etablissement_id', affiliationCenseur.etablissement_id)
       .eq('annee_scolaire_id', anneeActiveId)
       .is('deleted_at', null)
@@ -788,6 +817,46 @@ export default function CenseurDashboard() {
     }
     setMatieresDisponibles(prev => [...prev, nouvelle]);
     return nouvelle.id;
+  };
+
+  // Filtre le catalogue de matières selon le niveau/série d'une classe —
+  // une matière sans niveaux/séries taguées (niveaux_applicables vide) est
+  // considérée universelle et reste toujours proposée (rétrocompatible avec
+  // les matières créées avant l'introduction de ce système de programme).
+  const matiereApplicableAClasse = (matiere, classe) => {
+    if (!classe) return true;
+    const niveaux = matiere?.niveaux_applicables || matiere?.niveauxApplicables || [];
+    const series = matiere?.series_applicables || matiere?.seriesApplicables || [];
+    const matchNiveau = niveaux.length === 0 || niveaux.includes(classe.niveau);
+    const matchSerie = series.length === 0 || !classe.serie || series.includes(classe.serie);
+    return matchNiveau && matchSerie;
+  };
+
+  const matieresPourClasse = (classeOuClasses) => {
+    const classes = Array.isArray(classeOuClasses) ? classeOuClasses : [classeOuClasses].filter(Boolean);
+    if (classes.length === 0) return matieresDisponibles;
+    return matieresDisponibles.filter(m => classes.some(cl => matiereApplicableAClasse(m, cl)));
+  };
+
+  const enregistrerProgrammeMatiere = async (matiereId, niveaux, series) => {
+    const { data, error } = await supabase
+      .from('matieres')
+      .update({ niveaux_applicables: niveaux, series_applicables: series })
+      .eq('id', matiereId)
+      .select('id, nom, niveaux_applicables, series_applicables')
+      .single();
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    setMatieresDisponibles(prev => prev.map(m => m.id === matiereId ? data : m));
+    setMatiereProgrammeOuverte(null);
+    showToast(`✅ Programme mis à jour pour "${data.nom}" !`);
+  };
+
+  const ouvrirProgrammeMatiere = (matiere) => {
+    setMatiereProgrammeOuverte(matiere.id);
+    setBrouillonProgrammeMatiere({
+      niveaux: matiere.niveaux_applicables || [],
+      series: matiere.series_applicables || [],
+    });
   };
 
   const resoudreMatiereChoisie = (enseignant, matiereIdChoisie, matiereNomLibre) => {
@@ -1259,6 +1328,18 @@ export default function CenseurDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse]);
 
+  // Fiches archivées rangées par classe — un même établissement a souvent
+  // plusieurs classes, ce groupement évite de tout mélanger dans une liste unique.
+  const fichesParClasse = useMemo(() => {
+    const groupes = {};
+    fichesFiltrees.forEach(fiche => {
+      const classe = fiche.classe || 'Sans classe';
+      if (!groupes[classe]) groupes[classe] = [];
+      groupes[classe].push(fiche);
+    });
+    return Object.entries(groupes).sort(([a], [b]) => a.localeCompare(b));
+  }, [fichesFiltrees]);
+
   const nombreFichesTotalEnAttente = useMemo(() => {
     return Object.values(programmesClasses || {}).reduce((total, prog) =>
       total + (prog.cycles || []).reduce((sousTotal, cy) =>
@@ -1267,6 +1348,15 @@ export default function CenseurDashboard() {
   }, [programmesClasses]);
 
   const apercuLotClasses = genererNomsLot();
+  const apercuSecondCycle = genererNomsSecondCycle();
+  // Ne propose que les séries pertinentes selon le type d'établissement
+  // (défini par le chef à la création/édition de l'école) — un lycée
+  // général ne voit pas F1-F4/G1-G3/H1-H2, et inversement.
+  const seriesSecondCycleFiltrees = useMemo(() => {
+    const type = ecoleConfigGlobale.typeEnseignement || 'GENERAL';
+    if (type === 'MIXTE') return SERIES_SECOND_CYCLE;
+    return SERIES_SECOND_CYCLE.filter(s => s.type === type);
+  }, [ecoleConfigGlobale.typeEnseignement]);
   const apercuLotNiveauxMultiples = genererApercuLotNiveaux();
 
   const professeursFiltres = useMemo(() => {
@@ -1493,7 +1583,9 @@ export default function CenseurDashboard() {
                   {classesEtablissement.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                 </select>
                 {(() => {
-                  const matieresProf = modalGererClasses.prof?.matieresProfil || [];
+                  const classeChoisie = classesEtablissement.find(c => c.id === formAjoutAttribution.classeId);
+                  const matieresProfBrut = modalGererClasses.prof?.matieresProfil || [];
+                  const matieresProf = classeChoisie ? matieresProfBrut.filter(m => matiereApplicableAClasse(m, classeChoisie)) : matieresProfBrut;
                   if (matieresProf.length === 1) {
                     return (
                       <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
@@ -1508,6 +1600,9 @@ export default function CenseurDashboard() {
                         {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
                       </select>
                     );
+                  }
+                  if (matieresProfBrut.length > 0 && classeChoisie) {
+                    return <p style={{ flex: '1 1 140px', fontSize: '11px', color: '#991b1b', margin: 0, alignSelf: 'center' }}>Aucune matière déclarée ne correspond à cette classe.</p>;
                   }
                   return (
                     <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée)" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
@@ -1819,19 +1914,28 @@ export default function CenseurDashboard() {
             {fichesFiltrees.length === 0 ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche archivée trouvée.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {fichesFiltrees.map((fiche, index) => (
-                  <div key={index} style={styles.itemRow}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere || 'Matière'}</span>
-                        <span style={{ fontSize: '12px', color: '#64748b' }}>({fiche.classe || 'Général'})</span>
-                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
-                      </div>
-                      <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong> | Archivé le : {fiche.dateValidation}</p>
-                    </div>
-                    <div>
-                      <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a' }}>📥 Télécharger (PDF)</button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {fichesParClasse.map(([classe, fiches]) => (
+                  <div key={classe}>
+                    <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#1e3a8a', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      🏫 {classe}
+                      <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{fiches.length}</span>
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {fiches.map((fiche, index) => (
+                        <div key={index} style={styles.itemRow}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                              <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>{fiche.matiere || 'Matière'}</span>
+                              <strong style={{ fontSize: '14px', color: '#0f172a' }}>{fiche.titre}</strong>
+                            </div>
+                            <p style={{ fontSize: '12px', color: '#475569', margin: 0 }}>Enseignant : <strong>{fiche.enseignant}</strong> | Archivé le : {fiche.dateValidation}</p>
+                          </div>
+                          <div>
+                            <button onClick={() => telechargerPDFArchive(fiche)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#0f172a' }}>📥 Télécharger (PDF)</button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -1958,88 +2062,31 @@ export default function CenseurDashboard() {
             )}
 
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Créer les classes d'un niveau (recommandé)</h3>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Créer les classes d'un niveau (premier cycle — 6ème, 5ème, 4ème, 3ème...)</h3>
               <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e3a8a', marginBottom: '12px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={nouveauLotAvecSeries} onChange={(e) => setNouveauLotAvecSeries(e.target.checked)} />
-                Ce niveau a des séries (ex. Seconde, Première, Terminale : A, C, D...)
-              </label>
 
               <form onSubmit={creerClassesEnLot} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 140px' }}>
                   <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>
-                  <input type="text" placeholder={nouveauLotAvecSeries ? "ex. Seconde" : "ex. 6ème"} value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                  <input type="text" placeholder="ex. 6ème" value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
                 </div>
-
-                {!nouveauLotAvecSeries ? (
-                  <>
-                    <div style={{ flex: '1 1 120px' }}>
-                      <label style={{ ...styles.label, fontSize: '10px' }}>Nombre de classes</label>
-                      <input type="number" min="1" max="26" placeholder="ex. 4" value={nouveauLotNombre} onChange={(e) => setNouveauLotNombre(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
-                    </div>
-                    <div style={{ flex: '1 1 160px' }}>
-                      <label style={{ ...styles.label, fontSize: '10px' }}>Numérotation</label>
-                      <select value={nouveauLotStyle} onChange={(e) => setNouveauLotStyle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                        <option value="alphabetique">Alphabétique (A, B, C...)</option>
-                        <option value="numerique">Numérique (1, 2, 3...)</option>
-                      </select>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ flex: '1 1 100%' }}>
-                    <label style={{ ...styles.label, fontSize: '10px' }}>Séries de l'établissement</label>
-
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                      <input type="text" placeholder="Nouvelle série (ex. G2, F4, A...)" value={nouvelleSerieNom} onChange={(e) => setNouvelleSerieNom(e.target.value)} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} disabled={!anneeActiveId} />
-                      <button type="button" onClick={ajouterSerieEtablissement} className="bouton bouton-secondaire" style={{ flexShrink: 0, fontSize: '12px' }} disabled={!anneeActiveId}>+ Mémoriser</button>
-                    </div>
-
-                    {seriesEtablissement.length === 0 ? (
-                      <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic' }}>Aucune série mémorisée pour l'instant — ajoutez-en une ci-dessus (elle restera disponible pour toujours, sur tous les niveaux).</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {seriesEtablissement.map(serie => {
-                          const estCochee = lotSeriesChoisies[serie.id] !== undefined;
-                          return (
-                            <div key={serie.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', flexWrap: 'wrap' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', flex: '1 1 100px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={estCochee}
-                                  onChange={() => setLotSeriesChoisies(prev => {
-                                    const copie = { ...prev };
-                                    if (estCochee) delete copie[serie.id]; else copie[serie.id] = '1';
-                                    return copie;
-                                  })}
-                                  disabled={!anneeActiveId}
-                                />
-                                {serie.nom}
-                              </label>
-                              {estCochee && (
-                                <input
-                                  type="number" min="1" max="26" placeholder="Nombre"
-                                  value={lotSeriesChoisies[serie.id]}
-                                  onChange={(e) => setLotSeriesChoisies(prev => ({ ...prev, [serie.id]: e.target.value }))}
-                                  style={{ ...styles.inputStyle, flex: '1 1 90px', margin: 0 }}
-                                  disabled={!anneeActiveId}
-                                />
-                              )}
-                              <button type="button" onClick={() => retirerSerieEtablissement(serie.id)} className="bouton bouton-danger" style={{ fontSize: '10px', padding: '4px 8px', flexShrink: 0 }}>Oublier cette série</button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
+                <div style={{ flex: '1 1 120px' }}>
+                  <label style={{ ...styles.label, fontSize: '10px' }}>Nombre de classes</label>
+                  <input type="number" min="1" max="26" placeholder="ex. 4" value={nouveauLotNombre} onChange={(e) => setNouveauLotNombre(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                </div>
+                <div style={{ flex: '1 1 160px' }}>
+                  <label style={{ ...styles.label, fontSize: '10px' }}>Numérotation</label>
+                  <select value={nouveauLotStyle} onChange={(e) => setNouveauLotStyle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                    <option value="alphabetique">Alphabétique (A, B, C...)</option>
+                    <option value="numerique">Numérique (1, 2, 3...)</option>
+                  </select>
+                </div>
                 <div style={{ flex: '1 1 120px' }}>
                   <label style={{ ...styles.label, fontSize: '10px' }}>Entre les deux</label>
                   <select value={nouveauLotSeparateur} onChange={(e) => setNouveauLotSeparateur(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                    <option value=" ">Espace (Seconde A)</option>
-                    <option value="">Rien (SecondeA)</option>
-                    <option value=" - ">Tiret (Seconde - A)</option>
+                    <option value=" ">Espace (6ème A)</option>
+                    <option value="">Rien (6èmeA)</option>
+                    <option value=" - ">Tiret (6ème - A)</option>
                   </select>
                 </div>
                 <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer les classes</button>
@@ -2048,6 +2095,79 @@ export default function CenseurDashboard() {
               {nouveauLotNiveau.trim() && apercuLotClasses.length > 0 && (
                 <p style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '8px' }}>
                   Aperçu ({apercuLotClasses.length}) : {apercuLotClasses.join(', ')}
+                </p>
+              )}
+            </div>
+
+            <div style={{ backgroundColor: '#f5f3ff', padding: '16px', borderRadius: '12px', border: '1px solid #ddd6fe', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#4c1d95', marginBottom: '4px' }}>+ Créer les classes du Second Cycle (Seconde, Première, Terminale)</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>Choisissez le niveau, puis les séries concernées, puis combien de classes pour chaque série — le nom se génère tout seul (ex. Seconde C1, Seconde C2...).</p>
+              <p style={{ fontSize: '11px', color: '#7c3aed', fontWeight: '700', marginBottom: '12px' }}>
+                Séries affichées selon le type d'établissement ({{ GENERAL: 'Général', TECHNIQUE: 'Technique', MIXTE: 'Général et Technique' }[ecoleConfigGlobale.typeEnseignement] || 'Général'}) — modifiable par le chef d'établissement dans le profil de l'école.
+              </p>
+
+              <form onSubmit={creerClassesSecondCycle}>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                  <div style={{ flex: '1 1 160px' }}>
+                    <label style={{ ...styles.label, fontSize: '10px' }}>1. Niveau</label>
+                    <select value={niveauSecondCycle} onChange={(e) => { setNiveauSecondCycle(e.target.value); setSeriesChoisiesSecondCycle({}); }} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                      <option value="Seconde">Seconde</option>
+                      <option value="Première">Première</option>
+                      <option value="Terminale">Terminale</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: '1 1 160px' }}>
+                    <label style={{ ...styles.label, fontSize: '10px' }}>Entre niveau et série</label>
+                    <select value={separateurSecondCycle} onChange={(e) => setSeparateurSecondCycle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                      <option value=" ">Espace (Seconde C1)</option>
+                      <option value="">Rien (SecondeC1)</option>
+                      <option value=" - ">Tiret (Seconde - C1)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <label style={{ ...styles.label, fontSize: '10px', marginBottom: '8px', display: 'block' }}>2. Séries — cochez celles présentes en {niveauSecondCycle}, puis indiquez le nombre de classes</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
+                  {seriesSecondCycleFiltrees.map(serie => {
+                    const estCochee = seriesChoisiesSecondCycle[serie.code] !== undefined;
+                    return (
+                      <div key={serie.code} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f5f3ff' : '#f8fafc', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', flex: '1 1 220px' }}>
+                          <input
+                            type="checkbox"
+                            checked={estCochee}
+                            onChange={() => setSeriesChoisiesSecondCycle(prev => {
+                              const copie = { ...prev };
+                              if (estCochee) delete copie[serie.code]; else copie[serie.code] = '1';
+                              return copie;
+                            })}
+                            disabled={!anneeActiveId}
+                          />
+                          {serie.label}
+                        </label>
+                        {estCochee && (
+                          <>
+                            <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Nombre de classes :</label>
+                            <input
+                              type="number" min="1" max="26" placeholder="ex. 3"
+                              value={seriesChoisiesSecondCycle[serie.code]}
+                              onChange={(e) => setSeriesChoisiesSecondCycle(prev => ({ ...prev, [serie.code]: e.target.value }))}
+                              style={{ ...styles.inputStyle, flex: '1 1 90px', margin: 0 }}
+                              disabled={!anneeActiveId}
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#7c3aed' }} disabled={!anneeActiveId}>3. Générer les classes</button>
+              </form>
+
+              {apercuSecondCycle.length > 0 && (
+                <p style={{ fontSize: '11px', color: '#4c1d95', marginTop: '10px' }}>
+                  Aperçu ({apercuSecondCycle.length}) : {apercuSecondCycle.join(', ')}
                 </p>
               )}
             </div>
@@ -2111,45 +2231,10 @@ export default function CenseurDashboard() {
 
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>🎯 Attribuer une ou plusieurs classes à un enseignant</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>La matière s'affiche automatiquement depuis le profil de l'enseignant — s'il ne l'a pas encore renseignée, elle reste modifiable ici en dépannage.</p>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>La matière s'affiche automatiquement depuis le profil de l'enseignant — s'il ne l'a pas encore renseignée, elle reste modifiable ici en dépannage. Cochez d'abord les classes pour ne voir que les matières compatibles avec leur niveau/série.</p>
               <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
-                    <option value="">— Choisir un enseignant —</option>
-                    {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
-                  </select>
-                  {(() => {
-                    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
-                    const matieresProf = enseignantChoisi?.matieresProfil || [];
-                    if (matieresProf.length === 1) {
-                      return (
-                        <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
-                          📚 {matieresProf[0].nom}
-                        </div>
-                      );
-                    }
-                    if (matieresProf.length > 1) {
-                      return (
-                        <select value={formAttribution.matiereIdChoisie} onChange={(e) => setFormAttribution({ ...formAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
-                          <option value="">— Quelle matière ? —</option>
-                          {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-                        </select>
-                      );
-                    }
-                    return (
-                      <>
-                        <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId} />
-                        <datalist id="liste-matieres-censeur">
-                          {matieresDisponibles.map(m => <option key={m.id} value={m.nom} />)}
-                        </datalist>
-                      </>
-                    );
-                  })()}
-                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
-                </div>
-
                 <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px', maxHeight: '160px', overflowY: 'auto' }}>
-                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>Classes (plusieurs possibles)</p>
+                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>1. Classes (plusieurs possibles)</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                     {classesEtablissement.map(c => {
                       const estCoche = formAttribution.classesIds.includes(c.id);
@@ -2169,6 +2254,50 @@ export default function CenseurDashboard() {
                       );
                     })}
                   </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
+                    <option value="">— 2. Choisir un enseignant —</option>
+                    {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                  </select>
+                  {(() => {
+                    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
+                    const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
+                    const matieresProfBrut = enseignantChoisi?.matieresProfil || [];
+                    const matieresProf = classesSelectionnees.length === 0
+                      ? matieresProfBrut
+                      : matieresProfBrut.filter(m => classesSelectionnees.every(cl => matiereApplicableAClasse(m, cl)));
+                    if (matieresProf.length === 1) {
+                      return (
+                        <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '0 12px', fontSize: '13px', fontWeight: '700', color: '#166534' }}>
+                          📚 {matieresProf[0].nom}
+                        </div>
+                      );
+                    }
+                    if (matieresProf.length > 1) {
+                      return (
+                        <select value={formAttribution.matiereIdChoisie} onChange={(e) => setFormAttribution({ ...formAttribution, matiereIdChoisie: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId}>
+                          <option value="">— Quelle matière ? —</option>
+                          {matieresProf.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                        </select>
+                      );
+                    }
+                    if (matieresProfBrut.length > 0 && classesSelectionnees.length > 0) {
+                      return (
+                        <p style={{ flex: '1 1 200px', fontSize: '11px', color: '#991b1b', margin: 0, alignSelf: 'center' }}>Aucune matière déclarée par cet enseignant ne correspond au niveau/série de la sélection.</p>
+                      );
+                    }
+                    return (
+                      <>
+                        <input type="text" list="liste-matieres-censeur" placeholder="Matière (non renseignée sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0 }} required disabled={!anneeActiveId} />
+                        <datalist id="liste-matieres-censeur">
+                          {matieresPourClasse(classesSelectionnees).map(m => <option key={m.id} value={m.nom} />)}
+                        </datalist>
+                      </>
+                    );
+                  })()}
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Attribuer</button>
                 </div>
               </form>
             </div>
@@ -2236,6 +2365,82 @@ export default function CenseurDashboard() {
                               {p.enseignant} · {p.matiere}
                             </span>
                           ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>📖 Programme des matières</h3>
+            <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>
+              Indiquez pour chaque matière les niveaux et séries où elle s'enseigne — les formulaires d'attribution de classe ne proposeront ensuite que les matières compatibles. Une matière sans programme défini reste proposée partout (aucune configuration = universelle). Ce catalogue est partagé entre tous les établissements.
+            </p>
+            {matieresDisponibles.length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune matière au catalogue pour l'instant.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {matieresDisponibles.map(m => {
+                  const estOuverte = matiereProgrammeOuverte === m.id;
+                  const niveauxDefinis = m.niveaux_applicables || [];
+                  const seriesDefinies = m.series_applicables || [];
+                  return (
+                    <div key={m.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', backgroundColor: '#f8fafc' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px' }}>{m.nom}</strong>
+                          <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
+                            {niveauxDefinis.length === 0 ? 'Universelle (tous niveaux)' : niveauxDefinis.join(', ')}
+                            {seriesDefinies.length > 0 && ` — séries : ${seriesDefinies.join(', ')}`}
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => estOuverte ? setMatiereProgrammeOuverte(null) : ouvrirProgrammeMatiere(m)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>
+                          {estOuverte ? 'Fermer' : '✏️ Définir le programme'}
+                        </button>
+                      </div>
+                      {estOuverte && (
+                        <div style={{ padding: '0 12px 14px 12px' }}>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Niveaux (vide = tous niveaux)</label>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                            {TOUS_NIVEAUX.map(niveau => {
+                              const coche = brouillonProgrammeMatiere.niveaux.includes(niveau);
+                              return (
+                                <label key={niveau} style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: coche ? '#eff6ff' : '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox" checked={coche}
+                                    onChange={() => setBrouillonProgrammeMatiere(prev => ({
+                                      ...prev,
+                                      niveaux: coche ? prev.niveaux.filter(n => n !== niveau) : [...prev.niveaux, niveau],
+                                    }))}
+                                  />
+                                  {niveau}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Séries du second cycle (vide = toutes séries des niveaux cochés)</label>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                            {seriesSecondCycleFiltrees.map(serie => {
+                              const coche = brouillonProgrammeMatiere.series.includes(serie.code);
+                              return (
+                                <label key={serie.code} style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: coche ? '#f5f3ff' : '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox" checked={coche}
+                                    onChange={() => setBrouillonProgrammeMatiere(prev => ({
+                                      ...prev,
+                                      series: coche ? prev.series.filter(s => s !== serie.code) : [...prev.series, serie.code],
+                                    }))}
+                                  />
+                                  {serie.code}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button type="button" onClick={() => setMatiereProgrammeOuverte(null)} className="bouton bouton-secondaire" style={{ fontSize: '12px' }}>Annuler</button>
+                            <button type="button" onClick={() => enregistrerProgrammeMatiere(m.id, brouillonProgrammeMatiere.niveaux, brouillonProgrammeMatiere.series)} className="bouton bouton-principal" style={{ fontSize: '12px' }}>Enregistrer</button>
+                          </div>
                         </div>
                       )}
                     </div>

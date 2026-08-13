@@ -21,6 +21,7 @@ export default function ChefEtablissementDashboard() {
 
   const [inputNomEcole, setInputNomEcole] = useState('');
   const [inputTypeEtablissement, setInputTypeEtablissement] = useState('public');
+  const [inputTypeEnseignement, setInputTypeEnseignement] = useState('GENERAL');
   const [inputCodeEtablissement, setInputCodeEtablissement] = useState('');
   const [inputSituationGeo, setInputSituationGeo] = useState('');
   const [inputAnneeScolaire, setInputAnneeScolaire] = useState('2025-2026');
@@ -324,6 +325,7 @@ export default function ChefEtablissementDashboard() {
         parametres_json: {
           nombreEleves: inputNombreEleves,
           nombreEnseignants: inputNombreEnseignants,
+          typeEnseignement: inputTypeEnseignement,
         },
       });
 
@@ -432,6 +434,7 @@ export default function ChefEtablissementDashboard() {
           nombreEleves: formEcoleEdition.parametres_json?.nombreEleves || '',
           nombreEnseignants: formEcoleEdition.parametres_json?.nombreEnseignants || '',
           anneeCreation: formEcoleEdition.parametres_json?.anneeCreation || '',
+          typeEnseignement: formEcoleEdition.parametres_json?.typeEnseignement || 'GENERAL',
         },
       })
       .eq('id', ecoleConfig.id)
@@ -969,6 +972,15 @@ export default function ChefEtablissementDashboard() {
           {modeSetup === 'CREER' && (
             <form onSubmit={handleCreerEcole} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div><label style={styles.label}>Type d'établissement</label><select value={inputTypeEtablissement} onChange={(e) => setInputTypeEtablissement(e.target.value)} style={styles.inputStyle}><option value="public">Public</option><option value="prive">Privé</option></select></div>
+              <div>
+                <label style={styles.label}>Enseignement dispensé</label>
+                <select value={inputTypeEnseignement} onChange={(e) => setInputTypeEnseignement(e.target.value)} style={styles.inputStyle}>
+                  <option value="GENERAL">Général (séries A, B, C, D, E)</option>
+                  <option value="TECHNIQUE">Technique (séries F1-F4, G1-G3, H1-H2)</option>
+                  <option value="MIXTE">Les deux (général et technique)</option>
+                </select>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 0 0' }}>Détermine les séries proposées au censeur pour la création des classes du second cycle.</p>
+              </div>
               <div><label style={styles.label}>Nom de l'établissement</label><input type="text" value={inputNomEcole} onChange={(e) => setInputNomEcole(e.target.value)} style={styles.inputStyle} required /></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Code</label><input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Année</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><div><label style={styles.label}>Élèves</label><input type="number" value={inputNombreEleves} onChange={(e) => setInputNombreEleves(e.target.value)} style={styles.inputStyle} required /></div><div><label style={styles.label}>Enseignants</label><input type="number" value={inputNombreEnseignants} onChange={(e) => setInputNombreEnseignants(e.target.value)} style={styles.inputStyle} required /></div></div>
@@ -1318,6 +1330,7 @@ export default function ChefEtablissementDashboard() {
                   <button onClick={regenererCodeEtablissement} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '4px 8px' }}>🔄 Régénérer le code</button>
                 </div>
                 <div><label style={styles.label}>Type</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.visibilite === 'PRIVE' ? 'Privé' : 'Public'}</p></div>
+                <div><label style={styles.label}>Enseignement</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{{ GENERAL: 'Général', TECHNIQUE: 'Technique', MIXTE: 'Général et Technique' }[ecoleConfig.parametres_json?.typeEnseignement] || 'Général'}</p></div>
                 <div><label style={styles.label}>Adresse</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.adresse || '—'}</p></div>
                 <div><label style={styles.label}>Ville</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.ville || '—'}</p></div>
                 <div><label style={styles.label}>Pays</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.pays || '—'}</p></div>
@@ -1344,6 +1357,18 @@ export default function ChefEtablissementDashboard() {
                   <select value={formEcoleEdition.visibilite || 'PRIVE'} onChange={(e) => setFormEcoleEdition({...formEcoleEdition, visibilite: e.target.value})} style={styles.inputStyle}>
                     <option value="PRIVE">Privé</option>
                     <option value="PUBLIC">Public</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.label}>Enseignement dispensé</label>
+                  <select
+                    value={formEcoleEdition.parametres_json?.typeEnseignement || 'GENERAL'}
+                    onChange={(e) => setFormEcoleEdition({...formEcoleEdition, parametres_json: {...formEcoleEdition.parametres_json, typeEnseignement: e.target.value}})}
+                    style={styles.inputStyle}
+                  >
+                    <option value="GENERAL">Général (séries A, B, C, D, E)</option>
+                    <option value="TECHNIQUE">Technique (séries F1-F4, G1-G3, H1-H2)</option>
+                    <option value="MIXTE">Les deux (général et technique)</option>
                   </select>
                 </div>
                 <div>

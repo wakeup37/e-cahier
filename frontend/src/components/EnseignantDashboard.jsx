@@ -50,7 +50,7 @@ export default function EnseignantDashboard() {
   const [demandesDepart, setDemandesDepart] = useState([]);
 
   const [modalDepart, setModalDepart] = useState({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
-  const [modalProposerClasse, setModalProposerClasse] = useState({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' });
+  const [modalProposerClasse, setModalProposerClasse] = useState({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] });
   const [modalChoixEcoleProposerClasse, setModalChoixEcoleProposerClasse] = useState(false);
   const [demandesAttributionsEnvoyees, setDemandesAttributionsEnvoyees] = useState([]);
 
@@ -818,51 +818,60 @@ export default function EnseignantDashboard() {
     setModalProposerClasse({
       ouvert: true, affiliation: { ...affiliation, anneeScolaireId: annee.id },
       classesDisponibles: classesData || [], matieresDisponibles: matieresData || [],
-      classeNom: '', matiereNom: '',
+      classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [],
     });
   };
 
   const soumettreDemandeAttributionClasse = async (e) => {
     e.preventDefault();
-    const { affiliation, classeNom, matiereNom } = modalProposerClasse;
-    if (!classeNom.trim() || !matiereNom.trim() || !userId) {
-      showToast("⚠️ Merci d'indiquer une classe et une matière.");
-      return;
-    }
-    const matiere = modalProposerClasse.matieresDisponibles.find(m => m.nom.toLowerCase() === matiereNom.trim().toLowerCase());
-    if (!matiere) {
-      showToast("⚠️ Cette matière n'existe pas encore — demandez au censeur de la créer d'abord.");
+    const { affiliation, classesIdsChoisies, nouvelleClasseNom, matiereIdsChoisies } = modalProposerClasse;
+
+    if ((classesIdsChoisies.length === 0 && !nouvelleClasseNom.trim()) || matiereIdsChoisies.length === 0 || !userId) {
+      showToast("⚠️ Merci de choisir au moins une classe (ou en proposer une nouvelle) et au moins une matière.");
       return;
     }
 
-    // Si le nom tapé correspond exactement à une classe déjà créée par le
-    // censeur, on la référence directement. Sinon, c'est une PROPOSITION de
-    // nouvelle classe : le censeur pourra en corriger le nom avant validation.
-    const classeExistante = modalProposerClasse.classesDisponibles.find(c => c.nom.toLowerCase() === classeNom.trim().toLowerCase());
-
-    const { error } = await supabase.from('demandes_attributions_classes').insert({
-      enseignant_id: userId,
-      classe_id: classeExistante ? classeExistante.id : null,
-      classe_nom_propose: classeExistante ? null : classeNom.trim(),
-      etablissement_id: affiliation.etablissementId,
-      annee_scolaire_id: affiliation.anneeScolaireId,
-      matiere_id: matiere.id,
+    // Une ligne par combinaison classe × matière — un enseignant polyvalent
+    // peut ainsi proposer plusieurs matières d'un coup, y compris pour des
+    // classes différentes (chaque classe cochée reçoit toutes les matières cochées).
+    const lignes = [];
+    classesIdsChoisies.forEach(classeId => {
+      matiereIdsChoisies.forEach(matiereId => {
+        lignes.push({
+          enseignant_id: userId, classe_id: classeId, classe_nom_propose: null,
+          etablissement_id: affiliation.etablissementId, annee_scolaire_id: affiliation.anneeScolaireId, matiere_id: matiereId,
+        });
+      });
     });
+    if (nouvelleClasseNom.trim()) {
+      matiereIdsChoisies.forEach(matiereId => {
+        lignes.push({
+          enseignant_id: userId, classe_id: null, classe_nom_propose: nouvelleClasseNom.trim(),
+          etablissement_id: affiliation.etablissementId, annee_scolaire_id: affiliation.anneeScolaireId, matiere_id: matiereId,
+        });
+      });
+    }
+
+    const { error } = await supabase.from('demandes_attributions_classes').insert(lignes);
 
     if (error) {
-      if (error.code === '23505') showToast("⚠️ Une proposition identique existe déjà.");
+      if (error.code === '23505') showToast("⚠️ Une ou plusieurs propositions identiques existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
 
+    const nomsClasses = [
+      ...classesIdsChoisies.map(id => modalProposerClasse.classesDisponibles.find(c => c.id === id)?.nom).filter(Boolean),
+      ...(nouvelleClasseNom.trim() ? [nouvelleClasseNom.trim()] : []),
+    ];
     await notifierParRole(
       affiliation.etablissementId, 'CENSEUR', 'PROPOSITION_CLASSE_RECUE',
-      `🏫 Un enseignant propose une classe (${classeNom.trim()})`,
+      `🏫 Un enseignant propose ${lignes.length} attribution(s) de classe/matière (${nomsClasses.join(', ')})`,
       'classes'
     );
 
-    setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' });
-    showToast("📤 Proposition envoyée au censeur/chef pour validation !");
+    setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] });
+    showToast(`📤 ${lignes.length} proposition(s) envoyée(s) au censeur/chef pour validation !`);
   };
 
   const supprimerClasseLibre = (classeNom) => {
@@ -1981,45 +1990,77 @@ export default function EnseignantDashboard() {
 
         {modalProposerClasse.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '480px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Proposer une classe</h3>
-                <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Proposer une ou plusieurs classes</h3>
+                <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation.
+                Votre proposition sera transmise au censeur ou au chef de <strong>{modalProposerClasse.affiliation?.ecole}</strong> pour validation. Cochez plusieurs classes et plusieurs matières si besoin — une proposition est créée pour chaque combinaison.
               </p>
-              {modalProposerClasse.classesDisponibles.length === 0 ? (
-                <p style={{ fontSize: '13px', color: '#991b1b', fontStyle: 'italic' }}>Aucune classe créée pour l'année en cours dans cet établissement pour l'instant — demandez au censeur d'en créer d'abord.</p>
-              ) : (
-                <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div>
-                    <label style={styles.label}>Classe</label>
-                    <select
-                      value={modalProposerClasse.classeNom}
-                      onChange={(e) => setModalProposerClasse(prev => ({ ...prev, classeNom: e.target.value }))}
-                      style={styles.inputStyle} required
-                    >
-                      <option value="">— Choisir une classe —</option>
-                      {modalProposerClasse.classesDisponibles.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Matière</label>
-                    <select value={modalProposerClasse.matiereNom} onChange={(e) => setModalProposerClasse(prev => ({ ...prev, matiereNom: e.target.value }))} style={styles.inputStyle} required>
-                      <option value="">— Choisir une matière —</option>
-                      {modalProposerClasse.matieresDisponibles.map(m => <option key={m.id} value={m.nom}>{m.nom}</option>)}
-                    </select>
-                    {modalProposerClasse.matieresDisponibles.length === 0 && (
-                      <p style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                    <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' })} className="bouton bouton-secondaire">Annuler</button>
-                    <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
-                  </div>
-                </form>
-              )}
+              <form onSubmit={soumettreDemandeAttributionClasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Classe(s) existante(s)</label>
+                  {modalProposerClasse.classesDisponibles.length === 0 ? (
+                    <p style={{ fontSize: '12px', color: '#991b1b', fontStyle: 'italic' }}>Aucune classe créée pour l'année en cours — proposez-en une nouvelle ci-dessous.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '140px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px' }}>
+                      {modalProposerClasse.classesDisponibles.map(c => {
+                        const estCochee = modalProposerClasse.classesIdsChoisies.includes(c.id);
+                        return (
+                          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                            <input
+                              type="checkbox" checked={estCochee}
+                              onChange={() => {
+                                const updated = estCochee ? modalProposerClasse.classesIdsChoisies.filter(id => id !== c.id) : [...modalProposerClasse.classesIdsChoisies, c.id];
+                                setModalProposerClasse(prev => ({ ...prev, classesIdsChoisies: updated }));
+                              }}
+                            />
+                            {c.nom}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label style={styles.label}>Ou proposer une nouvelle classe (optionnel)</label>
+                  <input
+                    type="text" placeholder="Ex : 6ème E" value={modalProposerClasse.nouvelleClasseNom}
+                    onChange={(e) => setModalProposerClasse(prev => ({ ...prev, nouvelleClasseNom: e.target.value }))}
+                    style={styles.inputStyle}
+                  />
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 0 0' }}>Le censeur pourra corriger le nom avant validation.</p>
+                </div>
+                <div>
+                  <label style={styles.label}>Matière(s)</label>
+                  {modalProposerClasse.matieresDisponibles.length === 0 ? (
+                    <p style={{ fontSize: '12px', color: '#991b1b', fontStyle: 'italic' }}>Aucune matière au catalogue — demandez au censeur d'en créer une d'abord.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {modalProposerClasse.matieresDisponibles.map(m => {
+                        const estCochee = modalProposerClasse.matiereIdsChoisies.includes(m.id);
+                        return (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
+                            <input
+                              type="checkbox" checked={estCochee}
+                              onChange={() => {
+                                const updated = estCochee ? modalProposerClasse.matiereIdsChoisies.filter(id => id !== m.id) : [...modalProposerClasse.matiereIdsChoisies, m.id];
+                                setModalProposerClasse(prev => ({ ...prev, matiereIdsChoisies: updated }));
+                              }}
+                            />
+                            📚 {m.nom}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button type="button" onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton bouton-principal">Envoyer la proposition</button>
+                </div>
+              </form>
             </div>
           </div>
         )}

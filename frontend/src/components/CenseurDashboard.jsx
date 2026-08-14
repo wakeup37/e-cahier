@@ -943,7 +943,8 @@ export default function CenseurDashboard() {
       .from('attributions_classes')
       .select('id, classe_id, matiere_id, classes(nom), matieres(nom)')
       .eq('enseignant_id', prof.userId)
-      .eq('etablissement_id', affiliationCenseur.etablissement_id);
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('annee_scolaire_id', anneeActiveId || '00000000-0000-0000-0000-000000000000');
     setModalGererClasses({ ouvert: true, prof, attributions: data || [] });
     setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
   };

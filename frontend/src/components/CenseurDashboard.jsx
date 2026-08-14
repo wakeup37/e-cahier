@@ -666,6 +666,44 @@ export default function CenseurDashboard() {
     showToast(`✅ Classe "${nouvelle.nom}" créée !`);
   };
 
+  const [classeEnRenommage, setClasseEnRenommage] = useState({ id: null, nom: '' });
+
+  const renommerClasse = async (e) => {
+    e.preventDefault();
+    if (!classeEnRenommage.nom.trim()) return;
+    const { data, error } = await supabase
+      .from('classes')
+      .update({ nom: classeEnRenommage.nom.trim() })
+      .eq('id', classeEnRenommage.id)
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Une classe porte déjà ce nom pour cette année.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    setClassesEtablissement(prev => prev.map(c => c.id === data.id ? data : c).sort((a, b) => a.nom.localeCompare(b.nom)));
+    setClasseEnRenommage({ id: null, nom: '' });
+    showToast("✅ Classe renommée !");
+  };
+
+  // Suppression douce (deleted_at) — la classe disparaît des formulaires
+  // d'attribution/création, mais les fiches et attributions déjà existantes
+  // restent intactes et consultables dans l'historique.
+  const supprimerClasse = (classe) => {
+    setModalConfirmation({
+      ouvert: true,
+      titre: `Supprimer "${classe.nom}" ?`,
+      message: "Elle disparaîtra des formulaires d'attribution et de création de fiches. Les fiches et attributions déjà existantes pour cette classe restent consultables dans l'historique, mais plus rien de nouveau ne pourra lui être rattaché.",
+      actionCallback: async () => {
+        const { error } = await supabase.from('classes').update({ deleted_at: new Date().toISOString() }).eq('id', classe.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setClassesEtablissement(prev => prev.filter(c => c.id !== classe.id));
+        showToast(`🗑️ Classe "${classe.nom}" supprimée.`);
+      },
+    });
+  };
+
   const ALPHABET_CLASSES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
   const genererNomsLot = () => {
@@ -834,24 +872,13 @@ export default function CenseurDashboard() {
     return nouvelle.id;
   };
 
-  // Filtre le catalogue de matières selon le niveau/série d'une classe —
-  // une matière sans niveaux/séries taguées (niveaux_applicables vide) est
-  // considérée universelle et reste toujours proposée (rétrocompatible avec
-  // les matières créées avant l'introduction de ce système de programme).
-  const matiereApplicableAClasse = (matiere, classe) => {
-    if (!classe) return true;
-    const niveaux = matiere?.niveaux_applicables || matiere?.niveauxApplicables || [];
-    const series = matiere?.series_applicables || matiere?.seriesApplicables || [];
-    const matchNiveau = niveaux.length === 0 || niveaux.includes(classe.niveau);
-    const matchSerie = series.length === 0 || !classe.serie || series.includes(classe.serie);
-    return matchNiveau && matchSerie;
-  };
+  // Le censeur décide librement quelle matière convient à quel niveau/série
+  // — les programmes changent dans le temps, rien n'est figé côté code.
+  // La fonction reste disponible (au cas où) mais ne filtre plus rien :
+  // toute matière est toujours considérée applicable à toute classe.
+  const matiereApplicableAClasse = (matiere, classe) => true;
 
-  const matieresPourClasse = (classeOuClasses) => {
-    const classes = Array.isArray(classeOuClasses) ? classeOuClasses : [classeOuClasses].filter(Boolean);
-    if (classes.length === 0) return matieresDisponibles;
-    return matieresDisponibles.filter(m => classes.some(cl => matiereApplicableAClasse(m, cl)));
-  };
+  const matieresPourClasse = (classeOuClasses) => matieresDisponibles;
 
   const enregistrerProgrammeMatiere = async (matiereId, niveaux, series) => {
     const { data, error } = await supabase
@@ -874,35 +901,51 @@ export default function CenseurDashboard() {
     });
   };
 
+  // Le censeur peut ajouter une nouvelle matière ou renommer une matière
+  // existante à tout moment — le catalogue doit pouvoir évoluer (nouvelle
+  // matière introduite, appellation qui change) sans jamais passer par SQL.
+  const [nouvelleMatiereNomCatalogue, setNouvelleMatiereNomCatalogue] = useState('');
+  const [matiereEnRenommage, setMatiereEnRenommage] = useState({ id: null, nom: '' });
+
+  const ajouterMatiereAuCatalogue = async (e) => {
+    e.preventDefault();
+    const id = await trouverOuCreerMatiere(nouvelleMatiereNomCatalogue);
+    if (id) {
+      setNouvelleMatiereNomCatalogue('');
+      showToast("✅ Matière ajoutée au catalogue !");
+    }
+  };
+
+  const renommerMatiere = async (e) => {
+    e.preventDefault();
+    if (!matiereEnRenommage.nom.trim()) return;
+    const { data, error } = await supabase
+      .from('matieres')
+      .update({ nom: matiereEnRenommage.nom.trim() })
+      .eq('id', matiereEnRenommage.id)
+      .select('id, nom, niveaux_applicables, series_applicables')
+      .single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Une matière porte déjà ce nom.");
+      else showToast("⚠️ Erreur : " + error.message);
+      return;
+    }
+    setMatieresDisponibles(prev => prev.map(m => m.id === data.id ? data : m));
+    setMatiereEnRenommage({ id: null, nom: '' });
+    showToast("✅ Matière renommée !");
+  };
+
   const attribuerClasseDirectement = async (e) => {
     e.preventDefault();
-    const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
-    const matieresProfDeclarees = enseignantChoisi?.matieresProfil || [];
-
     if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !affiliationCenseur || !anneeActiveId) {
       showToast("⚠️ Merci de choisir l'enseignant et au moins une classe.");
       return;
     }
-
-    let matiereIds = [];
-    if (matieresProfDeclarees.length > 0) {
-      if (formAttribution.matiereIdsChoisies.length === 0) {
-        showToast("⚠️ Merci de cocher au moins une matière.");
-        return;
-      }
-      matiereIds = formAttribution.matiereIdsChoisies;
-    } else {
-      const noms = formAttribution.matiereNom.split(',').map(n => n.trim()).filter(Boolean);
-      if (noms.length === 0) {
-        showToast("⚠️ Merci d'indiquer au moins une matière (séparez par une virgule s'il y en a plusieurs).");
-        return;
-      }
-      for (const nom of noms) {
-        const id = await trouverOuCreerMatiere(nom);
-        if (id) matiereIds.push(id);
-      }
-      if (matiereIds.length === 0) return;
+    if (formAttribution.matiereIdsChoisies.length === 0) {
+      showToast("⚠️ Merci de cocher au moins une matière.");
+      return;
     }
+    const matiereIds = formAttribution.matiereIdsChoisies;
 
     const lignes = [];
     formAttribution.classesIds.forEach(classeId => {
@@ -970,27 +1013,11 @@ export default function CenseurDashboard() {
       showToast("⚠️ Merci de choisir une classe.");
       return;
     }
-    const matieresProfDeclarees = modalGererClasses.prof?.matieresProfil || [];
-
-    let matiereIds = [];
-    if (matieresProfDeclarees.length > 0) {
-      if (formAjoutAttribution.matiereIdsChoisies.length === 0) {
-        showToast("⚠️ Merci de cocher au moins une matière.");
-        return;
-      }
-      matiereIds = formAjoutAttribution.matiereIdsChoisies;
-    } else {
-      const noms = formAjoutAttribution.matiereNom.split(',').map(n => n.trim()).filter(Boolean);
-      if (noms.length === 0) {
-        showToast("⚠️ Merci d'indiquer au moins une matière (séparez par une virgule s'il y en a plusieurs).");
-        return;
-      }
-      for (const nom of noms) {
-        const id = await trouverOuCreerMatiere(nom);
-        if (id) matiereIds.push(id);
-      }
-      if (matiereIds.length === 0) return;
+    if (formAjoutAttribution.matiereIdsChoisies.length === 0) {
+      showToast("⚠️ Merci de cocher au moins une matière.");
+      return;
     }
+    const matiereIds = formAjoutAttribution.matiereIdsChoisies;
 
     const lignes = matiereIds.map(matiereId => ({
       enseignant_id: modalGererClasses.prof.userId,
@@ -1799,35 +1826,32 @@ export default function CenseurDashboard() {
                 </select>
                 {(() => {
                   const classeChoisie = classesEtablissement.find(c => c.id === formAjoutAttribution.classeId);
-                  const matieresProfBrut = modalGererClasses.prof?.matieresProfil || [];
-                  const matieresProf = classeChoisie ? matieresProfBrut.filter(m => matiereApplicableAClasse(m, classeChoisie)) : matieresProfBrut;
-                  if (matieresProf.length > 0) {
-                    return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {matieresProf.map(m => {
-                          const estCochee = formAjoutAttribution.matiereIdsChoisies.includes(m.id);
-                          return (
-                            <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '5px 8px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '11px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
-                              <input
-                                type="checkbox"
-                                checked={estCochee}
-                                onChange={() => {
-                                  const updated = estCochee ? formAjoutAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAjoutAttribution.matiereIdsChoisies, m.id];
-                                  setFormAjoutAttribution({ ...formAjoutAttribution, matiereIdsChoisies: updated });
-                                }}
-                              />
-                              📚 {m.nom}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    );
-                  }
-                  if (matieresProfBrut.length > 0 && classeChoisie) {
-                    return <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière déclarée ne correspond à cette classe.</p>;
-                  }
+                  const matieresProposees = matieresPourClasse(classeChoisie ? [classeChoisie] : []);
                   return (
-                    <input type="text" list="liste-matieres-censeur" placeholder="Matière(s) — séparées par une virgule si plusieurs (non renseignées)" value={formAjoutAttribution.matiereNom} onChange={(e) => setFormAjoutAttribution({ ...formAjoutAttribution, matiereNom: e.target.value })} style={styles.inputStyle} required />
+                    <div>
+                      {matieresProposees.length === 0 ? (
+                        <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière au catalogue ne correspond à cette classe.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {matieresProposees.map(m => {
+                            const estCochee = formAjoutAttribution.matiereIdsChoisies.includes(m.id);
+                            return (
+                              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '5px 8px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '11px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={estCochee}
+                                  onChange={() => {
+                                    const updated = estCochee ? formAjoutAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAjoutAttribution.matiereIdsChoisies, m.id];
+                                    setFormAjoutAttribution({ ...formAjoutAttribution, matiereIdsChoisies: updated });
+                                  }}
+                                />
+                                📚 {m.nom}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })()}
                 <button type="submit" className="bouton bouton-principal" style={{ alignSelf: 'flex-start' }}>+ Ajouter</button>
@@ -2572,16 +2596,39 @@ export default function CenseurDashboard() {
                 <input type="text" placeholder="Niveau (ex. 6ème)" value={nouvelleClasseNiveau} onChange={(e) => setNouvelleClasseNiveau(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} disabled={!anneeActiveId} />
                 <button type="submit" className="bouton bouton-secondaire" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
               </form>
+
               {classesEtablissement.length > 0 && (
-                <p style={{ fontSize: '12px', color: '#475569', marginTop: '12px' }}>
-                  Classes existantes : {classesEtablissement.map(c => c.nom).join(', ')}
-                </p>
+                <div style={{ marginTop: '16px' }}>
+                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>Classes existantes — renommer ou supprimer</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+                    {classesEtablissement.map(c => {
+                      const enRenommage = classeEnRenommage.id === c.id;
+                      return (
+                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', flexWrap: 'wrap' }}>
+                          {enRenommage ? (
+                            <form onSubmit={renommerClasse} style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                              <input type="text" value={classeEnRenommage.nom} onChange={(e) => setClasseEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
+                              <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
+                              <button type="button" onClick={() => setClasseEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
+                            </form>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: '13px', fontWeight: '700', flex: 1 }}>{c.nom}</span>
+                              <button type="button" onClick={() => setClasseEnRenommage({ id: c.id, nom: c.nom })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '5px 9px' }}>✏️ Renommer</button>
+                              <button type="button" onClick={() => supprimerClasse(c)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }}>🗑️ Supprimer</button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
 
             <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>🎯 Attribuer une ou plusieurs classes à un enseignant</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Les matières proposées viennent du profil de l'enseignant, filtrées par le niveau/série des classes cochées — cochez-en plusieurs pour un enseignant polyvalent (ex. Maths + Physique-Chimie).</p>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Cochez plusieurs matières pour un enseignant polyvalent. Pour donner à un même enseignant des matières différentes selon les classes (ex. Maths sur 6e A/B, Physique-Chimie sur 4e A), faites deux attributions séparées : cochez d'abord les classes et la matière du premier groupe, validez, puis recommencez pour le second groupe.</p>
               <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px', maxHeight: '160px', overflowY: 'auto' }}>
                   <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>1. Classes (plusieurs possibles)</p>
@@ -2612,19 +2659,17 @@ export default function CenseurDashboard() {
                 </select>
 
                 {(() => {
-                  const enseignantChoisi = listeProfesseursEtablissement.find(p => p.userId === formAttribution.enseignantId);
                   const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
-                  const matieresProfBrut = enseignantChoisi?.matieresProfil || [];
-                  const matieresProf = classesSelectionnees.length === 0
-                    ? matieresProfBrut
-                    : matieresProfBrut.filter(m => classesSelectionnees.every(cl => matiereApplicableAClasse(m, cl)));
+                  const matieresProposees = matieresPourClasse(classesSelectionnees);
 
-                  if (matieresProf.length > 0) {
-                    return (
-                      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
-                        <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>3. Matière(s) — plusieurs possibles</p>
+                  return (
+                    <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
+                      <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>3. Matière(s) — plusieurs possibles</p>
+                      {matieresProposees.length === 0 ? (
+                        <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière au catalogue ne correspond au niveau/série de la sélection.</p>
+                      ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {matieresProf.map(m => {
+                          {matieresProposees.map(m => {
                             const estCochee = formAttribution.matiereIdsChoisies.includes(m.id);
                             return (
                               <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
@@ -2642,18 +2687,7 @@ export default function CenseurDashboard() {
                             );
                           })}
                         </div>
-                      </div>
-                    );
-                  }
-                  if (matieresProfBrut.length > 0 && classesSelectionnees.length > 0) {
-                    return <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière déclarée par cet enseignant ne correspond au niveau/série de la sélection.</p>;
-                  }
-                  return (
-                    <div>
-                      <input type="text" list="liste-matieres-censeur" placeholder="Matière(s) — séparées par une virgule si plusieurs (non renseignées sur son profil)" value={formAttribution.matiereNom} onChange={(e) => setFormAttribution({ ...formAttribution, matiereNom: e.target.value })} style={styles.inputStyle} required disabled={!anneeActiveId} />
-                      <datalist id="liste-matieres-censeur">
-                        {matieresPourClasse(classesSelectionnees).map(m => <option key={m.id} value={m.nom} />)}
-                      </datalist>
+                      )}
                     </div>
                   );
                 })()}
@@ -2733,31 +2767,51 @@ export default function CenseurDashboard() {
               </div>
             )}
 
-            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>📖 Programme des matières</h3>
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>📖 Catalogue des matières</h3>
             <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>
-              Indiquez pour chaque matière les niveaux et séries où elle s'enseigne — les formulaires d'attribution de classe ne proposeront ensuite que les matières compatibles. Une matière sans programme défini reste proposée partout (aucune configuration = universelle). Ce catalogue est partagé entre tous les établissements.
+              Ajoutez une nouvelle matière ou renommez-en une à tout moment — les programmes changent, rien n'est figé. Le niveau/série indiqué ci-dessous est juste une note pour vous repérer ; il ne bloque plus aucune attribution, vous pouvez proposer n'importe quelle matière à n'importe quel niveau. Ce catalogue est partagé entre tous les établissements.
             </p>
+
+            <form onSubmit={ajouterMatiereAuCatalogue} style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <input type="text" placeholder="Nouvelle matière (ex. Informatique)" value={nouvelleMatiereNomCatalogue} onChange={(e) => setNouvelleMatiereNomCatalogue(e.target.value)} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} required />
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
+            </form>
+
             {matieresDisponibles.length === 0 ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune matière au catalogue pour l'instant.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {matieresDisponibles.map(m => {
                   const estOuverte = matiereProgrammeOuverte === m.id;
+                  const enRenommage = matiereEnRenommage.id === m.id;
                   const niveauxDefinis = m.niveaux_applicables || [];
                   const seriesDefinies = m.series_applicables || [];
                   return (
                     <div key={m.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', backgroundColor: '#f8fafc' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', flexWrap: 'wrap', gap: '8px' }}>
-                        <div>
-                          <strong style={{ fontSize: '13px' }}>{m.nom}</strong>
-                          <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
-                            {niveauxDefinis.length === 0 ? 'Universelle (tous niveaux)' : niveauxDefinis.join(', ')}
-                            {seriesDefinies.length > 0 && ` — séries : ${seriesDefinies.join(', ')}`}
-                          </p>
-                        </div>
-                        <button type="button" onClick={() => estOuverte ? setMatiereProgrammeOuverte(null) : ouvrirProgrammeMatiere(m)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>
-                          {estOuverte ? 'Fermer' : '✏️ Définir le programme'}
-                        </button>
+                        {enRenommage ? (
+                          <form onSubmit={renommerMatiere} style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                            <input type="text" value={matiereEnRenommage.nom} onChange={(e) => setMatiereEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
+                            <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
+                            <button type="button" onClick={() => setMatiereEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
+                          </form>
+                        ) : (
+                          <>
+                            <div>
+                              <strong style={{ fontSize: '13px' }}>{m.nom}</strong>
+                              <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
+                                {niveauxDefinis.length === 0 ? 'Note libre : aucun niveau précisé' : niveauxDefinis.join(', ')}
+                                {seriesDefinies.length > 0 && ` — séries : ${seriesDefinies.join(', ')}`}
+                              </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button type="button" onClick={() => setMatiereEnRenommage({ id: m.id, nom: m.nom })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✏️ Renommer</button>
+                              <button type="button" onClick={() => estOuverte ? setMatiereProgrammeOuverte(null) : ouvrirProgrammeMatiere(m)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>
+                                {estOuverte ? 'Fermer' : '🏷️ Note niveau/série'}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                       {estOuverte && (
                         <div style={{ padding: '0 12px 14px 12px' }}>

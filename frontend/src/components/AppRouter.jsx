@@ -43,6 +43,13 @@ import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 //    "mot de passe de l'établissement" a été remplacé par "code
 //    établissement", et un vrai enregistrement dans demandes_affiliation
 //    est créé.
+//
+// 6. NOUVEAU : la "matière enseignée" à l'inscription était un champ de
+//    texte libre — chaque enseignant tapait ce qu'il voulait ("EPS",
+//    "Éducation physique et sportive", etc.), créant des doublons dans le
+//    catalogue de matières géré par les censeurs. Remplacé par une sélection
+//    à cases à cocher, multi-matières, tirée du catalogue existant — plus
+//    aucune saisie libre nulle part dans le parcours enseignant.
 // =========================================================================
 
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
@@ -81,7 +88,10 @@ export default function AppRouter() {
   const [nomSaisi, setNomSaisi] = useState('');
   const [prenomsSaisi, setPrenomsSaisi] = useState('');
   const [dateNaissanceSaisie, setDateNaissanceSaisie] = useState('');
-  const [matiereSaisie, setMatiereSaisie] = useState('');
+  // Remplace l'ancien champ texte libre "matiereSaisie" : désormais une
+  // sélection multiple d'identifiants, tirée du vrai catalogue de matières.
+  const [matiereIdsSaisies, setMatiereIdsSaisies] = useState([]);
+  const [catalogueMatieresInscription, setCatalogueMatieresInscription] = useState([]);
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
 
@@ -102,6 +112,16 @@ export default function AppRouter() {
     }
     setDateNaissanceSaisie(valeur);
   };
+
+  // Charge le catalogue de matières dès qu'on arrive sur l'étape
+  // d'inscription enseignant — c'est le même catalogue que celui géré par
+  // les censeurs (table "matieres"), jamais une liste tapée à la main.
+  useEffect(() => {
+    if (etapeAuth === 'enseignant' && modeAuth === 'inscription') {
+      supabase.from('matieres').select('id, nom').order('nom', { ascending: true })
+        .then(({ data }) => setCatalogueMatieresInscription(data || []));
+    }
+  }, [etapeAuth, modeAuth]);
 
   const gererDeconnexionGlobale = async () => {
     try { await supabase.auth.signOut(); }
@@ -256,8 +276,8 @@ export default function AppRouter() {
         afficherNotification("⚠️ Veuillez renseigner toutes vos civilités personnelles.");
         return;
       }
-      if (etapeAuth === 'enseignant' && !matiereSaisie.trim()) {
-        afficherNotification("⚠️ Veuillez indiquer la matière enseignée.");
+      if (etapeAuth === 'enseignant' && matiereIdsSaisies.length === 0) {
+        afficherNotification("⚠️ Veuillez choisir au moins une matière enseignée.");
         return;
       }
     }
@@ -282,6 +302,14 @@ export default function AppRouter() {
             dateFormatee = `${datePartita[2]}-${datePartita[1]}-${datePartita[0]}`;
           }
 
+          // Matière(s) choisies à l'inscription : une note de préférence
+          // générale (pas encore rattachée à un établissement précis — ça,
+          // ça se fait à l'affiliation). On garde les noms exacts du
+          // catalogue, jamais une saisie libre.
+          const nomsMatieresChoisies = catalogueMatieresInscription
+            .filter(m => matiereIdsSaisies.includes(m.id))
+            .map(m => m.nom);
+
           // Colonnes réelles de utilisateurs_profils uniquement : user_id, prenom, nom,
           // telephone, preferences_json. Le reste (genre, date de naissance, matière,
           // rôle choisi à l'inscription) part dans preferences_json pour ne rien perdre.
@@ -293,7 +321,7 @@ export default function AppRouter() {
               preferences_json: {
                 genre: genreSaisi,
                 date_naissance: dateFormatee,
-                matiere: roleActuel === 'enseignant' ? matiereSaisie.trim() : null,
+                matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
                 role_signup: roleActuel,
               },
             }
@@ -513,8 +541,29 @@ export default function AppRouter() {
 
                   {etapeAuth === 'enseignant' && (
                     <div>
-                      <label style={styles.libelle}>Matière enseignée</label>
-                      <input type="text" placeholder="Ex: Mathématiques, Histoire-Géo..." value={matiereSaisie} onChange={e => setMatiereSaisie(e.target.value)} style={styles.champSaisie} required />
+                      <label style={styles.libelle}>Matière(s) enseignée(s)</label>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si besoin. Vous préciserez les classes et l'école lors de votre demande d'affiliation.</p>
+                      {catalogueMatieresInscription.length === 0 ? (
+                        <p style={{ fontSize: '12px', color: '#991b1b' }}>Chargement du catalogue...</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', backgroundColor: '#f8fafc' }}>
+                          {catalogueMatieresInscription.map(m => {
+                            const estCochee = matiereIdsSaisies.includes(m.id);
+                            return (
+                              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: estCochee ? '#dbeafe' : '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: '700', color: '#334155' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={estCochee}
+                                  onChange={() => {
+                                    setMatiereIdsSaisies(prev => estCochee ? prev.filter(id => id !== m.id) : [...prev, m.id]);
+                                  }}
+                                />
+                                {m.nom}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

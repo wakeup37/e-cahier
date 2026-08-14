@@ -227,6 +227,7 @@ export default function ChefEtablissementDashboard() {
           .from('classes')
           .select('id')
           .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000')
           .is('deleted_at', null);
         setNombreClassesReel((classesData || []).length);
 
@@ -240,7 +241,8 @@ export default function ChefEtablissementDashboard() {
         const { data: attributionsData } = await supabase
           .from('attributions_classes')
           .select('enseignant_id, matieres(nom), classes(nom)')
-          .eq('etablissement_id', affiliation.etablissement_id);
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000');
 
         const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           const attrsDeCetEnseignant = (attributionsData || []).filter(at => at.enseignant_id === a.user_id);
@@ -289,7 +291,7 @@ export default function ChefEtablissementDashboard() {
         // remplace l'ancienne lecture localStorage qui ne recevait plus rien.
         const { data: fichesData } = await supabase
           .from('bibliotheque_etablissement')
-          .select('id, titre, created_at, contenu_snapshot_json, utilisateurs_profils:auteur_user_id (nom, prenom)')
+          .select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)')
           .eq('etablissement_id', affiliation.etablissement_id)
           .order('created_at', { ascending: false });
         setFichesPedagogiquesEcole((fichesData || []).map(f => ({
@@ -298,6 +300,7 @@ export default function ChefEtablissementDashboard() {
           matiere: f.contenu_snapshot_json?.matiere || 'Non définie',
           classe: f.contenu_snapshot_json?.classe || 'Général',
           titre: f.titre,
+          anneeScolaire: f.annees_scolaires?.intitule || '',
           dateValidation: new Date(f.created_at).toLocaleDateString(),
           details: f.contenu_snapshot_json,
         })));
@@ -511,14 +514,25 @@ export default function ChefEtablissementDashboard() {
     });
   }, [listeProfesseursEtablissement, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
 
+  const [filtreFichesTexte, setFiltreFichesTexte] = useState('');
+  const [filtreFichesClasse, setFiltreFichesClasse] = useState('TOUTES');
+  const [filtreFichesMatiere, setFiltreFichesMatiere] = useState('TOUTES');
+  const [filtreFichesAnnee, setFiltreFichesAnnee] = useState('TOUTES');
+
+  const classesFichesDisponibles = useMemo(() => [...new Set(fichesPedagogiquesEcole.map(f => f.classe).filter(Boolean))].sort(), [fichesPedagogiquesEcole]);
+  const matieresFichesDisponibles = useMemo(() => [...new Set(fichesPedagogiquesEcole.map(f => f.matiere).filter(Boolean))].sort(), [fichesPedagogiquesEcole]);
+  const anneesFichesDisponibles = useMemo(() => [...new Set(fichesPedagogiquesEcole.map(f => f.anneeScolaire).filter(Boolean))].sort().reverse(), [fichesPedagogiquesEcole]);
+
   const fichesFiltrees = useMemo(() => {
+    const texte = filtreFichesTexte.trim().toLowerCase();
     return fichesPedagogiquesEcole.filter(fiche => {
-      const matchMat = filtreProfMatiere === 'TOUTES' || fiche.matiere === filtreProfMatiere;
-      const matchNiv = filtreProfNiveau === 'TOUS' || (fiche.niveau && fiche.niveau.includes(filtreProfNiveau));
-      const matchCl = filtreProfClasse === 'TOUTES' || fiche.classe === filtreProfClasse;
-      return matchMat && matchNiv && matchCl;
+      const matchMat = filtreFichesMatiere === 'TOUTES' || fiche.matiere === filtreFichesMatiere;
+      const matchCl = filtreFichesClasse === 'TOUTES' || fiche.classe === filtreFichesClasse;
+      const matchAnnee = filtreFichesAnnee === 'TOUTES' || fiche.anneeScolaire === filtreFichesAnnee;
+      const matchTexte = !texte || (fiche.titre || '').toLowerCase().includes(texte) || (fiche.enseignant || '').toLowerCase().includes(texte);
+      return matchMat && matchCl && matchAnnee && matchTexte;
     });
-  }, [fichesPedagogiquesEcole, filtreProfMatiere, filtreProfNiveau, filtreProfClasse]);
+  }, [fichesPedagogiquesEcole, filtreFichesMatiere, filtreFichesClasse, filtreFichesAnnee, filtreFichesTexte]);
 
   const fichesPedagogiquesParClasse = useMemo(() => {
     const groupes = {};
@@ -1595,7 +1609,36 @@ export default function ChefEtablissementDashboard() {
 
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '20px' }}>📚 Fiches Pédagogiques</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📚 Fiches Pédagogiques</h2>
+
+            <div style={{ display: 'flex', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '20px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '2 1 220px' }}>
+                <label style={styles.label}>Recherche (titre de fiche ou enseignant)</label>
+                <input type="text" placeholder="Ex : révisions, Kouassi..." value={filtreFichesTexte} onChange={(e) => setFiltreFichesTexte(e.target.value)} style={styles.inputStyle} />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.label}>Année scolaire</label>
+                <select value={filtreFichesAnnee} onChange={(e) => setFiltreFichesAnnee(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {anneesFichesDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.label}>Classe</label>
+                <select value={filtreFichesClasse} onChange={(e) => setFiltreFichesClasse(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {classesFichesDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.label}>Matière</label>
+                <select value={filtreFichesMatiere} onChange={(e) => setFiltreFichesMatiere(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {matieresFichesDisponibles.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+
             {fichesPedagogiquesParClasse.length === 0 ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche pour l'instant.</p>
             ) : (

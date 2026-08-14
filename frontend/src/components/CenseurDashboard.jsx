@@ -190,6 +190,8 @@ export default function CenseurDashboard() {
 
   const [filtreArchiveClasse, setFiltreArchiveClasse] = useState('TOUTES');
   const [filtreArchiveMatiere, setFiltreArchiveMatiere] = useState('TOUTES');
+  const [filtreArchiveAnnee, setFiltreArchiveAnnee] = useState('TOUTES');
+  const [filtreArchiveTexte, setFiltreArchiveTexte] = useState('');
   const [filtreProfClasse, setFiltreProfClasse] = useState('TOUTES');
 
   const [modalConsultation, setModalConsultation] = useState({ ouvert: false, element: null });
@@ -313,7 +315,8 @@ export default function CenseurDashboard() {
     const { data: attributions } = await supabase
       .from('attributions_classes')
       .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
-      .eq('etablissement_id', etablissementId);
+      .eq('etablissement_id', etablissementId)
+      .eq('annee_scolaire_id', annee?.id || '00000000-0000-0000-0000-000000000000');
 
     const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
@@ -478,7 +481,7 @@ export default function CenseurDashboard() {
 
     const { data: archive } = await supabase
       .from('bibliotheque_etablissement')
-      .select('id, titre, created_at, contenu_snapshot_json, utilisateurs_profils:auteur_user_id (nom, prenom)')
+      .select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)')
       .eq('etablissement_id', etablissementId)
       .order('created_at', { ascending: false });
 
@@ -488,6 +491,7 @@ export default function CenseurDashboard() {
       matiere: a.contenu_snapshot_json?.matiere || 'Non définie',
       classe: a.contenu_snapshot_json?.classe || 'Général',
       titre: a.titre,
+      anneeScolaire: a.annees_scolaires?.intitule || '',
       dateValidation: new Date(a.created_at).toLocaleDateString(),
       details: a.contenu_snapshot_json,
     })));
@@ -1514,13 +1518,28 @@ export default function CenseurDashboard() {
 
   const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
+  // Options de filtre générées dynamiquement depuis les fiches réellement
+  // présentes — plus aucune option codée en dur qui ne correspond à rien.
+  const classesArchiveDisponibles = useMemo(() => {
+    return [...new Set(fichesPedagogiquesEcole.map(f => f.classe).filter(Boolean))].sort();
+  }, [fichesPedagogiquesEcole]);
+  const matieresArchiveDisponibles = useMemo(() => {
+    return [...new Set(fichesPedagogiquesEcole.map(f => f.matiere).filter(Boolean))].sort();
+  }, [fichesPedagogiquesEcole]);
+  const anneesArchiveDisponibles = useMemo(() => {
+    return [...new Set(fichesPedagogiquesEcole.map(f => f.anneeScolaire).filter(Boolean))].sort().reverse();
+  }, [fichesPedagogiquesEcole]);
+
   const fichesFiltrees = useMemo(() => {
+    const texte = filtreArchiveTexte.trim().toLowerCase();
     return fichesPedagogiquesEcole.filter(fiche => {
       const matchMat = filtreArchiveMatiere === 'TOUTES' || fiche.matiere === filtreArchiveMatiere;
       const matchCl = filtreArchiveClasse === 'TOUTES' || fiche.classe === filtreArchiveClasse;
-      return matchMat && matchCl;
+      const matchAnnee = filtreArchiveAnnee === 'TOUTES' || fiche.anneeScolaire === filtreArchiveAnnee;
+      const matchTexte = !texte || (fiche.titre || '').toLowerCase().includes(texte) || (fiche.enseignant || '').toLowerCase().includes(texte);
+      return matchMat && matchCl && matchAnnee && matchTexte;
     });
-  }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse]);
+  }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse, filtreArchiveAnnee, filtreArchiveTexte]);
 
   // Fiches archivées rangées par classe — un même établissement a souvent
   // plusieurs classes, ce groupement évite de tout mélanger dans une liste unique.
@@ -2109,8 +2128,31 @@ export default function CenseurDashboard() {
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
-              <div style={{ flex: '1 1 180px' }}><label style={styles.labelFiltre}>Classe</label><select value={filtreArchiveClasse} onChange={(e) => setFiltreArchiveClasse(e.target.value)} style={styles.inputStyle}><option value="TOUTES">Toutes</option><option value="6ème A">6ème A</option></select></div>
-              <div style={{ flex: '1 1 180px' }}><label style={styles.labelFiltre}>Matière</label><select value={filtreArchiveMatiere} onChange={(e) => setFiltreArchiveMatiere(e.target.value)} style={styles.inputStyle}><option value="TOUTES">Toutes</option><option value="EPS">EPS</option><option value="Mathématiques">Mathématiques</option></select></div>
+              <div style={{ flex: '2 1 220px' }}>
+                <label style={styles.labelFiltre}>Recherche (titre de fiche ou enseignant)</label>
+                <input type="text" placeholder="Ex : révisions, Kouassi..." value={filtreArchiveTexte} onChange={(e) => setFiltreArchiveTexte(e.target.value)} style={styles.inputStyle} />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Année scolaire</label>
+                <select value={filtreArchiveAnnee} onChange={(e) => setFiltreArchiveAnnee(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {anneesArchiveDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Classe</label>
+                <select value={filtreArchiveClasse} onChange={(e) => setFiltreArchiveClasse(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {classesArchiveDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Matière</label>
+                <select value={filtreArchiveMatiere} onChange={(e) => setFiltreArchiveMatiere(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {matieresArchiveDisponibles.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
             </div>
 
             {fichesFiltrees.length === 0 ? (

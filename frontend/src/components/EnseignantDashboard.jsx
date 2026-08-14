@@ -69,11 +69,25 @@ export default function EnseignantDashboard() {
 
   const [nouvelleClasseLibre, setNouvelleClasseLibre] = useState('');
 
+  // Une classe est identifiée par son nom SEUL dans la base (classes.nom),
+  // mais deux établissements différents peuvent très bien avoir chacun une
+  // "6ème A" — pour un enseignant affilié à plusieurs écoles, on distingue
+  // donc à l'affichage et dans toutes les sélections via une clé composite
+  // "Nom (École)". Les fonctions ci-dessous encapsulent cette conversion.
+  const formaterCleClasse = (nomBrut, ecole) => (ecole ? `${nomBrut} (${ecole})` : nomBrut);
+  const decomposerCleClasse = (cle) => {
+    const correspondance = typeof cle === 'string' ? cle.match(/^(.*) \(([^)]+)\)$/) : null;
+    return correspondance ? { nomBrut: correspondance[1], ecole: correspondance[2] } : { nomBrut: cle, ecole: null };
+  };
+
   const classesActivesValidees = useMemo(() => {
     let classes = [];
     affiliations.forEach(aff => {
       if (aff.statut === 'Validée' && Array.isArray(aff.classes)) {
-        aff.classes.forEach(cl => { if (!classes.includes(cl)) classes.push(cl); });
+        aff.classes.forEach(cl => {
+          const cle = formaterCleClasse(cl, aff.ecole);
+          if (!classes.includes(cle)) classes.push(cle);
+        });
       }
     });
     // Les classes personnelles (mode sans affiliation) s'AJOUTENT à celles
@@ -159,7 +173,7 @@ export default function EnseignantDashboard() {
 
   // --- PROFIL (Supabase) ---
   const [infosEnseignant, setInfosEnseignant] = useState({
-    civilite: 'M.', nom: '', prenoms: '', ville: '', matiere: '', matiereIds: [], photoProfil: '',
+    civilite: 'M.', nom: '', prenoms: '', ville: '', matiere: '', matieresParEtablissement: {}, photoProfil: '',
     etablissementSaisi: '', classesSelectionneesEnCours: [], emailSecurite: '', telephone: ''
   });
   const [matieresCatalogue, setMatieresCatalogue] = useState([]);
@@ -217,7 +231,7 @@ export default function EnseignantDashboard() {
     if (idsSeances.length > 0) {
       const { data: seancesData } = await supabase
         .from('seances')
-        .select('id, contenu_json, date_prevue, classes(nom)')
+        .select('id, contenu_json, date_prevue, classes(nom, etablissements(nom)), annees_scolaires(intitule)')
         .in('id', idsSeances);
       (seancesData || []).forEach(s => { seancesParId[s.id] = s; });
     }
@@ -228,7 +242,8 @@ export default function EnseignantDashboard() {
         id: l.id,
         referenceId: l.reference_id,
         nom: l.titre || seance?.contenu_json?.titre || 'Fiche',
-        classeOrigine: seance?.classes?.nom || '',
+        classeOrigine: seance?.classes?.nom ? formaterCleClasse(seance.classes.nom, seance?.classes?.etablissements?.nom) : '',
+        anneeScolaire: seance?.annees_scolaires?.intitule || '',
         dateOrigine: seance?.date_prevue || '',
         contenuJson: seance?.contenu_json || {},
       };
@@ -381,20 +396,30 @@ export default function EnseignantDashboard() {
     const { data: catalogueMatieres } = await supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true });
     setMatieresCatalogue(catalogueMatieres || []);
 
-    const { data: mesMatieres } = await supabase
-      .from('matieres_enseignant').select('matiere_id, matieres(nom)').eq('user_id', user.id);
-    const matiereIdsActuels = (mesMatieres || []).map(m => m.matiere_id);
-    const nomsMatieresActuelles = (mesMatieres || []).map(m => m.matieres?.nom).filter(Boolean);
-
     const { data: affiliationsData } = await supabase
       .from('affiliations_etablissement')
       .select('id, statut, etablissement_id, etablissements(nom)')
       .eq('user_id', user.id)
       .eq('role', 'ENSEIGNANT');
 
+    // Année active de chaque établissement affilié — une classe attribuée
+    // n'apparaît que si elle appartient à l'année ACTUELLEMENT active de
+    // son établissement (sinon elle reste invisible tant qu'aucune
+    // nouvelle année n'a été ouverte, exactement comme le Programme Annuel).
+    const etablissementIdsPourAnnee = (affiliationsData || []).map(a => a.etablissement_id);
+    let anneeActiveParEtab = {};
+    if (etablissementIdsPourAnnee.length > 0) {
+      const { data: anneesActivesData } = await supabase
+        .from('annees_scolaires')
+        .select('id, etablissement_id')
+        .in('etablissement_id', etablissementIdsPourAnnee)
+        .eq('est_active', true);
+      (anneesActivesData || []).forEach(a => { anneeActiveParEtab[a.etablissement_id] = a.id; });
+    }
+
     const { data: attributions } = await supabase
       .from('attributions_classes')
-      .select('etablissement_id, classes(nom)')
+      .select('etablissement_id, classes(nom, annee_scolaire_id)')
       .eq('enseignant_id', user.id);
 
     const mapStatut = (s) => (s === 'ACTIVE' ? 'Validée' : (s === 'EN_ATTENTE' || s === 'INVITATION') ? 'En attente' : s);
@@ -406,10 +431,32 @@ export default function EnseignantDashboard() {
       statut: mapStatut(a.statut),
       classes: (attributions || [])
         .filter(at => at.etablissement_id === a.etablissement_id)
+        .filter(at => at.classes?.annee_scolaire_id && at.classes.annee_scolaire_id === anneeActiveParEtab[a.etablissement_id])
         .map(at => at.classes?.nom)
         .filter(Boolean),
     }));
     setAffiliations(affiliationsFormatees);
+
+    // Matières déclarées, rattachées à CHAQUE établissement précisément —
+    // un enseignant affilié à plusieurs écoles peut y enseigner des matières
+    // différentes ; tout se charge et se modifie désormais école par école,
+    // jamais comme une liste globale mélangée.
+    const { data: mesMatieres } = await supabase
+      .from('matieres_enseignant').select('matiere_id, etablissement_id, matieres(nom)').eq('user_id', user.id);
+    const matieresParEtablissement = {};
+    (mesMatieres || []).forEach(m => {
+      const cle = m.etablissement_id || 'SANS_ETABLISSEMENT';
+      if (!matieresParEtablissement[cle]) matieresParEtablissement[cle] = [];
+      matieresParEtablissement[cle].push(m.matiere_id);
+    });
+    const matiereDisplayParEcole = affiliationsFormatees
+      .filter(a => a.statut === 'Validée')
+      .map(a => {
+        const noms = (mesMatieres || []).filter(m => m.etablissement_id === a.etablissementId).map(m => m.matieres?.nom).filter(Boolean);
+        return noms.length > 0 ? `${a.ecole} : ${noms.join(', ')}` : null;
+      })
+      .filter(Boolean)
+      .join(' · ');
 
     // Demandes de départ déjà soumises (pour ne pas en permettre une deuxième
     // pendant que la première est encore en attente)
@@ -439,13 +486,14 @@ export default function EnseignantDashboard() {
     })));
 
     if (profil) {
-      const premiereEcole = affiliationsFormatees.find(a => a.statut === 'Validée')?.ecole || '';
+      const ecolesValidees = affiliationsFormatees.filter(a => a.statut === 'Validée').map(a => a.ecole).filter(Boolean);
+      const toutesEcoles = ecolesValidees.join(', ');
       setInfosEnseignant(prev => ({
         ...prev, nom: profil.nom, prenoms: profil.prenom,
-        emailSecurite: user.email, etablissementSaisi: premiereEcole, telephone: profil.telephone || '',
-        matiere: nomsMatieresActuelles.join(', '), matiereIds: matiereIdsActuels,
+        emailSecurite: user.email, etablissementSaisi: toutesEcoles, telephone: profil.telephone || '',
+        matiere: matiereDisplayParEcole, matieresParEtablissement,
       }));
-      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: premiereEcole, telephone: profil.telephone || '', matiereIds: matiereIdsActuels }));
+      setFormProfil(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissementSaisi: toutesEcoles, telephone: profil.telephone || '', matieresParEtablissement }));
     }
 
     // Programme complet de l'enseignant : on part des CYCLES (visibles même
@@ -457,22 +505,27 @@ export default function EnseignantDashboard() {
     // pour le mode sans affiliation) — une fois une année fermée, ses
     // cycles disparaissent naturellement d'ici (ils restent consultables
     // via la Bibliothèque, où ils sont archivés automatiquement à la fermeture).
-    const etablissementIdsActifs = affiliationsFormatees.filter(a => a.statut === 'Validée').map(a => a.etablissementId);
-    let anneesActivesIds = [];
-    if (etablissementIdsActifs.length > 0) {
-      const { data: anneesActivesData } = await supabase
-        .from('annees_scolaires')
-        .select('id')
-        .in('etablissement_id', etablissementIdsActifs)
-        .eq('est_active', true);
-      anneesActivesIds = (anneesActivesData || []).map(a => a.id);
-    }
+    const anneesActivesIds = Object.values(anneeActiveParEtab);
+
+    // Cartes de correspondance pour reconstruire "Nom (École)" à partir de
+    // chaque cycle — indispensable quand l'enseignant a plusieurs écoles
+    // avec potentiellement des noms de classe identiques.
+    const etablissementIdVersEcole = {};
+    affiliationsFormatees.forEach(a => { etablissementIdVersEcole[a.etablissementId] = a.ecole; });
+    const anneeIdVersEtablissementId = {};
+    Object.entries(anneeActiveParEtab).forEach(([etabId, anneeId]) => { anneeIdVersEtablissementId[anneeId] = etabId; });
 
     const { data: programmesPossedes } = await supabase
-      .from('programmes_annuels').select('id')
+      .from('programmes_annuels').select('id, annee_scolaire_id')
       .eq('proprietaire_user_id', user.id)
       .or([`annee_scolaire_id.is.null`, anneesActivesIds.length > 0 ? `annee_scolaire_id.in.(${anneesActivesIds.join(',')})` : null].filter(Boolean).join(','));
     const idsProgrammes = (programmesPossedes || []).map(p => p.id);
+
+    const programmeIdVersEcole = {};
+    (programmesPossedes || []).forEach(p => {
+      const etabId = p.annee_scolaire_id ? anneeIdVersEtablissementId[p.annee_scolaire_id] : null;
+      programmeIdVersEcole[p.id] = etabId ? etablissementIdVersEcole[etabId] : null;
+    });
 
     const groupe = {};
 
@@ -500,7 +553,7 @@ export default function EnseignantDashboard() {
         : { data: [] };
 
       (cyclesData || []).forEach(cycle => {
-        const classeNom = cycle.classe_nom || 'Sans classe';
+        const classeNom = formaterCleClasse(cycle.classe_nom || 'Sans classe', programmeIdVersEcole[cycle.programme_annuel_id]);
         if (!groupe[classeNom]) groupe[classeNom] = { anneeScolaire: '', cycles: [] };
 
         const leconsDuCycle = (leconsData || []).filter(l => l.cycle_id === cycle.id).map(lecon => {
@@ -548,15 +601,19 @@ export default function EnseignantDashboard() {
   // =========================================================================
   // HELPERS DE RÉSOLUTION DE CONTEXTE (établissement / année / classe réelle)
   // =========================================================================
-  const resoudreContexteClasse = async (classeNom) => {
+  const resoudreContexteClasse = async (classeCle) => {
     // Une classe personnelle (créée en mode sans affiliation) n'est jamais
     // rattachée à un établissement réel — même si l'enseignant est par
     // ailleurs affilié à une autre école.
-    const estClassePersonnelle = Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeNom);
-    if (estClassePersonnelle) return { etablissementId: null, anneeScolaireId: null, classeId: null };
+    const estClassePersonnelle = Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeCle);
+    if (estClassePersonnelle) return { etablissementId: null, anneeScolaireId: null, classeId: null, classeNomBrut: classeCle };
 
-    const affiliation = affiliations.find(a => a.statut === 'Validée' && a.classes.includes(classeNom));
-    if (!affiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null };
+    // La clé peut être composite ("6ème A (Collège Moderne)") si l'enseignant
+    // est affilié à plusieurs écoles — on retrouve alors l'affiliation EXACTE
+    // (nom + école), pas juste la première classe du même nom trouvée.
+    const { nomBrut, ecole } = decomposerCleClasse(classeCle);
+    const affiliation = affiliations.find(a => a.statut === 'Validée' && a.classes.includes(nomBrut) && (!ecole || a.ecole === ecole));
+    if (!affiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null, classeNomBrut: nomBrut };
 
     // On retrouve l'établissement_id réel depuis la table (le formatage local ne le garde pas)
     const { data: aff } = await supabase
@@ -566,16 +623,16 @@ export default function EnseignantDashboard() {
     const { data: annee } = await supabase
       .from('annees_scolaires').select('id').eq('etablissement_id', etablissementId).eq('est_active', true).maybeSingle();
 
-    const cleClasse = `${etablissementId}|${classeNom}`;
-    let classeId = classesIdCache.current[cleClasse];
+    const cleCache = `${etablissementId}|${annee?.id}|${nomBrut}`;
+    let classeId = classesIdCache.current[cleCache];
     if (!classeId) {
       const { data: classeRow } = await supabase
-        .from('classes').select('id').eq('etablissement_id', etablissementId).eq('nom', classeNom).maybeSingle();
+        .from('classes').select('id').eq('etablissement_id', etablissementId).eq('nom', nomBrut).eq('annee_scolaire_id', annee?.id || '00000000-0000-0000-0000-000000000000').maybeSingle();
       classeId = classeRow?.id || null;
-      classesIdCache.current[cleClasse] = classeId;
+      classesIdCache.current[cleCache] = classeId;
     }
 
-    return { etablissementId, anneeScolaireId: annee?.id || null, classeId };
+    return { etablissementId, anneeScolaireId: annee?.id || null, classeId, classeNomBrut: nomBrut };
   };
 
   const getOuCreerProgrammeAnnuel = async (etablissementId, anneeScolaireId) => {
@@ -638,20 +695,32 @@ export default function EnseignantDashboard() {
       .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms, telephone: formProfil.telephone || null }).eq('user_id', userId);
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
-    // Synchronise les matières déclarées : on remplace l'ensemble par la
-    // sélection actuelle (simple et sûr — un enseignant en a rarement plus
-    // de 2 ou 3, pas besoin d'un diff plus fin)
-    const { error: erreurSuppression } = await supabase.from('matieres_enseignant').delete().eq('user_id', userId);
-    if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); return; }
-    if (formProfil.matiereIds.length > 0) {
-      const { error: erreurInsertion } = await supabase
-        .from('matieres_enseignant')
-        .insert(formProfil.matiereIds.map(matiere_id => ({ user_id: userId, matiere_id })));
-      if (erreurInsertion) { showToast("⚠️ Erreur matières : " + erreurInsertion.message); return; }
+    // Synchronise les matières déclarées ÉCOLE PAR ÉCOLE — jamais un
+    // effacement global, sinon les matières d'une école seraient perdues
+    // en modifiant seulement celles d'une autre.
+    for (const [etablissementId, matiereIds] of Object.entries(formProfil.matieresParEtablissement || {})) {
+      const { error: erreurSuppression } = await supabase
+        .from('matieres_enseignant').delete().eq('user_id', userId).eq('etablissement_id', etablissementId);
+      if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); return; }
+      if (matiereIds.length > 0) {
+        const { error: erreurInsertion } = await supabase
+          .from('matieres_enseignant')
+          .insert(matiereIds.map(matiere_id => ({ user_id: userId, matiere_id, etablissement_id: etablissementId })));
+        if (erreurInsertion) { showToast("⚠️ Erreur matières : " + erreurInsertion.message); return; }
+      }
     }
 
-    const nomsChoisis = matieresCatalogue.filter(m => formProfil.matiereIds.includes(m.id)).map(m => m.nom);
-    setInfosEnseignant({ ...formProfil, matiere: nomsChoisis.join(', ') });
+    const matiereDisplayParEcole = affiliations
+      .filter(a => a.statut === 'Validée')
+      .map(a => {
+        const ids = (formProfil.matieresParEtablissement || {})[a.etablissementId] || [];
+        const noms = matieresCatalogue.filter(m => ids.includes(m.id)).map(m => m.nom);
+        return noms.length > 0 ? `${a.ecole} : ${noms.join(', ')}` : null;
+      })
+      .filter(Boolean)
+      .join(' · ');
+
+    setInfosEnseignant({ ...formProfil, matiere: matiereDisplayParEcole });
     setModalProfilOuvert(false);
     showToast("✅ Profil mis à jour avec succès !");
   };
@@ -706,6 +775,12 @@ export default function EnseignantDashboard() {
       showToast("⚠️ Erreur : " + error.message);
       return;
     }
+
+    await notifierParRole(
+      aff.etablissement_id, 'CHEF', 'DEMANDE_DEPART_RECUE',
+      `🚪 Un enseignant a demandé à quitter l'établissement`,
+      'professeurs'
+    );
 
     const nouvelleDemande = {
       id: modalDepart.ecoleId, ecoleId: modalDepart.ecoleId, ecoleNom: modalDepart.ecoleNom, motif: modalDepart.motif,
@@ -779,6 +854,12 @@ export default function EnseignantDashboard() {
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
+
+    await notifierParRole(
+      affiliation.etablissementId, 'CENSEUR', 'PROPOSITION_CLASSE_RECUE',
+      `🏫 Un enseignant propose une classe (${classeNom.trim()})`,
+      'classes'
+    );
 
     setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classeNom: '', matiereNom: '' });
     showToast("📤 Proposition envoyée au censeur/chef pour validation !");
@@ -895,7 +976,7 @@ export default function EnseignantDashboard() {
       let compteurCrees = 0;
       const echecs = [];
       for (const classeCible of classesCiblesCycle) {
-        const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
+        const { etablissementId, anneeScolaireId, classeNomBrut } = await resoudreContexteClasse(classeCible);
         const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
         if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
 
@@ -908,7 +989,7 @@ export default function EnseignantDashboard() {
               date_debut: cp.dateDebut || null,
               date_fin: cp.dateFin || null,
               nombre_lecons_prevu: cp.nbLecons ? parseInt(cp.nbLecons, 10) : null,
-              classe_nom: classeCible,
+              classe_nom: classeNomBrut,
             }).select().single();
           if (error) { echecs.push(`${classeCible} (${error.message})`); continue; }
 
@@ -951,7 +1032,7 @@ export default function EnseignantDashboard() {
       const echecs = [];
 
       for (const classeCible of ciblesCycle) {
-        const { etablissementId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
+        const { etablissementId, anneeScolaireId, classeNomBrut } = await resoudreContexteClasse(classeCible);
         const { id: programmeAnnuelId, erreur: erreurProgramme } = await getOuCreerProgrammeAnnuel(etablissementId, anneeScolaireId);
         if (!programmeAnnuelId) { echecs.push(`${classeCible} (${erreurProgramme || 'établissement introuvable — cette classe est-elle bien attribuée par le censeur ?'})`); continue; }
         etablissementsConcernes.add(etablissementId || 'SANS_AFFILIATION');
@@ -967,7 +1048,7 @@ export default function EnseignantDashboard() {
             date_fin: periode.fin || dateFinCycle || null,
             nombre_lecons_prevu: nombreLeconsPrevu ? parseInt(nombreLeconsPrevu, 10) : null,
             plan_lecons: Array.isArray(modalAssistant.planLecons) ? modalAssistant.planLecons : [],
-            classe_nom: classeCible,
+            classe_nom: classeNomBrut,
           }).select().single();
         if (error) { echecs.push(`${classeCible} (${error.message})`); continue; }
 
@@ -1057,7 +1138,7 @@ export default function EnseignantDashboard() {
           continue;
         }
 
-        const { classeId } = await resoudreContexteClasse(classeCible);
+        const { classeId, anneeScolaireId } = await resoudreContexteClasse(classeCible);
         const dateCiblee = (datesParClasseCycle && datesParClasseCycle[classeCible]) || dateSeance || null;
 
         const { data: nouvelleSeance, error } = await supabase
@@ -1065,6 +1146,7 @@ export default function EnseignantDashboard() {
           .insert({
             lecon_id: leconCorrespondante.id,
             classe_id: classeId,
+            annee_scolaire_id: anneeScolaireId,
             date_prevue: dateCiblee,
             contenu_json: { titre: titreSeance || 'Séance pédagogique', lieu: lieuSeance || '', ...(valeursChamps || {}) },
             statut: 'BROUILLON',
@@ -1130,6 +1212,26 @@ export default function EnseignantDashboard() {
       .maybeSingle();
     if (censeur?.user_id) {
       await envoyerNotification(censeur.user_id, 'NOUVELLE_FICHE', message, 'visa', etablissementId);
+    }
+  };
+
+  // Ne notifie qu'UN SEUL rôle précis — utilisé pour toutes les demandes
+  // envoyées par l'enseignant (affiliation, départ, proposition de classe),
+  // qui n'envoyaient jusqu'ici aucune notification malgré l'attente créée.
+  // Chaque rôle a son propre nom d'onglet pour la même information (ex.
+  // "professeurs" chez le censeur, "censeurs" chez le chef), d'où l'appel
+  // séparé par rôle plutôt qu'un envoi groupé avec un seul lienCible.
+  const notifierParRole = async (etablissementId, role, type, message, lienCible) => {
+    if (!etablissementId) return;
+    const { data: responsable } = await supabase
+      .from('affiliations_etablissement')
+      .select('user_id')
+      .eq('etablissement_id', etablissementId)
+      .eq('statut', 'ACTIVE')
+      .eq('role', role)
+      .maybeSingle();
+    if (responsable?.user_id) {
+      await envoyerNotification(responsable.user_id, type, message, lienCible, etablissementId);
     }
   };
 
@@ -1358,6 +1460,8 @@ export default function EnseignantDashboard() {
   };
 
   // --- Demande d'affiliation : vraie insertion Supabase ---
+  const [matiereIdsAffiliation, setMatiereIdsAffiliation] = useState([]);
+
   const soumettreDemandeAffiliation = async (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim() || !userId) return;
@@ -1375,8 +1479,30 @@ export default function EnseignantDashboard() {
 
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
+    // Déclare directement les matières enseignées pour ce nouvel
+    // établissement — pas besoin d'attendre l'approbation, la déclaration
+    // est indépendante du statut de l'affiliation (comme pour les écoles déjà rejointes).
+    if (matiereIdsAffiliation.length > 0) {
+      const { error: erreurMatieres } = await supabase
+        .from('matieres_enseignant')
+        .insert(matiereIdsAffiliation.map(matiere_id => ({ user_id: userId, matiere_id, etablissement_id: etablissementCible.id })));
+      if (erreurMatieres) showToast("⚠️ Demande envoyée, mais erreur sur les matières : " + erreurMatieres.message);
+    }
+
+    await notifierParRole(
+      etablissementCible.id, 'CENSEUR', 'DEMANDE_AFFILIATION_RECUE',
+      `👥 Nouvelle demande d'affiliation d'un enseignant`,
+      'professeurs'
+    );
+    await notifierParRole(
+      etablissementCible.id, 'CHEF', 'DEMANDE_AFFILIATION_RECUE',
+      `👥 Nouvelle demande d'affiliation d'un enseignant`,
+      'censeurs'
+    );
+
     setModalAffiliation(false);
     setNouvelleEcoleSaisie('');
+    setMatiereIdsAffiliation([]);
     showToast("🚀 Demande d'affiliation transmise !");
   };
 
@@ -1499,11 +1625,21 @@ export default function EnseignantDashboard() {
     telechargerPDFEntite(`Programme Annuel - ${classeNom}`, `Année scolaire ${progClasse?.anneeScolaire || ''}`, htmlContent);
   };
 
+  const [filtreBiblioClasse, setFiltreBiblioClasse] = useState('TOUTES');
+  const [filtreBiblioAnnee, setFiltreBiblioAnnee] = useState('TOUTES');
+  const classesBiblioDisponibles = useMemo(() => [...new Set((bibliotheque || []).map(b => b.classeOrigine).filter(Boolean))].sort(), [bibliotheque]);
+  const anneesBiblioDisponibles = useMemo(() => [...new Set((bibliotheque || []).map(b => b.anneeScolaire).filter(Boolean))].sort().reverse(), [bibliotheque]);
+
   const bibliothequeFiltree = useMemo(() => {
     if (!Array.isArray(bibliotheque)) return [];
-    if (!filtreBiblioTexte) return bibliotheque;
-    return bibliotheque.filter(b => b.nom && b.nom.toLowerCase().includes(filtreBiblioTexte.toLowerCase()));
-  }, [bibliotheque, filtreBiblioTexte]);
+    const texte = filtreBiblioTexte.trim().toLowerCase();
+    return bibliotheque.filter(b => {
+      const matchTexte = !texte || (b.nom || '').toLowerCase().includes(texte);
+      const matchClasse = filtreBiblioClasse === 'TOUTES' || b.classeOrigine === filtreBiblioClasse;
+      const matchAnnee = filtreBiblioAnnee === 'TOUTES' || b.anneeScolaire === filtreBiblioAnnee;
+      return matchTexte && matchClasse && matchAnnee;
+    });
+  }, [bibliotheque, filtreBiblioTexte, filtreBiblioClasse, filtreBiblioAnnee]);
 
   // Fiches rangées par classe d'origine — les fiches sans classe connue
   // (mode sans affiliation ou fiche libre) vont dans un groupe "Sans classe".
@@ -2177,35 +2313,47 @@ export default function EnseignantDashboard() {
                 </div>
 
                 <div>
-                  <label style={styles.label}>Matière(s) enseignée(s)</label>
-                  <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si vous enseignez plus d'une matière.</p>
+                  <label style={styles.label}>Matière(s) enseignée(s), par établissement</label>
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Vous pouvez enseigner des matières différentes d'une école à l'autre — cochez-en plusieurs par établissement si besoin.</p>
                   {matieresCatalogue.length === 0 ? (
                     <p style={{ fontSize: '11px', color: '#991b1b' }}>Aucune matière au catalogue pour l'instant — demandez à votre censeur d'en créer une.</p>
+                  ) : affiliations.filter(a => a.statut === 'Validée').length === 0 ? (
+                    <p style={{ fontSize: '11px', color: '#991b1b' }}>Vous devez être affilié à un établissement pour y déclarer des matières.</p>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {matieresCatalogueParCycle.map(groupe => (
-                        <div key={groupe.titre}>
-                          <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', margin: '0 0 6px 0' }}>{groupe.titre}</p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            {groupe.matieres.map(m => {
-                              const estCochee = formProfil.matiereIds.includes(m.id);
-                              return (
-                                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={estCochee}
-                                    onChange={() => {
-                                      const updated = estCochee ? formProfil.matiereIds.filter(id => id !== m.id) : [...formProfil.matiereIds, m.id];
-                                      setFormProfil({ ...formProfil, matiereIds: updated });
-                                    }}
-                                  />
-                                  {m.nom}
-                                </label>
-                              );
-                            })}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {affiliations.filter(a => a.statut === 'Validée').map(aff => {
+                        const idsEcole = (formProfil.matieresParEtablissement || {})[aff.etablissementId] || [];
+                        return (
+                          <div key={aff.etablissementId} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', backgroundColor: '#f8fafc' }}>
+                            <p style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a', margin: '0 0 10px 0' }}>🏫 {aff.ecole}</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              {matieresCatalogueParCycle.map(groupe => (
+                                <div key={groupe.titre}>
+                                  <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', margin: '0 0 6px 0' }}>{groupe.titre}</p>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {groupe.matieres.map(m => {
+                                      const estCochee = idsEcole.includes(m.id);
+                                      return (
+                                        <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={estCochee}
+                                            onChange={() => {
+                                              const updated = estCochee ? idsEcole.filter(id => id !== m.id) : [...idsEcole, m.id];
+                                              setFormProfil({ ...formProfil, matieresParEtablissement: { ...(formProfil.matieresParEtablissement || {}), [aff.etablissementId]: updated } });
+                                            }}
+                                          />
+                                          {m.nom}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2278,8 +2426,30 @@ export default function EnseignantDashboard() {
                   <input type="text" placeholder="Ex: LYCMOD-A1B2" value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} style={styles.inputStyle} required />
                 </div>
                 <div>
-                  <label style={styles.label}>Classes concernées (séparées par des virgules)</label>
-                  <input type="text" placeholder="Ex: 6ème A, 5ème B" value={nouvellesClassesSaisies} onChange={(e) => setNouvellesClassesSaisies(e.target.value)} style={styles.inputStyle} required />
+                  <label style={styles.label}>Matière(s) enseignée(s) dans cet établissement</label>
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si vous y enseignez plus d'une matière. Vous pourrez proposer des classes précises une fois votre demande acceptée.</p>
+                  {matieresCatalogue.length === 0 ? (
+                    <p style={{ fontSize: '11px', color: '#991b1b' }}>Aucune matière au catalogue pour l'instant.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {matieresCatalogue.map(m => {
+                        const estCochee = matiereIdsAffiliation.includes(m.id);
+                        return (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                            <input
+                              type="checkbox"
+                              checked={estCochee}
+                              onChange={() => {
+                                const updated = estCochee ? matiereIdsAffiliation.filter(id => id !== m.id) : [...matiereIdsAffiliation, m.id];
+                                setMatiereIdsAffiliation(updated);
+                              }}
+                            />
+                            {m.nom}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModalAffiliation(false)} className="bouton bouton-secondaire">Annuler</button>
@@ -3201,9 +3371,23 @@ export default function EnseignantDashboard() {
             </div>
 
             <div style={styles.bibliothequeFilterBox}>
-              <div style={{ flex: '1 1 240px' }}>
+              <div style={{ flex: '2 1 240px' }}>
                 <label style={styles.labelFiltre}>Recherche</label>
                 <input type="text" placeholder="Titre de la fiche..." value={filtreBiblioTexte} onChange={(e) => setFiltreBiblioTexte(e.target.value)} style={styles.inputStyle} />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Année scolaire</label>
+                <select value={filtreBiblioAnnee} onChange={(e) => setFiltreBiblioAnnee(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {anneesBiblioDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={styles.labelFiltre}>Classe</label>
+                <select value={filtreBiblioClasse} onChange={(e) => setFiltreBiblioClasse(e.target.value)} style={styles.inputStyle}>
+                  <option value="TOUTES">Toutes</option>
+                  {classesBiblioDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
             </div>
 

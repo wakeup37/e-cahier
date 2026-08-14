@@ -30,6 +30,21 @@ import { supabase } from './AppRouter';
 // "classes" exige un établissement. Les séances créées en mode sans
 // affiliation sont donc enregistrées avec classe_id = null (autorisé),
 // ce qui fonctionne mais ne "range" pas la séance dans une classe réelle.
+//
+// [CORRECTIFS DE CETTE PASSE]
+//   1. Déconnexion : le bouton "Oui, me déconnecter" n'appelait jamais
+//      supabase.auth.signOut() — il effaçait juste une clé localStorage
+//      inutilisée pour l'auth réelle, donc la session restait active et
+//      l'utilisateur retombait sur son dashboard après le reload. Corrigé.
+//   2. Nettoyage : suppression de l'état "nouvellesClassesSaisies", resté
+//      déclaré mais plus jamais utilisé nulle part dans le JSX.
+//   3. Nouvelle vue "Mes classes" : par établissement, chaque classe
+//      affiche désormais la ou les matières enseignées dessus (fini la
+//      confusion). Bascule possible vers une vue "par matière" : cliquer
+//      une matière montre toutes les classes où elle est enseignée. Cela
+//      nécessite de récupérer la matière de chaque attribution (avant,
+//      seule la liste des noms de classe était chargée) — voir
+//      "classesDetailParEtablissement" dans chargerTout().
 // =========================================================================
 
 export default function EnseignantDashboard() {
@@ -46,6 +61,10 @@ export default function EnseignantDashboard() {
 
   // --- GESTION DES AFFILIATIONS MULTI-ÉTABLISSEMENTS & DEMANDES DE DÉPART ---
   const [affiliations, setAffiliations] = useState([]);
+  // Détail matière(s) par classe, par établissement — utilisé pour la
+  // nouvelle vue "Mes classes" (badges de matière + vue par matière).
+  // Forme : { [etablissementId]: { [nomClasseBrut]: ['Maths', 'Physique'] } }
+  const [classesDetailParEtablissement, setClassesDetailParEtablissement] = useState({});
 
   const [demandesDepart, setDemandesDepart] = useState([]);
 
@@ -99,6 +118,47 @@ export default function EnseignantDashboard() {
     }
     return classes;
   }, [modeSansAffiliation, classesSansAffiliation, affiliations]);
+
+  // =========================================================================
+  // NOUVELLE VUE "MES CLASSES" — par établissement (classes + matières) et
+  // par matière (classes où elle est enseignée), dérivées de "affiliations"
+  // + "classesDetailParEtablissement". Purement calculées, rien ici n'est
+  // écrit en base.
+  // =========================================================================
+  const [modeVueClasses, setModeVueClasses] = useState('ecole'); // 'ecole' | 'matiere'
+  const [ecolesOuvertesVue, setEcolesOuvertesVue] = useState({});
+  const toggleEcoleVue = (ecole) => setEcolesOuvertesVue(prev => ({ ...prev, [ecole]: !prev[ecole] }));
+  const [matieresOuvertesVue, setMatieresOuvertesVue] = useState({});
+  const toggleMatiereVue = (cle) => setMatieresOuvertesVue(prev => ({ ...prev, [cle]: !prev[cle] }));
+
+  const structureVueParEcole = useMemo(() => {
+    return affiliations
+      .filter(a => a.statut === 'Validée')
+      .map(aff => ({
+        ecole: aff.ecole,
+        etablissementId: aff.etablissementId,
+        classes: (aff.classes || []).map(nomClasse => ({
+          cle: formaterCleClasse(nomClasse, aff.ecole),
+          nom: nomClasse,
+          matieres: classesDetailParEtablissement[aff.etablissementId]?.[nomClasse] || [],
+        })),
+      }));
+  }, [affiliations, classesDetailParEtablissement]);
+
+  const structureVueParMatiere = useMemo(() => {
+    const groupes = {};
+    structureVueParEcole.forEach(({ ecole, classes }) => {
+      classes.forEach(({ cle, matieres }) => {
+        const listeMatieres = matieres.length > 0 ? matieres : ['Matière non précisée'];
+        listeMatieres.forEach(nomMatiere => {
+          const cleGroupe = `${nomMatiere} — ${ecole}`;
+          if (!groupes[cleGroupe]) groupes[cleGroupe] = { matiere: nomMatiere, ecole, classes: [] };
+          if (!groupes[cleGroupe].classes.includes(cle)) groupes[cleGroupe].classes.push(cle);
+        });
+      });
+    });
+    return Object.values(groupes).sort((a, b) => a.matiere.localeCompare(b.matiere) || a.ecole.localeCompare(b.ecole));
+  }, [structureVueParEcole]);
 
   const [activeTab, setActiveTab] = useState('cycles');
   const [message, setMessage] = useState('');
@@ -369,7 +429,6 @@ export default function EnseignantDashboard() {
 
   const [modalAffiliation, setModalAffiliation] = useState(false);
   const [nouvelleEcoleSaisie, setNouvelleEcoleSaisie] = useState('');
-  const [nouvellesClassesSaisies, setNouvellesClassesSaisies] = useState('6ème A, 5ème A');
 
   const [modalDuplicationIntelligente, setModalDuplicationIntelligente] = useState({
     ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {}
@@ -417,9 +476,12 @@ export default function EnseignantDashboard() {
       (anneesActivesData || []).forEach(a => { anneeActiveParEtab[a.etablissement_id] = a.id; });
     }
 
+    // [MODIFIÉ] on récupère désormais aussi la matière de chaque attribution
+    // (matiere_id + matieres(nom)) — nécessaire pour afficher la matière sur
+    // chaque classe dans la nouvelle vue "Mes classes".
     const { data: attributions } = await supabase
       .from('attributions_classes')
-      .select('etablissement_id, classes(nom, annee_scolaire_id)')
+      .select('etablissement_id, matiere_id, matieres(nom), classes(nom, annee_scolaire_id)')
       .eq('enseignant_id', user.id);
 
     const mapStatut = (s) => (s === 'ACTIVE' ? 'Validée' : (s === 'EN_ATTENTE' || s === 'INVITATION') ? 'En attente' : s);
@@ -436,6 +498,22 @@ export default function EnseignantDashboard() {
         .filter(Boolean),
     }));
     setAffiliations(affiliationsFormatees);
+
+    // [NOUVEAU] Construit, pour chaque établissement, la liste des matières
+    // enseignées sur chaque classe (une classe peut en avoir plusieurs si
+    // l'enseignant y est polyvalent) — alimente la vue "Mes classes".
+    const detailClasses = {};
+    (attributions || []).forEach(at => {
+      const classeNom = at.classes?.nom;
+      if (!classeNom || !at.classes?.annee_scolaire_id || at.classes.annee_scolaire_id !== anneeActiveParEtab[at.etablissement_id]) return;
+      if (!detailClasses[at.etablissement_id]) detailClasses[at.etablissement_id] = {};
+      if (!detailClasses[at.etablissement_id][classeNom]) detailClasses[at.etablissement_id][classeNom] = [];
+      const nomMatiere = at.matieres?.nom;
+      if (nomMatiere && !detailClasses[at.etablissement_id][classeNom].includes(nomMatiere)) {
+        detailClasses[at.etablissement_id][classeNom].push(nomMatiere);
+      }
+    });
+    setClassesDetailParEtablissement(detailClasses);
 
     // Matières déclarées, rattachées à CHAQUE établissement précisément —
     // un enseignant affilié à plusieurs écoles peut y enseigner des matières
@@ -615,7 +693,8 @@ export default function EnseignantDashboard() {
     const affiliation = affiliations.find(a => a.statut === 'Validée' && a.classes.includes(nomBrut) && (!ecole || a.ecole === ecole));
     if (!affiliation) return { etablissementId: null, anneeScolaireId: null, classeId: null, classeNomBrut: nomBrut };
 
-    // On retrouve l'établissement_id réel depuis la table (le formatage local ne le garde pas)
+    // On retrouve l'établissement_id réel depuis la table (le formatage
+    // local ne le garde pas)
     const { data: aff } = await supabase
       .from('affiliations_etablissement').select('etablissement_id').eq('id', affiliation.id).single();
     const etablissementId = aff?.etablissement_id;
@@ -1925,9 +2004,9 @@ export default function EnseignantDashboard() {
               </p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={() => {
+                <button onClick={async () => {
                   setModalDeconnexion(false);
-                  localStorage.removeItem('app_enseignant_statut');
+                  await supabase.auth.signOut();
                   window.location.reload();
                 }} className="bouton bouton-danger">Oui, me déconnecter</button>
               </div>
@@ -1956,7 +2035,7 @@ export default function EnseignantDashboard() {
                     required 
                   />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                   <button type="button" onClick={() => setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' })} className="bouton bouton-secondaire">Annuler</button>
                   <button type="submit" className="bouton bouton-danger">Soumettre pour visa du censeur</button>
                 </div>
@@ -3168,9 +3247,9 @@ export default function EnseignantDashboard() {
           <div>
             {!classeSelectionneeVue ? (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
-                    <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Programme Annuel & Gestion par Classe</h2>
+                    <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Mes Classes & Programme Annuel</h2>
                     <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Cliquez sur une classe pour consulter son programme annuel.</p>
                   </div>
                   {modeSansAffiliation && (
@@ -3192,44 +3271,158 @@ export default function EnseignantDashboard() {
                   )}
                 </div>
 
-                <div style={styles.grilleClasses}>
-                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
-                    const progExiste = programmesClasses && !!programmesClasses[cl];
-                    return (
-                      <div key={cl} style={styles.carteClasseItem}>
-                        <div onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={{ cursor: 'pointer' }}>
-                          <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>🏫 {cl}</span>
-                          <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
-                            {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) au programme` : 'Cliquez pour initialiser'}
-                          </p>
-                          <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
-                        </div>
+                {/* [NOUVEAU] Bascule "Par école" / "Par matière" — n'a de sens que
+                    s'il y a au moins une affiliation validée avec des classes. */}
+                {structureVueParEcole.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <button
+                      onClick={() => setModeVueClasses('ecole')}
+                      className={modeVueClasses === 'ecole' ? 'bouton bouton-principal' : 'bouton bouton-secondaire'}
+                      style={{ fontSize: '12px' }}
+                    >
+                      🏫 Par établissement
+                    </button>
+                    <button
+                      onClick={() => setModeVueClasses('matiere')}
+                      className={modeVueClasses === 'matiere' ? 'bouton bouton-principal' : 'bouton bouton-secondaire'}
+                      style={{ fontSize: '12px' }}
+                    >
+                      📚 Par matière
+                    </button>
+                  </div>
+                )}
 
-                        {/* BOUTON SUPPRESSION CLASSE SÉCURISÉ PAR MODALE — uniquement sur les
-                            classes personnelles, jamais sur une classe affiliée à un établissement */}
-                        {Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(cl) && (
-                          <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setModalConfirmation({
-                                  ouvert: true,
-                                  titre: '⚠️ Supprimer cette classe ?',
-                                  message: `Voulez-vous vraiment supprimer la classe "${cl}" ? Cette action est irréversible.`,
-                                  actionCallback: () => supprimerClasseLibre(cl)
-                                });
-                              }} 
-                              className="bouton bouton-danger"
-                              style={{ padding: '6px 10px', fontSize: '11px' }}
-                            >
-                              🗑️ Supprimer
-                            </button>
+                {/* --- VUE PAR ÉTABLISSEMENT : chaque école en accordéon, chaque
+                     classe affiche la ou les matières enseignées dessus --- */}
+                {modeVueClasses === 'ecole' && structureVueParEcole.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                    {structureVueParEcole.map(({ ecole, classes }) => {
+                      const estOuverte = ecolesOuvertesVue[ecole] !== false; // ouvert par défaut
+                      return (
+                        <div key={ecole} style={{ border: '1px solid #cbd5e1', borderRadius: '14px', overflow: 'hidden' }}>
+                          <button
+                            onClick={() => toggleEcoleVue(ecole)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', backgroundColor: estOuverte ? '#eff6ff' : '#f8fafc', border: 'none', cursor: 'pointer' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🏫 {ecole}</span>
+                              <span style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{classes.length} classe{classes.length > 1 ? 's' : ''}</span>
+                            </span>
+                            <span style={{ fontSize: '16px', color: '#2563eb' }}>{estOuverte ? '▲' : '▼'}</span>
+                          </button>
+
+                          {estOuverte && (
+                            <div style={{ padding: '12px', backgroundColor: '#fff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {classes.length === 0 ? (
+                                <p style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', margin: '4px 0' }}>Aucune classe attribuée pour l'instant dans cet établissement.</p>
+                              ) : classes.map(({ cle, nom, matieres }) => (
+                                <button
+                                  key={cle}
+                                  onClick={() => { setClasseSelectionneeVue(cle); if (!programmesClasses[cle]) initialiserProgrammeClasse(cle); }}
+                                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                                >
+                                  <span style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>{nom}</span>
+                                  <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {matieres.length === 0 ? (
+                                      <span style={{ fontSize: '10px', color: '#991b1b', fontWeight: '700', fontStyle: 'italic' }}>Matière non précisée</span>
+                                    ) : matieres.map(m => (
+                                      <span key={m} style={{ fontSize: '10px', backgroundColor: '#dbeafe', color: '#1e3a8a', padding: '2px 7px', borderRadius: '6px', fontWeight: '800' }}>📚 {m}</span>
+                                    ))}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* --- VUE PAR MATIÈRE : cliquer une matière déroule les classes
+                     où elle est enseignée --- */}
+                {modeVueClasses === 'matiere' && structureVueParMatiere.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                    {structureVueParMatiere.map(({ matiere, ecole, classes }) => {
+                      const cleGroupe = `${matiere} — ${ecole}`;
+                      const estOuverte = !!matieresOuvertesVue[cleGroupe];
+                      return (
+                        <div key={cleGroupe} style={{ border: '1px solid #cbd5e1', borderRadius: '14px', overflow: 'hidden' }}>
+                          <button
+                            onClick={() => toggleMatiereVue(cleGroupe)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', backgroundColor: estOuverte ? '#f0fdf4' : '#f8fafc', border: 'none', cursor: 'pointer' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '14px', fontWeight: '800', color: '#166534' }}>📚 {matiere}</span>
+                              <span style={{ fontSize: '11px', color: '#64748b' }}>— {ecole}</span>
+                              <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>{classes.length} classe{classes.length > 1 ? 's' : ''}</span>
+                            </span>
+                            <span style={{ fontSize: '16px', color: '#16a34a' }}>{estOuverte ? '▲' : '▼'}</span>
+                          </button>
+                          {estOuverte && (
+                            <div style={{ padding: '12px', backgroundColor: '#fff', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {classes.map(cle => (
+                                <button
+                                  key={cle}
+                                  onClick={() => { setClasseSelectionneeVue(cle); if (!programmesClasses[cle]) initialiserProgrammeClasse(cle); }}
+                                  className="bouton bouton-secondaire"
+                                  style={{ fontSize: '12px' }}
+                                >
+                                  {decomposerCleClasse(cle).nomBrut}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* --- Classes personnelles (mode sans affiliation) — toujours
+                     affichées à part, hors établissement --- */}
+                {modeSansAffiliation && classesSansAffiliation.length > 0 && (
+                  <div style={{ marginTop: structureVueParEcole.length > 0 ? '8px' : '0' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#92400e', margin: '0 0 10px 0' }}>🔓 Classes personnelles (sans affiliation)</h3>
+                    <div style={styles.grilleClasses}>
+                      {classesSansAffiliation.map(cl => {
+                        const progExiste = programmesClasses && !!programmesClasses[cl];
+                        return (
+                          <div key={cl} style={styles.carteClasseItem}>
+                            <div onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={{ cursor: 'pointer' }}>
+                              <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>🏫 {cl}</span>
+                              <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
+                                {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) au programme` : 'Cliquez pour initialiser'}
+                              </p>
+                              <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
+                            </div>
+                            <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setModalConfirmation({
+                                    ouvert: true,
+                                    titre: '⚠️ Supprimer cette classe ?',
+                                    message: `Voulez-vous vraiment supprimer la classe "${cl}" ? Cette action est irréversible.`,
+                                    actionCallback: () => supprimerClasseLibre(cl)
+                                  });
+                                }} 
+                                className="bouton bouton-danger"
+                                style={{ padding: '6px 10px', fontSize: '11px' }}
+                              >
+                                🗑️ Supprimer
+                              </button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {structureVueParEcole.length === 0 && !(modeSansAffiliation && classesSansAffiliation.length > 0) && (
+                  <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune classe pour l'instant — affiliez-vous à un établissement puis proposez vos classes.</p>
+                )}
               </div>
             ) : (
               <div>

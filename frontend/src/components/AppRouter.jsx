@@ -44,12 +44,27 @@ import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 //    établissement", et un vrai enregistrement dans demandes_affiliation
 //    est créé.
 //
-// 6. NOUVEAU : la "matière enseignée" à l'inscription était un champ de
-//    texte libre — chaque enseignant tapait ce qu'il voulait ("EPS",
-//    "Éducation physique et sportive", etc.), créant des doublons dans le
-//    catalogue de matières géré par les censeurs. Remplacé par une sélection
-//    à cases à cocher, multi-matières, tirée du catalogue existant — plus
-//    aucune saisie libre nulle part dans le parcours enseignant.
+// 6. La "matière enseignée" à l'inscription était un champ de texte libre —
+//    chaque enseignant tapait ce qu'il voulait ("EPS", "Éducation physique
+//    et sportive", etc.), créant des doublons dans le catalogue de matières
+//    géré par les censeurs. Remplacé par une sélection à cases à cocher,
+//    multi-matières, tirée du catalogue existant — plus aucune saisie libre
+//    nulle part dans le parcours enseignant.
+//
+// 7. [NOUVEAU CORRECTIF] Le chargement du catalogue de matières à
+//    l'inscription enseignant ("Chargement du catalogue...") pouvait rester
+//    bloqué indéfiniment sans aucun message si la requête Supabase échouait
+//    (l'erreur n'était jamais vérifiée) — cas typique : à ce stade l'usager
+//    n'est pas encore connecté (le compte n'existe pas), la requête part
+//    donc avec le rôle "anon". Si la policy RLS SELECT sur la table
+//    "matieres" n'autorise que le rôle "authenticated", le chargement
+//    échoue silencieusement et aucune case à cocher n'apparaît jamais.
+//    Corrigé : l'erreur est maintenant vérifiée, loguée, et affichée dans
+//    la notification en haut de l'écran.
+//    ⚠️ ACTION MANUELLE À VÉRIFIER : la policy RLS SELECT sur "matieres"
+//    doit autoriser le rôle "anon" (c'est un catalogue public, consulté
+//    avant que le compte existe — aucun risque de sécurité à l'ouvrir en
+//    lecture à un visiteur non connecté).
 // =========================================================================
 
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
@@ -92,6 +107,11 @@ export default function AppRouter() {
   // sélection multiple d'identifiants, tirée du vrai catalogue de matières.
   const [matiereIdsSaisies, setMatiereIdsSaisies] = useState([]);
   const [catalogueMatieresInscription, setCatalogueMatieresInscription] = useState([]);
+  // [NOUVEAU] Distingue "en cours de chargement" de "chargé mais vide" ou
+  // "en erreur" — avant, ces trois états étaient indiscernables à l'écran
+  // (toujours "Chargement du catalogue..." tant que la liste était vide).
+  const [chargementCatalogueMatieres, setChargementCatalogueMatieres] = useState(false);
+  const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
 
@@ -116,10 +136,21 @@ export default function AppRouter() {
   // Charge le catalogue de matières dès qu'on arrive sur l'étape
   // d'inscription enseignant — c'est le même catalogue que celui géré par
   // les censeurs (table "matieres"), jamais une liste tapée à la main.
+  // [CORRIGÉ] vérifie désormais l'erreur au lieu de l'ignorer silencieusement.
   useEffect(() => {
     if (etapeAuth === 'enseignant' && modeAuth === 'inscription') {
+      setChargementCatalogueMatieres(true);
+      setErreurCatalogueMatieres('');
       supabase.from('matieres').select('id, nom').order('nom', { ascending: true })
-        .then(({ data }) => setCatalogueMatieresInscription(data || []));
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('Erreur chargement catalogue matières :', error);
+            setErreurCatalogueMatieres(error.message);
+            afficherNotification("⚠️ Impossible de charger les matières : " + error.message);
+          }
+          setCatalogueMatieresInscription(data || []);
+          setChargementCatalogueMatieres(false);
+        });
     }
   }, [etapeAuth, modeAuth]);
 
@@ -543,8 +574,22 @@ export default function AppRouter() {
                     <div>
                       <label style={styles.libelle}>Matière(s) enseignée(s)</label>
                       <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si besoin. Vous préciserez les classes et l'école lors de votre demande d'affiliation.</p>
-                      {catalogueMatieresInscription.length === 0 ? (
-                        <p style={{ fontSize: '12px', color: '#991b1b' }}>Chargement du catalogue...</p>
+                      {chargementCatalogueMatieres ? (
+                        <p style={{ fontSize: '12px', color: '#64748b' }}>Chargement du catalogue...</p>
+                      ) : erreurCatalogueMatieres ? (
+                        <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px' }}>
+                          <p style={{ fontSize: '12px', color: '#991b1b', margin: '0 0 6px 0', fontWeight: '700' }}>⚠️ Impossible de charger les matières</p>
+                          <p style={{ fontSize: '11px', color: '#7f1d1d', margin: 0 }}>{erreurCatalogueMatieres}</p>
+                          <button
+                            type="button"
+                            onClick={() => { setEtapeAuth(null); setTimeout(() => setEtapeAuth('enseignant'), 0); }}
+                            style={{ marginTop: '8px', fontSize: '11px', fontWeight: '800', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                          >
+                            ↻ Réessayer
+                          </button>
+                        </div>
+                      ) : catalogueMatieresInscription.length === 0 ? (
+                        <p style={{ fontSize: '12px', color: '#991b1b' }}>Aucune matière disponible pour l'instant — contactez le support.</p>
                       ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', backgroundColor: '#f8fafc' }}>
                           {catalogueMatieresInscription.map(m => {

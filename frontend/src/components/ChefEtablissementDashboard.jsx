@@ -284,6 +284,24 @@ export default function ChefEtablissementDashboard() {
           taille_octets: d.versions_document?.fichiers_metadonnees?.taille_octets,
         })));
 
+        // Bibliothèque pédagogique de l'établissement — même source que
+        // l'onglet Archives Pédagogiques du censeur (bibliotheque_etablissement),
+        // remplace l'ancienne lecture localStorage qui ne recevait plus rien.
+        const { data: fichesData } = await supabase
+          .from('bibliotheque_etablissement')
+          .select('id, titre, created_at, contenu_snapshot_json, utilisateurs_profils:auteur_user_id (nom, prenom)')
+          .eq('etablissement_id', affiliation.etablissement_id)
+          .order('created_at', { ascending: false });
+        setFichesPedagogiquesEcole((fichesData || []).map(f => ({
+          id: f.id,
+          enseignant: `${f.utilisateurs_profils?.prenom || ''} ${f.utilisateurs_profils?.nom || ''}`.trim(),
+          matiere: f.contenu_snapshot_json?.matiere || 'Non définie',
+          classe: f.contenu_snapshot_json?.classe || 'Général',
+          titre: f.titre,
+          dateValidation: new Date(f.created_at).toLocaleDateString(),
+          details: f.contenu_snapshot_json,
+        })));
+
         // Notifications non lues (cloche)
         const { data: notifs } = await supabase
           .from('notifications')
@@ -482,13 +500,7 @@ export default function ChefEtablissementDashboard() {
   // =========================================================================
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
-  const fichesPedagogiquesEcole = useMemo(() => {
-    try {
-      const archiveCenseur = JSON.parse(localStorage.getItem('app_censeur_archive_ecole')) || [];
-      const biblioEnseignant = JSON.parse(localStorage.getItem('app_enseignant_bibliotheque_permanente')) || [];
-      return [...archiveCenseur, ...biblioEnseignant];
-    } catch { return []; }
-  }, []);
+  const [fichesPedagogiquesEcole, setFichesPedagogiquesEcole] = useState([]);
 
   const professeursFiltres = useMemo(() => {
     return listeProfesseursEtablissement.filter(prof => {

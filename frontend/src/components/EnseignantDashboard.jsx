@@ -452,8 +452,26 @@ export default function EnseignantDashboard() {
     // sans aucune leçon/séance encore remplie), puis on descend vers les
     // leçons, puis les séances — plus aucune dépendance à l'existence d'une
     // séance pour qu'un cycle ou une leçon reste visible après rechargement.
+    // On ne charge QUE les programmes de l'année scolaire actuellement
+    // active dans chaque établissement affilié (+ ceux sans établissement,
+    // pour le mode sans affiliation) — une fois une année fermée, ses
+    // cycles disparaissent naturellement d'ici (ils restent consultables
+    // via la Bibliothèque, où ils sont archivés automatiquement à la fermeture).
+    const etablissementIdsActifs = affiliationsFormatees.filter(a => a.statut === 'Validée').map(a => a.etablissementId);
+    let anneesActivesIds = [];
+    if (etablissementIdsActifs.length > 0) {
+      const { data: anneesActivesData } = await supabase
+        .from('annees_scolaires')
+        .select('id')
+        .in('etablissement_id', etablissementIdsActifs)
+        .eq('est_active', true);
+      anneesActivesIds = (anneesActivesData || []).map(a => a.id);
+    }
+
     const { data: programmesPossedes } = await supabase
-      .from('programmes_annuels').select('id').eq('proprietaire_user_id', user.id);
+      .from('programmes_annuels').select('id')
+      .eq('proprietaire_user_id', user.id)
+      .or([`annee_scolaire_id.is.null`, anneesActivesIds.length > 0 ? `annee_scolaire_id.in.(${anneesActivesIds.join(',')})` : null].filter(Boolean).join(','));
     const idsProgrammes = (programmesPossedes || []).map(p => p.id);
 
     const groupe = {};
@@ -476,7 +494,7 @@ export default function EnseignantDashboard() {
       const idsLecons = (leconsData || []).map(l => l.id);
       const { data: seancesData } = idsLecons.length > 0
         ? await supabase.from('seances')
-            .select('id, date_prevue, statut, contenu_json, lecon_id')
+            .select('id, date_prevue, statut, contenu_json, lecon_id, motif_report, date_report_demandee')
             .in('lecon_id', idsLecons)
             .order('created_at', { ascending: true })
         : { data: [] };
@@ -496,6 +514,8 @@ export default function EnseignantDashboard() {
             statut: 'En cours',
             soumisAuCenseur: sc.statut !== 'BROUILLON',
             statutReel: sc.statut,
+            motifReport: sc.motif_report || '',
+            dateReportDemandee: sc.date_report_demandee || '',
             fichiersMultimedias: [],
           }));
           return {
@@ -559,7 +579,14 @@ export default function EnseignantDashboard() {
   };
 
   const getOuCreerProgrammeAnnuel = async (etablissementId, anneeScolaireId) => {
-    const cle = etablissementId || 'SANS_AFFILIATION';
+    // Sans année active, impossible de créer ou retrouver un programme —
+    // ça bloque toute nouvelle fiche tant qu'aucune année n'est ouverte.
+    // Exception : les classes personnelles (mode sans affiliation) n'ont
+    // jamais d'établissement ni d'année associée — elles restent toujours
+    // utilisables, ce garde-fou ne les concerne pas.
+    if (etablissementId && !anneeScolaireId) return { id: null, erreur: "aucune année scolaire active pour cet établissement" };
+
+    const cle = `${etablissementId || 'SANS_AFFILIATION'}|${anneeScolaireId}`;
     if (programmesAnnuelsCache.current[cle]) return { id: programmesAnnuelsCache.current[cle], erreur: null };
 
     const affiliationCorrespondante = affiliations.find(a => a.statut === 'Validée'); // simplification : 1er établissement actif trouvé
@@ -570,10 +597,15 @@ export default function EnseignantDashboard() {
       affiliationId = data?.id || null;
     }
 
+    // Un programme est désormais propre à UNE année scolaire — quand une
+    // nouvelle année s'ouvre, un nouveau programme est créé automatiquement,
+    // et les cycles de l'année précédente cessent d'apparaître ici (ils
+    // restent consultables via la Bibliothèque, archivée à la fermeture).
     const { data: existant } = await supabase
       .from('programmes_annuels').select('id')
       .eq('proprietaire_user_id', userId)
       .eq('affiliation_id', affiliationId)
+      .eq('annee_scolaire_id', anneeScolaireId)
       .maybeSingle();
 
     if (existant) {
@@ -888,6 +920,7 @@ export default function EnseignantDashboard() {
             return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
           });
         }
+        await notifierCenseurNouvelleFiche(classeCible, `📊 Programme annuel complet généré pour ${classeCible} (${listeCycles.length} cycle(s))`);
       }
 
       if (compteurCrees === 0) {
@@ -945,6 +978,7 @@ export default function EnseignantDashboard() {
           const cycleLocal = { id: nouveauCycle.id, titre: nouveauCycle.titre, competence: nouveauCycle.competence || '', dateDebut: nouveauCycle.date_debut || '', dateFin: nouveauCycle.date_fin || '', nombreLeconsPrevu: nouveauCycle.nombre_lecons_prevu || null, planLecons: nouveauCycle.plan_lecons || [], statut: 'En cours', soumisAuCenseur: false, lecons: [] };
           return { ...prev, [classeCible]: { ...progCible, cycles: [...(progCible.cycles || []), cycleLocal] } };
         });
+        await notifierCenseurNouvelleFiche(classeCible, `📊 Programme annuel : nouveau cycle "${nouveauCycle.titre}" créé pour ${classeCible}`);
       }
 
       const nbEtablissements = etablissementsConcernes.size;
@@ -1208,6 +1242,42 @@ export default function EnseignantDashboard() {
     });
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     showToast("🚀 Élément envoyé au censeur !");
+  };
+
+  // --- Reporter une séance : statut réel REPORTEE + motif, tracé en base ---
+  const [modalReportSeance, setModalReportSeance] = useState({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' });
+
+  const reporterSeance = async (e) => {
+    e.preventDefault();
+    const { cycleId, leconId, seance, motif, nouvelleDate } = modalReportSeance;
+    if (!motif.trim()) { showToast("⚠️ Merci d'indiquer le motif du report."); return; }
+
+    const { error } = await supabase
+      .from('seances')
+      .update({ statut: 'REPORTEE', motif_report: motif.trim(), date_report_demandee: nouvelleDate || null })
+      .eq('id', seance.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    await supabase.from('historique_statuts_seance').insert({
+      seance_id: seance.id, type_evenement: 'REPORTEE', motif: motif.trim(), cree_par_user_id: userId,
+    });
+
+    if (seance.soumisAuCenseur) {
+      await notifierCenseurNouvelleFiche(classeSelectionneeVue, `↩️ Séance reportée : "${seance.titre}" (${classeSelectionneeVue}) — motif : ${motif.trim()}`);
+    }
+
+    const prog = programmesClasses[classeSelectionneeVue];
+    if (prog && Array.isArray(prog.cycles)) {
+      const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {
+        ...c, lecons: (c.lecons || []).map(l => l.id !== leconId ? l : {
+          ...l, seances: (l.seances || []).map(s => s.id === seance.id ? { ...s, statutReel: 'REPORTEE', motifReport: motif.trim(), dateReportDemandee: nouvelleDate } : s)
+        })
+      });
+      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    }
+
+    setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' });
+    showToast("↩️ Séance marquée comme reportée.");
   };
 
   const marquerLeconTerminee = async (cycleId, leconId) => {
@@ -2852,6 +2922,36 @@ export default function EnseignantDashboard() {
           </div>
         )}
 
+        {modalReportSeance.ouvert && (
+          <div style={styles.fondModale}>
+            <div style={{ ...styles.cardWide, width: '440px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>↩️ Reporter « {modalReportSeance.seance?.titre} »</h3>
+                <button onClick={() => setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+                {modalReportSeance.seance?.soumisAuCenseur
+                  ? "Cette séance a déjà été envoyée — le censeur sera prévenu du report."
+                  : "Cette séance n'avait pas encore été envoyée au censeur."}
+              </p>
+              <form onSubmit={reporterSeance} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Motif du report</label>
+                  <textarea value={modalReportSeance.motif} onChange={(e) => setModalReportSeance(prev => ({ ...prev, motif: e.target.value }))} placeholder="Ex : intempéries, absence, événement école..." style={{ ...styles.inputStyle, height: '80px', resize: 'vertical' }} required />
+                </div>
+                <div>
+                  <label style={styles.label}>Nouvelle date envisagée (optionnel)</label>
+                  <input type="date" value={modalReportSeance.nouvelleDate} onChange={(e) => setModalReportSeance(prev => ({ ...prev, nouvelleDate: e.target.value }))} style={styles.inputStyle} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                  <button type="button" onClick={() => setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' })} className="bouton bouton-secondaire">Annuler</button>
+                  <button type="submit" className="bouton" style={{ backgroundColor: '#d97706', color: '#fff', fontWeight: '800' }}>Confirmer le report</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* ONGLET : PROGRAMME ANNUEL */}
         {activeTab === 'cycles' && (
           <div>
@@ -3032,21 +3132,30 @@ export default function EnseignantDashboard() {
                                   {estLeconOuverte && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', borderTop: '1px dashed #cbd5e1', paddingTop: '12px', paddingLeft: '10px' }}>
                                       {Array.isArray(lecon.seances) && lecon.seances.map(seance => (
-                                        <div key={seance.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                                        <div key={seance.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: seance.statutReel === 'REPORTEE' ? '#fff7ed' : '#ffffff', padding: '10px 12px', borderRadius: '8px', border: seance.statutReel === 'REPORTEE' ? '1px solid #fdba74' : '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
                                           <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '2px' }}>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '2px', flexWrap: 'wrap' }}>
                                               <span style={{ fontWeight: '800', color: '#2563eb', fontSize: '11px' }}>Séance #{seance.numero}</span>
                                               <strong style={{ fontSize: '12px', color: '#0f172a' }}>{seance.titre}</strong>
                                               <span style={{ fontSize: '10px', color: '#64748b', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>📅 {seance.date}</span>
-                                              {seance.soumisAuCenseur && <span style={{ fontSize: '9px', backgroundColor: '#dcfce7', color: '#166534', padding: '2px 4px', borderRadius: '4px', fontWeight: '800' }}>✓ Envoyé</span>}
+                                              {seance.soumisAuCenseur && seance.statutReel !== 'REPORTEE' && <span style={{ fontSize: '9px', backgroundColor: '#dcfce7', color: '#166534', padding: '2px 4px', borderRadius: '4px', fontWeight: '800' }}>✓ Envoyé</span>}
+                                              {seance.statutReel === 'REPORTEE' && <span style={{ fontSize: '9px', backgroundColor: '#ffedd5', color: '#9a3412', padding: '2px 4px', borderRadius: '4px', fontWeight: '800' }}>↩️ Reportée</span>}
                                             </div>
+                                            {seance.statutReel === 'REPORTEE' && (
+                                              <p style={{ fontSize: '11px', color: '#9a3412', margin: '2px 0 0 0' }}>
+                                                Motif : {seance.motifReport}{seance.dateReportDemandee ? ` — nouvelle date envisagée : ${seance.dateReportDemandee}` : ''}
+                                              </p>
+                                            )}
                                           </div>
                                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                                             <button onClick={() => ouvrirModalEdition('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
                                             <button onClick={() => telechargerFicheSeancePDF(seance, lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Séance PDF</button>
                                             <button onClick={() => enregistrerDansBibliotheque(seance.id, seance.titre)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>💾 Enregistrer</button>
+                                            {seance.statutReel !== 'REPORTEE' && (
+                                              <button onClick={() => setModalReportSeance({ ouvert: true, cycleId: cycle.id, leconId: lecon.id, seance, motif: '', nouvelleDate: '' })} className="bouton" style={{ padding: '4px 8px', fontSize: '10px', backgroundColor: '#fed7aa', color: '#9a3412' }}>↩️ Reporter</button>
+                                            )}
 
-                                            {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && (
+                                            {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && seance.statutReel !== 'REPORTEE' && (
                                               <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
                                                 🚀 Envoyé
                                               </button>

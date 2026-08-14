@@ -162,6 +162,13 @@ export default function CenseurDashboard() {
   const [separateurSecondCycle, setSeparateurSecondCycle] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
   const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
+
+  // --- Onglet Programme & Progression ---
+  const [enseignantChoisiProgression, setEnseignantChoisiProgression] = useState('');
+  const [programmeProgressionCharge, setProgrammeProgressionCharge] = useState({});
+  const [chargementProgression, setChargementProgression] = useState(false);
+  const [cyclesOuvertsProgression, setCyclesOuvertsProgression] = useState({});
+  const toggleCycleProgression = (cycleId) => setCyclesOuvertsProgression(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
   const [matiereProgrammeOuverte, setMatiereProgrammeOuverte] = useState(null);
   const [brouillonProgrammeMatiere, setBrouillonProgrammeMatiere] = useState({ niveaux: [], series: [] });
   const [documentsEtablissement, setDocumentsEtablissement] = useState([]);
@@ -1226,6 +1233,152 @@ export default function CenseurDashboard() {
     setProfsSelectionnesRappel([]);
   };
 
+  // =========================================================================
+  // PROGRAMME & PROGRESSION — vue lecture seule du programme d'un enseignant,
+  // avec statistiques de progression, et génération de rapports ponctuels.
+  // =========================================================================
+  const calculerProgrammeEtStatsEnseignant = async (enseignantUserId) => {
+    if (!enseignantUserId || !anneeActiveId) return { groupe: {}, totaux: { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 } };
+
+    const { data: programmesPossedes } = await supabase
+      .from('programmes_annuels').select('id')
+      .eq('proprietaire_user_id', enseignantUserId)
+      .eq('annee_scolaire_id', anneeActiveId);
+    const idsProgrammes = (programmesPossedes || []).map(p => p.id);
+
+    const groupe = {};
+    const totaux = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
+    if (idsProgrammes.length === 0) return { groupe, totaux };
+
+    const { data: cyclesData } = await supabase
+      .from('cycles')
+      .select('id, titre, statut, competence, date_debut, date_fin, nombre_lecons_prevu, classe_nom, programme_annuel_id')
+      .in('programme_annuel_id', idsProgrammes)
+      .order('created_at', { ascending: true });
+
+    const idsCycles = (cyclesData || []).map(c => c.id);
+    const { data: leconsData } = idsCycles.length > 0
+      ? await supabase.from('lecons').select('id, titre, statut, statut_visa, cycle_id').in('cycle_id', idsCycles).order('created_at', { ascending: true })
+      : { data: [] };
+
+    const idsLecons = (leconsData || []).map(l => l.id);
+    const { data: seancesData } = idsLecons.length > 0
+      ? await supabase.from('seances').select('id, date_prevue, statut, contenu_json, lecon_id, motif_report').in('lecon_id', idsLecons).order('created_at', { ascending: true })
+      : { data: [] };
+
+    const aujourdHui = new Date().toISOString().slice(0, 10);
+
+    (cyclesData || []).forEach(cycle => {
+      const classeNom = cycle.classe_nom || 'Sans classe';
+      if (!groupe[classeNom]) groupe[classeNom] = { cycles: [] };
+
+      const leconsDuCycle = (leconsData || []).filter(l => l.cycle_id === cycle.id).map(lecon => {
+        const seancesDeLaLecon = (seancesData || []).filter(s => s.lecon_id === lecon.id).map((sc, i) => ({
+          id: sc.id, numero: i + 1, titre: sc.contenu_json?.titre || 'Séance',
+          date: sc.date_prevue, statut: sc.statut, motifReport: sc.motif_report || '',
+        }));
+        return { id: lecon.id, titre: lecon.titre, statutVisa: lecon.statut_visa, seances: seancesDeLaLecon };
+      });
+
+      const toutesSeances = leconsDuCycle.flatMap(l => l.seances);
+      const nbVisees = toutesSeances.filter(s => s.statut === 'VISEE').length;
+      const nbReportees = toutesSeances.filter(s => s.statut === 'REPORTEE').length;
+      const nbEnRetard = toutesSeances.filter(s => ['BROUILLON', 'PROGRAMMEE'].includes(s.statut) && s.date && s.date <= aujourdHui).length;
+
+      totaux.nbSeances += toutesSeances.length;
+      totaux.nbVisees += nbVisees;
+      totaux.nbReportees += nbReportees;
+      totaux.nbEnRetard += nbEnRetard;
+
+      groupe[classeNom].cycles.push({
+        id: cycle.id, titre: cycle.titre, competence: cycle.competence || '',
+        dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '',
+        nombreLeconsPrevu: cycle.nombre_lecons_prevu || null,
+        lecons: leconsDuCycle,
+        stats: {
+          nbSeances: toutesSeances.length, nbVisees, nbReportees, nbEnRetard,
+          progression: toutesSeances.length > 0 ? Math.round((nbVisees / toutesSeances.length) * 100) : 0,
+        },
+      });
+    });
+
+    return { groupe, totaux };
+  };
+
+  const chargerProgrammeEnseignantChoisi = async (enseignantUserId) => {
+    setEnseignantChoisiProgression(enseignantUserId);
+    if (!enseignantUserId) { setProgrammeProgressionCharge({}); return; }
+    setChargementProgression(true);
+    const { groupe } = await calculerProgrammeEtStatsEnseignant(enseignantUserId);
+    setProgrammeProgressionCharge(groupe);
+    setChargementProgression(false);
+  };
+
+  const genererRapportPonctuel = async (portee) => {
+    if (!affiliationCenseur || !anneeActiveId) return;
+    const etablissementId = affiliationCenseur.etablissement_id;
+
+    let donneesJson;
+    if (portee === 'ENSEIGNANT') {
+      if (!enseignantChoisiProgression) { showToast("⚠️ Choisissez d'abord un enseignant."); return; }
+      const prof = listeProfesseursEtablissement.find(p => p.userId === enseignantChoisiProgression);
+      const { totaux } = await calculerProgrammeEtStatsEnseignant(enseignantChoisiProgression);
+      donneesJson = {
+        portee: 'ENSEIGNANT', enseignant: prof?.nomComplet || 'Inconnu',
+        nb_seances: totaux.nbSeances, nb_visees: totaux.nbVisees,
+        nb_reportees: totaux.nbReportees, nb_en_retard: totaux.nbEnRetard,
+        progression_globale: totaux.nbSeances > 0 ? Math.round((totaux.nbVisees / totaux.nbSeances) * 100) : 0,
+      };
+    } else {
+      const totalEcole = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
+      const parEnseignant = [];
+      for (const prof of listeProfesseursEtablissement) {
+        const { totaux } = await calculerProgrammeEtStatsEnseignant(prof.userId);
+        totalEcole.nbSeances += totaux.nbSeances;
+        totalEcole.nbVisees += totaux.nbVisees;
+        totalEcole.nbReportees += totaux.nbReportees;
+        totalEcole.nbEnRetard += totaux.nbEnRetard;
+        if (totaux.nbSeances > 0) {
+          parEnseignant.push({ enseignant: prof.nomComplet, ...totaux, progression: Math.round((totaux.nbVisees / totaux.nbSeances) * 100) });
+        }
+      }
+      donneesJson = {
+        portee: 'ETABLISSEMENT',
+        nb_seances: totalEcole.nbSeances, nb_visees: totalEcole.nbVisees,
+        nb_reportees: totalEcole.nbReportees, nb_en_retard: totalEcole.nbEnRetard,
+        progression_globale: totalEcole.nbSeances > 0 ? Math.round((totalEcole.nbVisees / totalEcole.nbSeances) * 100) : 0,
+        par_enseignant: parEnseignant,
+      };
+    }
+
+    const { data: chef } = await supabase
+      .from('affiliations_etablissement')
+      .select('user_id')
+      .eq('etablissement_id', etablissementId)
+      .eq('role', 'CHEF')
+      .eq('statut', 'ACTIVE')
+      .maybeSingle();
+
+    const { error } = await supabase.from('rapports').insert({
+      etablissement_id: etablissementId, annee_scolaire_id: anneeActiveId,
+      genere_par_user_id: userId, type_periode: 'PONCTUEL',
+      donnees_json: donneesJson, envoye_a_user_id: chef?.user_id || null,
+    });
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+
+    if (chef?.user_id) {
+      await envoyerNotification(
+        chef.user_id, 'RAPPORT_PONCTUEL',
+        portee === 'ENSEIGNANT'
+          ? `📊 Nouveau rapport de progression pour ${donneesJson.enseignant}`
+          : `📊 Nouveau rapport de progression pour tout l'établissement`,
+        'rapports', etablissementId
+      );
+    }
+
+    showToast(portee === 'ENSEIGNANT' ? "✅ Rapport envoyé au chef d'établissement !" : "✅ Rapport global envoyé au chef d'établissement !");
+  };
+
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
     if (!nouveauAdminNom.trim() || !affiliationCenseur) return;
@@ -1520,6 +1673,7 @@ export default function CenseurDashboard() {
                     )}
                   </button>
                   <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📚 Archives Pédagogiques</button>
+                  <button onClick={() => { setActiveTab('progression'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📊 Programme & Progression</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
                   <button onClick={() => { setActiveTab('classes'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏫 Classes & Attributions</button>
                   <button onClick={() => { setActiveTab('documents'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📤 Documents d'Établissement</button>
@@ -1999,6 +2153,99 @@ export default function CenseurDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {/* ONGLET : PROGRAMME & PROGRESSION */}
+        {/* ------------------------------------------------------------------------------------------------ */}
+        {activeTab === 'progression' && (
+          <div style={styles.cardWide}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📊 Programme & Progression</h2>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Consultez le programme annuel de chaque enseignant, sa progression, et transmettez un rapport au chef d'établissement.</p>
+              </div>
+              <button onClick={() => genererRapportPonctuel('ETABLISSEMENT')} className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }} disabled={!anneeActiveId}>
+                📤 Rapport global de l'établissement
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
+              <select value={enseignantChoisiProgression} onChange={(e) => chargerProgrammeEnseignantChoisi(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 240px', margin: 0 }}>
+                <option value="">— Choisir un enseignant —</option>
+                {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+              </select>
+              {enseignantChoisiProgression && (
+                <button onClick={() => genererRapportPonctuel('ENSEIGNANT')} className="bouton bouton-succes" disabled={!anneeActiveId}>
+                  📤 Envoyer ce rapport au chef
+                </button>
+              )}
+            </div>
+
+            {!enseignantChoisiProgression ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Choisissez un enseignant pour consulter son programme annuel et sa progression.</p>
+            ) : chargementProgression ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Chargement...</p>
+            ) : Object.keys(programmeProgressionCharge).length === 0 ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun programme trouvé pour cet enseignant sur l'année en cours.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {Object.entries(programmeProgressionCharge).map(([classeNom, prog]) => (
+                  <div key={classeNom} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', padding: '16px' }}>
+                    <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 12px 0' }}>🏫 {classeNom}</h3>
+                    {(prog.cycles || []).map(cycle => {
+                      const estOuvert = !!cyclesOuvertsProgression[cycle.id];
+                      return (
+                        <div key={cycle.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', marginBottom: '10px', overflow: 'hidden' }}>
+                          <button onClick={() => toggleCycleProgression(cycle.id)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', backgroundColor: estOuvert ? '#eff6ff' : '#f8fafc', border: 'none', cursor: 'pointer' }}>
+                            <div style={{ textAlign: 'left' }}>
+                              <strong style={{ fontSize: '13px', color: '#0f172a' }}>📁 {cycle.titre}</strong>
+                              <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>{cycle.competence}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '70px', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${cycle.stats.progression}%`, height: '100%', backgroundColor: cycle.stats.progression >= 70 ? '#16a34a' : cycle.stats.progression >= 40 ? '#f59e0b' : '#ef4444' }}></div>
+                                </div>
+                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#334155' }}>{cycle.stats.progression}%</span>
+                              </div>
+                              {cycle.stats.nbEnRetard > 0 && <span style={{ fontSize: '10px', backgroundColor: '#fee2e2', color: '#991b1b', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>{cycle.stats.nbEnRetard} en retard</span>}
+                              {cycle.stats.nbReportees > 0 && <span style={{ fontSize: '10px', backgroundColor: '#ffedd5', color: '#9a3412', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>{cycle.stats.nbReportees} reportée(s)</span>}
+                              <span style={{ fontSize: '13px' }}>{estOuvert ? '▲' : '▼'}</span>
+                            </div>
+                          </button>
+                          {estOuvert && (
+                            <div style={{ padding: '12px 14px', backgroundColor: '#fff' }}>
+                              <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 10px 0' }}>
+                                {cycle.stats.nbVisees} visée(s) / {cycle.stats.nbSeances} séance(s) au total
+                                {cycle.nombreLeconsPrevu ? ` — ${cycle.nombreLeconsPrevu} leçon(s) prévue(s)` : ''}
+                              </p>
+                              {(cycle.lecons || []).map(lecon => (
+                                <div key={lecon.id} style={{ marginBottom: '8px', paddingLeft: '8px', borderLeft: '2px solid #e2e8f0' }}>
+                                  <p style={{ fontSize: '12px', fontWeight: '700', color: '#334155', margin: '0 0 4px 0' }}>📖 {lecon.titre}</p>
+                                  {(lecon.seances || []).map(sc => (
+                                    <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#475569', padding: '2px 0' }}>
+                                      <span>Séance #{sc.numero} — {sc.titre} ({sc.date || 'sans date'})</span>
+                                      <span style={{
+                                        fontSize: '9px', fontWeight: '800', padding: '1px 6px', borderRadius: '4px',
+                                        backgroundColor: sc.statut === 'VISEE' ? '#dcfce7' : sc.statut === 'REPORTEE' ? '#ffedd5' : sc.statut === 'ENVOYEE' || sc.statut === 'RECUE' ? '#e0f2fe' : '#f1f5f9',
+                                        color: sc.statut === 'VISEE' ? '#166534' : sc.statut === 'REPORTEE' ? '#9a3412' : sc.statut === 'ENVOYEE' || sc.statut === 'RECUE' ? '#0369a1' : '#64748b',
+                                      }}>{sc.statut}</span>
+                                      {sc.motifReport && <span style={{ fontStyle: 'italic', color: '#9a3412' }}>({sc.motifReport})</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </div>

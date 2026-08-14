@@ -1594,10 +1594,14 @@ export default function EnseignantDashboard() {
     showToast("🚀 Demande d'affiliation transmise !");
   };
 
+  // [CORRIGÉ] Sur mobile, window.open('', '_blank') ouvrait un vrai nouvel
+  // onglet : il fallait ensuite passer par le sélecteur d'onglets du
+  // navigateur pour revenir à l'app — perte de focus déroutante, l'appli
+  // semblait "plantée". On utilise désormais un iframe invisible injecté
+  // dans la page, qu'on imprime puis retire aussitôt : tout se passe dans
+  // le même onglet, sans aucune navigation.
   const telechargerPDFEntite = (titreEntite, sousTitre, contenuTableau) => {
-    const fenetreImpression = window.open('', '_blank');
-    if (!fenetreImpression) return;
-    fenetreImpression.document.write(
+    const contenuHTML =
       '<html><head><title>' + titreEntite + '</title><style>' +
       'body { font-family: Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; background: #fff; }' +
       '.header-doc { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }' +
@@ -1613,9 +1617,28 @@ export default function EnseignantDashboard() {
       '<p><strong>Classe :</strong> ' + (classeSelectionneeVue || 'Toutes') + ' | <strong>Type :</strong> ' + titreEntite + '</p>' +
       '<p><strong>Détails :</strong> ' + sousTitre + '</p></div>' +
       contenuTableau +
-      '<script>window.onload = function() { setTimeout(function() { window.print(); }, 300); }</script></body></html>'
-    );
-    fenetreImpression.document.close();
+      '</body></html>';
+
+    const iframeImpression = document.createElement('iframe');
+    iframeImpression.style.position = 'fixed';
+    iframeImpression.style.right = '0';
+    iframeImpression.style.bottom = '0';
+    iframeImpression.style.width = '0';
+    iframeImpression.style.height = '0';
+    iframeImpression.style.border = '0';
+    document.body.appendChild(iframeImpression);
+
+    const docIframe = iframeImpression.contentWindow.document;
+    docIframe.open();
+    docIframe.write(contenuHTML);
+    docIframe.close();
+
+    setTimeout(() => {
+      iframeImpression.contentWindow.focus();
+      iframeImpression.contentWindow.print();
+      setTimeout(() => { if (iframeImpression.parentNode) document.body.removeChild(iframeImpression); }, 1000);
+    }, 300);
+
     showToast(`📥 Document "${titreEntite}" prêt pour impression / téléchargement !`);
   };
 
@@ -2069,7 +2092,7 @@ export default function EnseignantDashboard() {
 
         {modalProposerClasse.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Proposer une ou plusieurs classes</h3>
                 <button onClick={() => setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2538,9 +2561,9 @@ export default function EnseignantDashboard() {
 
         {modalAffiliation && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Demande d'Affiliation à une École</h3>
-              <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <form onSubmit={soumettreDemandeAffiliation} style={{ display: 'flex', flexDirection: 'column', gap: '14px', minHeight: 0 }}>
                 <div>
                   <label style={styles.label}>Code de l'établissement</label>
                   <input type="text" placeholder="Ex: LYCMOD-A1B2" value={nouvelleEcoleSaisie} onChange={(e) => setNouvelleEcoleSaisie(e.target.value)} style={styles.inputStyle} required />
@@ -2551,7 +2574,7 @@ export default function EnseignantDashboard() {
                   {matieresCatalogue.length === 0 ? (
                     <p style={{ fontSize: '11px', color: '#991b1b' }}>Aucune matière au catalogue pour l'instant.</p>
                   ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '260px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px' }}>
                       {matieresCatalogue.map(m => {
                         const estCochee = matiereIdsAffiliation.includes(m.id);
                         return (

@@ -28,6 +28,9 @@ export default function ChefEtablissementDashboard() {
   const [inputNombreEleves, setInputNombreEleves] = useState('450');
   const [inputNombreEnseignants, setInputNombreEnseignants] = useState('25');
   const [inputEmailRecuperation, setInputEmailRecuperation] = useState('');
+  // [NOUVEAU] Empêche l'envoi de plusieurs demandes identiques en cas de
+  // clics multiples — voir handleConnecterEcole.
+  const [envoiDemandeConnecterEnCours, setEnvoiDemandeConnecterEnCours] = useState(false);
 
   const [infosChef, setInfosChef] = useState({
     civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Chef d\u2019Établissement', photoProfil: '', emailSecurite: '', telephone: ''
@@ -227,7 +230,19 @@ export default function ChefEtablissementDashboard() {
           console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
           showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
         }
-        setDemandesAffiliationRecues(await rattacherProfils(demandesBrutes));
+        // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent
+        // déjà en base (créés avant le correctif anti-doublon), on n'affiche
+        // qu'une seule fois chaque personne pour un même rôle demandé.
+        const demandesAvecProfils = await rattacherProfils(demandesBrutes);
+        const demandesDedupliquees = [];
+        const clesDejaVues = new Set();
+        demandesAvecProfils.forEach(d => {
+          const cle = `${d.user_id}|${d.role_demande}`;
+          if (clesDejaVues.has(cle)) return;
+          clesDejaVues.add(cle);
+          demandesDedupliquees.push(d);
+        });
+        setDemandesAffiliationRecues(demandesDedupliquees);
 
         const { data: departsBrutes } = await supabase
           .from('demandes_depart')
@@ -450,6 +465,8 @@ export default function ChefEtablissementDashboard() {
       return;
     }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
+    if (envoiDemandeConnecterEnCours) return;
+    setEnvoiDemandeConnecterEnCours(true);
 
     const { data: etablissementCible, error: erreurRecherche } = await supabase
       .from('etablissements')
@@ -459,6 +476,26 @@ export default function ChefEtablissementDashboard() {
 
     if (erreurRecherche || !etablissementCible) {
       showToast("⚠️ Aucun établissement trouvé avec ce code.");
+      setEnvoiDemandeConnecterEnCours(false);
+      return;
+    }
+
+    // [NOUVEAU] Vérifie qu'aucune demande identique n'est déjà en attente
+    // avant d'en créer une nouvelle — évite les doublons (plusieurs clics
+    // sur le bouton) qui obligeaient ensuite un autre chef/censeur à
+    // traiter la même personne plusieurs fois.
+    const { data: demandeExistante } = await supabase
+      .from('demandes_affiliation')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('etablissement_id', etablissementCible.id)
+      .eq('role_demande', 'CHEF')
+      .eq('statut', 'EN_ATTENTE')
+      .maybeSingle();
+
+    if (demandeExistante) {
+      showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      setEnvoiDemandeConnecterEnCours(false);
       return;
     }
 
@@ -471,11 +508,14 @@ export default function ChefEtablissementDashboard() {
       });
 
     if (erreurDemande) {
-      showToast("⚠️ Erreur d'envoi de la demande : " + erreurDemande.message);
+      if (erreurDemande.code === '23505') showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      else showToast("⚠️ Erreur d'envoi de la demande : " + erreurDemande.message);
+      setEnvoiDemandeConnecterEnCours(false);
       return;
     }
 
     showToast(`📨 Demande envoyée pour "${etablissementCible.nom}". En attente d'approbation.`);
+    setEnvoiDemandeConnecterEnCours(false);
     setModeSetup('CHOIX');
   };
 
@@ -908,10 +948,18 @@ export default function ChefEtablissementDashboard() {
     });
     if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
 
+    // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
+    // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
+    // ci-dessus) mais clôturer TOUS ses doublons encore en attente pour ce
+    // même rôle — sinon les autres réapparaissent comme s'il s'agissait
+    // d'une personne différente à traiter.
     const { error: erreurMaj } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
-      .eq('id', demande.id);
+      .eq('user_id', demande.user_id)
+      .eq('etablissement_id', affiliationChef.etablissement_id)
+      .eq('role_demande', demande.role_demande)
+      .eq('statut', 'EN_ATTENTE');
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
       return;
@@ -923,15 +971,20 @@ export default function ChefEtablissementDashboard() {
       'profil_ecole', affiliationChef.etablissement_id
     );
 
-    setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
+    setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("✅ Demande approuvée, la personne a maintenant accès à l'établissement !");
   };
 
   const refuserDemande = async (demande) => {
+    // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
+    // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
-      .eq('id', demande.id);
+      .eq('user_id', demande.user_id)
+      .eq('etablissement_id', affiliationChef.etablissement_id)
+      .eq('role_demande', demande.role_demande)
+      .eq('statut', 'EN_ATTENTE');
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
     await envoyerNotification(
@@ -940,7 +993,7 @@ export default function ChefEtablissementDashboard() {
       'profil_ecole', affiliationChef.etablissement_id
     );
 
-    setDemandesAffiliationRecues(prev => prev.filter(d => d.id !== demande.id));
+    setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("❌ Demande refusée.");
   };
 
@@ -1046,7 +1099,7 @@ export default function ChefEtablissementDashboard() {
                 <input type="text" value={inputCodeEtablissement} onChange={(e) => setInputCodeEtablissement(e.target.value)} style={styles.inputStyle} required />
               </div>
               <div><label style={styles.label}>Année Scolaire</label><input type="text" value={inputAnneeScolaire} onChange={(e) => setInputAnneeScolaire(e.target.value)} style={styles.inputStyle} required /></div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }}>Envoyer la demande</button></div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}><button type="button" onClick={() => setModeSetup('CHOIX')} className="bouton bouton-secondaire" style={{ flex: 1 }}>Retour</button><button type="submit" className="bouton bouton-principal" style={{ flex: 1 }} disabled={envoiDemandeConnecterEnCours}>{envoiDemandeConnecterEnCours ? 'Envoi...' : 'Envoyer la demande'}</button></div>
             </form>
           )}
 

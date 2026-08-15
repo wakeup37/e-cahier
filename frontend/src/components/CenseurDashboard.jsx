@@ -303,7 +303,17 @@ export default function CenseurDashboard() {
       (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
       demandesEnseignants = demandesEnseignants.map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
     }
-    setDemandesAffiliationEnseignants(demandesEnseignants);
+    // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent déjà
+    // en base (créés avant le correctif anti-doublon), on n'affiche qu'une
+    // seule fois chaque personne — la plus ancienne demande est conservée.
+    const demandesEnseignantsDedupliquees = [];
+    const usersDejaVus = new Set();
+    demandesEnseignants.forEach(d => {
+      if (usersDejaVus.has(d.user_id)) return;
+      usersDejaVus.add(d.user_id);
+      demandesEnseignantsDedupliquees.push(d);
+    });
+    setDemandesAffiliationEnseignants(demandesEnseignantsDedupliquees);
 
     const { data: demandeDepartExistante } = await supabase
       .from('demandes_depart')
@@ -583,6 +593,9 @@ export default function CenseurDashboard() {
   };
 
   const [inputCodeEtablissementCenseur, setInputCodeEtablissementCenseur] = useState('');
+  // [NOUVEAU] Empêche l'envoi de plusieurs demandes identiques en cas de
+  // clics multiples sur "Envoyer la demande" — voir soumettreDemandeRejoindre.
+  const [envoiDemandeRejoindreEnCours, setEnvoiDemandeRejoindreEnCours] = useState(false);
   const [nouvelleInvitationEnseignantEmail, setNouvelleInvitationEnseignantEmail] = useState('');
 
   const genererTokenInvitation = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
@@ -619,10 +632,18 @@ export default function CenseurDashboard() {
     });
     if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
 
+    // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
+    // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
+    // ci-dessus) mais clôturer TOUS ses doublons encore en attente — sinon
+    // les autres réapparaissent dans la liste et semblent être une
+    // personne différente à traiter.
     const { error: erreurMaj } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
-      .eq('id', demande.id);
+      .eq('user_id', demande.user_id)
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('role_demande', 'ENSEIGNANT')
+      .eq('statut', 'EN_ATTENTE');
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
       return;
@@ -634,15 +655,20 @@ export default function CenseurDashboard() {
       'professeurs', affiliationCenseur.etablissement_id
     );
 
-    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
+    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("✅ Demande approuvée, l'enseignant a maintenant accès à l'établissement !");
   };
 
   const refuserDemandeAffiliationEnseignant = async (demande) => {
+    // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
+    // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
-      .eq('id', demande.id);
+      .eq('user_id', demande.user_id)
+      .eq('etablissement_id', affiliationCenseur.etablissement_id)
+      .eq('role_demande', 'ENSEIGNANT')
+      .eq('statut', 'EN_ATTENTE');
     if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
     await envoyerNotification(
@@ -651,7 +677,7 @@ export default function CenseurDashboard() {
       'professeurs', affiliationCenseur.etablissement_id
     );
 
-    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.id !== demande.id));
+    setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("❌ Demande refusée.");
   };
 
@@ -1210,12 +1236,34 @@ export default function CenseurDashboard() {
   const soumettreDemandeRejoindre = async (e) => {
     e.preventDefault();
     if (!inputCodeEtablissementCenseur.trim() || !userId) return;
+    if (envoiDemandeRejoindreEnCours) return;
+    setEnvoiDemandeRejoindreEnCours(true);
 
     const { data: etablissementCible, error: erreurRecherche } = await supabase
       .from('etablissements').select('id, nom').eq('code', inputCodeEtablissementCenseur.trim()).maybeSingle();
 
     if (erreurRecherche || !etablissementCible) {
       showToast("⚠️ Aucun établissement trouvé avec ce code.");
+      setEnvoiDemandeRejoindreEnCours(false);
+      return;
+    }
+
+    // [NOUVEAU] Vérifie qu'aucune demande identique n'est déjà en attente
+    // avant d'en créer une nouvelle — évite les doublons (plusieurs clics
+    // sur "Envoyer la demande") qui obligeaient ensuite le chef à traiter
+    // la même personne plusieurs fois.
+    const { data: demandeExistante } = await supabase
+      .from('demandes_affiliation')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('etablissement_id', etablissementCible.id)
+      .eq('role_demande', 'CENSEUR')
+      .eq('statut', 'EN_ATTENTE')
+      .maybeSingle();
+
+    if (demandeExistante) {
+      showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      setEnvoiDemandeRejoindreEnCours(false);
       return;
     }
 
@@ -1229,10 +1277,12 @@ export default function CenseurDashboard() {
       } else {
         showToast("⚠️ Erreur : " + error.message);
       }
+      setEnvoiDemandeRejoindreEnCours(false);
       return;
     }
 
     showToast(`📨 Demande envoyée pour "${etablissementCible.nom}". En attente d'approbation du chef.`);
+    setEnvoiDemandeRejoindreEnCours(false);
   };
 
   const envoyerDemandePromotion = async (e) => {
@@ -1666,7 +1716,7 @@ export default function CenseurDashboard() {
               <label style={styles.label}>Code de l'établissement</label>
               <input type="text" placeholder="Ex: LYCMOD-A1B2" value={inputCodeEtablissementCenseur} onChange={(e) => setInputCodeEtablissementCenseur(e.target.value)} style={styles.inputStyle} required />
             </div>
-            <button type="submit" className="bouton bouton-principal" style={{ marginTop: '6px' }}>Envoyer la demande</button>
+            <button type="submit" className="bouton bouton-principal" style={{ marginTop: '6px' }} disabled={envoiDemandeRejoindreEnCours}>{envoiDemandeRejoindreEnCours ? 'Envoi...' : 'Envoyer la demande'}</button>
           </form>
         </div>
       </div>

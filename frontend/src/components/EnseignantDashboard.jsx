@@ -1549,23 +1549,56 @@ export default function EnseignantDashboard() {
 
   // --- Demande d'affiliation : vraie insertion Supabase ---
   const [matiereIdsAffiliation, setMatiereIdsAffiliation] = useState([]);
+  // [NOUVEAU] Empêche l'envoi de plusieurs demandes identiques si l'utilisateur
+  // clique plusieurs fois rapidement sur "Soumettre" — voir soumettreDemandeAffiliation.
+  const [envoiDemandeAffiliationEnCours, setEnvoiDemandeAffiliationEnCours] = useState(false);
 
   const soumettreDemandeAffiliation = async (e) => {
     e.preventDefault();
     if (!nouvelleEcoleSaisie.trim() || !userId) return;
+    // Bloque tout clic supplémentaire tant que le premier envoi n'est pas terminé.
+    if (envoiDemandeAffiliationEnCours) return;
+    setEnvoiDemandeAffiliationEnCours(true);
 
     const { data: etablissementCible, error: erreurRecherche } = await supabase
       .from('etablissements').select('id, nom').eq('code', nouvelleEcoleSaisie.trim()).maybeSingle();
 
     if (erreurRecherche || !etablissementCible) {
       showToast("⚠️ Établissement introuvable. Vérifiez le nom exact (idéalement demandez le code établissement).");
+      setEnvoiDemandeAffiliationEnCours(false);
+      return;
+    }
+
+    // [NOUVEAU] Vérifie qu'aucune demande identique n'est déjà en attente
+    // avant d'en créer une nouvelle — évite les doublons (ex. plusieurs
+    // clics sur "Soumettre", ou une nouvelle tentative après avoir rouvert
+    // le formulaire) qui obligeaient ensuite le censeur/chef à traiter la
+    // même personne plusieurs fois.
+    const { data: demandeExistante } = await supabase
+      .from('demandes_affiliation')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('etablissement_id', etablissementCible.id)
+      .eq('role_demande', 'ENSEIGNANT')
+      .eq('statut', 'EN_ATTENTE')
+      .maybeSingle();
+
+    if (demandeExistante) {
+      showToast("⚠️ Vous avez déjà une demande en attente pour cet établissement.");
+      setModalAffiliation(false);
+      setEnvoiDemandeAffiliationEnCours(false);
       return;
     }
 
     const { error } = await supabase
       .from('demandes_affiliation').insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'ENSEIGNANT' });
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Vous avez déjà une demande en attente pour cet établissement.");
+      else showToast("⚠️ Erreur : " + error.message);
+      setEnvoiDemandeAffiliationEnCours(false);
+      return;
+    }
 
     // Déclare directement les matières enseignées pour ce nouvel
     // établissement — pas besoin d'attendre l'approbation, la déclaration
@@ -1588,6 +1621,7 @@ export default function EnseignantDashboard() {
       'censeurs'
     );
 
+    setEnvoiDemandeAffiliationEnCours(false);
     setModalAffiliation(false);
     setNouvelleEcoleSaisie('');
     setMatiereIdsAffiliation([]);
@@ -1813,7 +1847,7 @@ export default function EnseignantDashboard() {
                 )}
               </div>
               <div style={styles.navbarTeacherInfo}>
-                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: '100%' }}>
                   {infosEnseignant.civilite} {infosEnseignant.nom}
                 </span>
                 <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase' }}>
@@ -2596,7 +2630,7 @@ export default function EnseignantDashboard() {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModalAffiliation(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Soumettre la demande</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={envoiDemandeAffiliationEnCours}>{envoiDemandeAffiliationEnCours ? 'Envoi...' : 'Soumettre la demande'}</button>
                 </div>
               </form>
             </div>
@@ -3789,11 +3823,11 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
   notificationDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 110, padding: '10px', boxSizing: 'border-box' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '8px', fontSize: '11px', marginBottom: '4px', border: '1px solid #f1f5f9', cursor: 'pointer' },

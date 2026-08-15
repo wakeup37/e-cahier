@@ -276,9 +276,14 @@ export default function CenseurDashboard() {
     // n'y en a réellement aucune, ou si une policy RLS bloque la lecture
     // (le cas typique : la demande a bien été créée par l'enseignant, mais
     // reste invisible ici faute de policy SELECT pour le rôle CENSEUR).
-    const { data: demandesEnseignants, error: erreurDemandesAffiliation } = await supabase
+    // [CORRIGÉ] La jointure automatique "utilisateurs_profils!user_id(...)"
+    // continuait à échouer avec la même erreur d'ambiguïté malgré le hint —
+    // au lieu de continuer à chercher la bonne syntaxe PostgREST, on
+    // récupère les profils séparément et on les rattache nous-mêmes. Ça
+    // élimine complètement le risque d'ambiguïté de relation.
+    const { data: demandesEnseignantsBrutes, error: erreurDemandesAffiliation } = await supabase
       .from('demandes_affiliation')
-      .select('id, user_id, role_demande, created_at, utilisateurs_profils!user_id(nom, prenom)')
+      .select('id, user_id, role_demande, created_at')
       .eq('etablissement_id', etablissementId)
       .eq('role_demande', 'ENSEIGNANT')
       .eq('statut', 'EN_ATTENTE')
@@ -287,7 +292,18 @@ export default function CenseurDashboard() {
       console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
       showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
     }
-    setDemandesAffiliationEnseignants(demandesEnseignants || []);
+    let demandesEnseignants = demandesEnseignantsBrutes || [];
+    if (demandesEnseignants.length > 0) {
+      const idsDemandeurs = [...new Set(demandesEnseignants.map(d => d.user_id))];
+      const { data: profilsDemandeurs } = await supabase
+        .from('utilisateurs_profils')
+        .select('user_id, nom, prenom')
+        .in('user_id', idsDemandeurs);
+      const profilParId = {};
+      (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
+      demandesEnseignants = demandesEnseignants.map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
+    }
+    setDemandesAffiliationEnseignants(demandesEnseignants);
 
     const { data: demandeDepartExistante } = await supabase
       .from('demandes_depart')
@@ -309,12 +325,24 @@ export default function CenseurDashboard() {
       typeEnseignement: etab?.parametres_json?.typeEnseignement || 'GENERAL',
     });
 
-    const { data: affiliationsEnseignants } = await supabase
+    const { data: affiliationsEnseignantsBrutes } = await supabase
       .from('affiliations_etablissement')
-      .select('id, user_id, utilisateurs_profils!user_id(nom, prenom, telephone)')
+      .select('id, user_id')
       .eq('etablissement_id', etablissementId)
       .eq('role', 'ENSEIGNANT')
       .eq('statut', 'ACTIVE');
+
+    let affiliationsEnseignants = affiliationsEnseignantsBrutes || [];
+    if (affiliationsEnseignants.length > 0) {
+      const idsEnseignants = [...new Set(affiliationsEnseignants.map(a => a.user_id))];
+      const { data: profilsEnseignants } = await supabase
+        .from('utilisateurs_profils')
+        .select('user_id, nom, prenom, telephone')
+        .in('user_id', idsEnseignants);
+      const profilEnseignantParId = {};
+      (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
+      affiliationsEnseignants = affiliationsEnseignants.map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
+    }
 
     const { data: matieresEnseignants } = await supabase
       .from('matieres_enseignant')
@@ -1661,7 +1689,7 @@ export default function CenseurDashboard() {
                 )}
               </div>
               <div style={styles.navbarTeacherInfo}>
-                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: '100%' }}>
                   {infosCenseur.civilite} {infosCenseur.nom}
                 </span>
                 <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase' }}>
@@ -3088,11 +3116,11 @@ const styles = {
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   pInfo: { margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#0f172a' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
   notificationDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 110, padding: '10px', boxSizing: 'border-box' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '8px', fontSize: '11px', marginBottom: '4px', border: '1px solid #f1f5f9', cursor: 'pointer' },

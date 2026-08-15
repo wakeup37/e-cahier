@@ -198,9 +198,28 @@ export default function ChefEtablissementDashboard() {
         // bloque la lecture (cas typique : la demande a bien été créée par
         // l'enseignant/le censeur, mais reste invisible ici faute de policy
         // SELECT pour le rôle CHEF).
-        const { data: demandes, error: erreurDemandesAffiliation } = await supabase
+        // [CORRIGÉ] La jointure automatique "utilisateurs_profils!user_id(...)"
+        // continuait à échouer avec la même erreur d'ambiguïté malgré le
+        // hint — au lieu de continuer à chercher la bonne syntaxe
+        // PostgREST, on récupère les profils séparément et on les rattache
+        // nous-mêmes pour les deux requêtes ci-dessous (demandes
+        // d'affiliation ET demandes de départ). Ça élimine complètement le
+        // risque d'ambiguïté de relation, quelle qu'en soit la cause exacte.
+        const rattacherProfils = async (lignes, colonneUserId = 'user_id') => {
+          if (!lignes || lignes.length === 0) return lignes || [];
+          const ids = [...new Set(lignes.map(l => l[colonneUserId]))];
+          const { data: profils } = await supabase
+            .from('utilisateurs_profils')
+            .select('user_id, nom, prenom')
+            .in('user_id', ids);
+          const profilParId = {};
+          (profils || []).forEach(p => { profilParId[p.user_id] = p; });
+          return lignes.map(l => ({ ...l, utilisateurs_profils: profilParId[l[colonneUserId]] || null }));
+        };
+
+        const { data: demandesBrutes, error: erreurDemandesAffiliation } = await supabase
           .from('demandes_affiliation')
-          .select('id, user_id, role_demande, created_at, utilisateurs_profils!user_id(nom, prenom)')
+          .select('id, user_id, role_demande, created_at')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('statut', 'EN_ATTENTE')
           .order('created_at', { ascending: true });
@@ -208,15 +227,15 @@ export default function ChefEtablissementDashboard() {
           console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
           showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
         }
-        setDemandesAffiliationRecues(demandes || []);
+        setDemandesAffiliationRecues(await rattacherProfils(demandesBrutes));
 
-        const { data: departs } = await supabase
+        const { data: departsBrutes } = await supabase
           .from('demandes_depart')
-          .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils!user_id(nom, prenom)')
+          .select('id, user_id, role_demandeur, motif, created_at')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('statut', 'EN_ATTENTE')
           .order('created_at', { ascending: true });
-        setDemandesDepartRecues(departs || []);
+        setDemandesDepartRecues(await rattacherProfils(departsBrutes));
 
         const { data: invitationsEnvoyeesData } = await supabase
           .from('invitations')
@@ -241,12 +260,24 @@ export default function ChefEtablissementDashboard() {
           .is('deleted_at', null);
         setNombreClassesReel((classesData || []).length);
 
-        const { data: affiliationsEnseignants } = await supabase
+        const { data: affiliationsEnseignantsBrutes } = await supabase
           .from('affiliations_etablissement')
-          .select('id, user_id, utilisateurs_profils!user_id(nom, prenom, telephone)')
+          .select('id, user_id')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('role', 'ENSEIGNANT')
           .eq('statut', 'ACTIVE');
+
+        let affiliationsEnseignants = affiliationsEnseignantsBrutes || [];
+        if (affiliationsEnseignants.length > 0) {
+          const idsEnseignants = [...new Set(affiliationsEnseignants.map(a => a.user_id))];
+          const { data: profilsEnseignants } = await supabase
+            .from('utilisateurs_profils')
+            .select('user_id, nom, prenom, telephone')
+            .in('user_id', idsEnseignants);
+          const profilEnseignantParId = {};
+          (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
+          affiliationsEnseignants = affiliationsEnseignants.map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
+        }
 
         const { data: attributionsData } = await supabase
           .from('attributions_classes')
@@ -1052,7 +1083,7 @@ export default function ChefEtablissementDashboard() {
                 {infosChef.photoProfil ? <img src={infosChef.photoProfil} alt="Profil" style={styles.avatarNavbarImg} /> : <div style={styles.avatarNavbarPlaceholder}>👤</div>}
               </div>
               <div style={styles.navbarTeacherInfo}>
-                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap' }}>{infosChef.civilite} {infosChef.nom}</span>
+                <span style={{ fontSize: '12px', fontWeight: '900', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: '100%' }}>{infosChef.civilite} {infosChef.nom}</span>
                 <span style={{ fontSize: '9px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase' }}>Direction</span>
               </div>
               <span style={{ fontSize: '9px', color: '#94a3b8', marginLeft: '2px' }}>{profilChefOuvert ? '▲' : '▼'}</span>
@@ -1735,11 +1766,11 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },
-  navbarTeacherInfo: { display: 'flex', flexDirection: 'column' },
+  navbarTeacherInfo: { display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
   notificationDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '14px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #e2e8f0', width: '280px', maxWidth: '90vw', zIndex: 110, padding: '10px', boxSizing: 'border-box' },
   dropdownHeader: { padding: '6px 8px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', marginBottom: '6px' },
   notifItem: { backgroundColor: '#f8fafc', padding: '8px', borderRadius: '8px', fontSize: '11px', marginBottom: '4px', border: '1px solid #f1f5f9', boxSizing: 'border-box' },

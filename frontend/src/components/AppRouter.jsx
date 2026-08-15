@@ -84,7 +84,6 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
-  // CORRECTION CLÉ : Réinitialisation complète de tous les états lors de la déconnexion
   const gererDeconnexionGlobale = async () => {
     try { 
       await supabase.auth.signOut(); 
@@ -145,25 +144,17 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      const { data: profil, error: profilError } = await supabase
-        .from('utilisateurs_profils')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (profilError) console.warn("Avis chargement profil:", profilError.message);
-      if (profil) setProfilUtilisateur(profil);
-
-      // SÉCURITÉ : Vérification absolue du Super Admin en premier
+      // PRIORITÉ ABSOLUE : Vérification Super Admin
       const { data: superAdminRow, error: erreurSuperAdmin } = await supabase
         .from('super_admins')
         .select('statut')
         .eq('user_id', userId)
         .maybeSingle();
+
       if (erreurSuperAdmin) {
         console.error('Erreur vérification super_admins :', erreurSuperAdmin);
-        afficherNotification("⚠️ Vérification super admin échouée : " + erreurSuperAdmin.message);
       }
+
       if (superAdminRow?.statut === 'ACTIVE') {
         const { data: affiliationChefEventuelle } = await supabase
           .from('affiliations_etablissement')
@@ -178,6 +169,15 @@ export default function AppRouter() {
         setEtapeChoixEtablissement(false);
         return 'superadmin';
       }
+
+      const { data: profil, error: profilError } = await supabase
+        .from('utilisateurs_profils')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (profilError) console.warn("Avis chargement profil:", profilError.message);
+      if (profil) setProfilUtilisateur(profil);
 
       const { data: affiliationsActives } = await supabase
         .from('affiliations_etablissement')
@@ -335,7 +335,7 @@ export default function AppRouter() {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support pour nettoyer ce compte, ou utilisez un autre e-mail.";
+        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support pour nettoyer ce compte.";
       }
       afficherNotification("❌ " + messageErreur);
     }
@@ -600,7 +600,8 @@ export default function AppRouter() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
               <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un établissement</button>
               <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Rejoindre un établissement existant</button>
-              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '10px' }} onClick={gererDeconnexionGlobale}>⬅️ Se déconnecter / Retour</button>
+              {/* BOUTON DE RETOUR AJOUTÉ ICI */}
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '6px' }} onClick={gererDeconnexionGlobale}>⬅️ Retour au choix du profil / Déconnexion</button>
             </div>
           )}
 

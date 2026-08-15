@@ -4,6 +4,7 @@ import Application from '../Application.jsx';
 import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
+import SuperAdminDashboard from './SuperAdminDashboard';
 
 // =========================================================================
 // CORRECTIONS APPORTÉES À CE FICHIER (par rapport à votre version) :
@@ -84,6 +85,9 @@ export default function AppRouter() {
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
   const [etablissementActifId, setEtablissementActifId] = useState(null);
+  // [NOUVEAU] Permet au super admin de basculer vers son espace chef s'il
+  // en a un — voir chargerProfilEtDonnees et le rendu de SuperAdminDashboard.
+  const [aAffiliationChef, setAAffiliationChef] = useState(false);
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
@@ -224,6 +228,35 @@ export default function AppRouter() {
       if (profilError) console.warn("Avis chargement profil:", profilError.message);
       if (profil) setProfilUtilisateur(profil);
 
+      // [NOUVEAU] Le super admin n'est jamais scopé à un établissement — sa
+      // ligne vit dans une table dédiée (super_admins), vérifiée en priorité
+      // absolue avant toute logique d'affiliation. Un super admin peut aussi
+      // avoir par ailleurs une affiliation classique (ex. il est aussi chef
+      // d'un établissement) : le rôle super admin prime toujours dans ce cas.
+      const { data: superAdminRow } = await supabase
+        .from('super_admins')
+        .select('statut')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (superAdminRow?.statut === 'ACTIVE') {
+        // [NOUVEAU] Un super admin peut aussi être chef d'un établissement
+        // qu'il a lui-même créé (cumul de rôles) — on vérifie ici s'il a une
+        // affiliation CHEF active, pour lui permettre de basculer vers son
+        // espace chef depuis le menu super admin, plutôt que de la rendre
+        // définitivement inaccessible.
+        const { data: affiliationChefEventuelle } = await supabase
+          .from('affiliations_etablissement')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('role', 'CHEF')
+          .eq('statut', 'ACTIVE')
+          .maybeSingle();
+        setAAffiliationChef(!!affiliationChefEventuelle);
+        setUserRole('superadmin');
+        setEtablissementActifId(null);
+        return 'superadmin';
+      }
+
       const { data: affiliationsActives } = await supabase
         .from('affiliations_etablissement')
         .select('role, etablissement_id')
@@ -264,8 +297,10 @@ export default function AppRouter() {
           .gt('expire_at', new Date().toISOString());
         setInvitationsRecues(invitations || []);
       }
+      return roleDetecte;
     } catch (err) {
       console.error("Erreur lors du chargement du profil Supabase", err);
+      return '';
     }
   };
 
@@ -382,10 +417,15 @@ export default function AppRouter() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setSessionUser(session.user);
-        await chargerProfilEtDonnees(session.user.id);
+        const roleReellementDetecte = await chargerProfilEtDonnees(session.user.id);
         // Un chef nouvellement inscrit, sans affiliation CHEF encore active,
         // doit passer par la création/le rattachement d'établissement.
-        if (roleActuel === 'chef') setEtapeChoixEtablissement(true);
+        // [CORRIGÉ] On se base sur le rôle réellement détecté par
+        // chargerProfilEtDonnees, pas sur le bouton cliqué pour se
+        // connecter — un super admin (ou toute personne cliquant par
+        // erreur sur "Chef" alors que son vrai rôle est différent) ne doit
+        // jamais être redirigé vers cet écran.
+        if (roleReellementDetecte === 'chef') setEtapeChoixEtablissement(true);
       }
     } catch (err) {
       console.error("Erreur Supabase:", err);
@@ -776,6 +816,13 @@ export default function AppRouter() {
 
       {userRole === 'chef' && (
         <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
+      )}
+
+      {userRole === 'superadmin' && (
+        <SuperAdminDashboard
+          estAussiChef={aAffiliationChef}
+          onBasculerVersChef={() => setUserRole('chef')}
+        />
       )}
     </div>
   );

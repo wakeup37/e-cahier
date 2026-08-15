@@ -1088,6 +1088,10 @@ export default function ChefEtablissementDashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button onClick={() => setModeSetup('CREER')} className="bouton bouton-principal">🏫 Créer un nouvel établissement</button>
               <button onClick={() => setModeSetup('CONNECTER')} className="bouton bouton-secondaire">🔗 Se connecter à un établissement existant</button>
+              {/* [CORRIGÉ] Cet écran n'avait aucun moyen de sortir — un
+                  compte qui n'a pas encore d'établissement (ou qui s'est
+                  connecté par erreur ici) restait totalement bloqué. */}
+              <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-secondaire" style={{ marginTop: '10px', color: '#ef4444' }}>🚪 Se déconnecter</button>
             </div>
           )}
 

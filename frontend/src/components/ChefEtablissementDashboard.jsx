@@ -1091,7 +1091,7 @@ export default function ChefEtablissementDashboard() {
               {/* [CORRIGÉ] Cet écran n'avait aucun moyen de sortir — un
                   compte qui n'a pas encore d'établissement (ou qui s'est
                   connecté par erreur ici) restait totalement bloqué. */}
-              <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-secondaire" style={{ marginTop: '10px', color: '#ef4444' }}>🚪 Se déconnecter</button>
+              <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-secondaire" style={{ marginTop: '10px', color: '#ef4444' }}>⬅️ Retour</button>
             </div>
           )}
 

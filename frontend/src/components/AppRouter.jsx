@@ -6,73 +6,10 @@ import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 import SuperAdminDashboard from './SuperAdminDashboard';
 
-// =========================================================================
-// CORRECTIONS APPORTÉES À CE FICHIER (par rapport à votre version) :
-//
-// 1. RACINE DU BUG "User already registered" récurrent : l'insert dans
-//    utilisateurs_profils utilisait des colonnes qui n'existent pas dans
-//    notre schéma (role, genre, date_naissance, matiere, email) → l'insert
-//    échouait après que le compte auth.users était déjà créé → compte
-//    fantôme, blocage permanent sur cet email.
-//    ⚠️ ACTION MANUELLE REQUISE : les comptes créés avec l'ancienne version
-//    de ce fichier sont probablement des comptes fantômes (auth créé, profil
-//    jamais créé). Allez dans Supabase → Authentication → Users et supprimez
-//    les comptes de test avant de réessayer, sinon "User already registered"
-//    persistera sur ces emails précis.
-//
-// 2. Le rôle n'est plus stocké sur le profil (notre schéma n'a pas de
-//    colonne "role" sur utilisateurs_profils, par choix : voir architecture,
-//    §0.1). Le rôle choisi à l'inscription sert uniquement à orienter la
-//    navigation dans l'app ; le vrai rôle "qui compte" pour les permissions
-//    vit dans affiliations_etablissement.
-//
-// 3. Genre, date de naissance, matière : pas de colonnes dédiées dans notre
-//    schéma. Stockées dans preferences_json (utilisateurs_profils) pour ne
-//    pas perdre l'information saisie, à migrer vers de vraies colonnes plus
-//    tard si besoin.
-//
-// 4. Création d'établissement (chef) : génère maintenant un "code" (requis,
-//    unique dans notre schéma — l'ancien insert plantait silencieusement
-//    faute de ce champ), et surtout crée la ligne affiliations_etablissement
-//    (role CHEF, statut ACTIVE) qui manquait entièrement. Sans elle, le
-//    dashboard chef ne trouve jamais son établissement.
-//
-// 5. "Rejoindre un établissement" (chef) : l'ancien code affichait juste un
-//    message de succès sans rien faire. Un établissement n'a pas de mot de
-//    passe dans notre modèle (rejoindre = demande d'affiliation soumise à
-//    approbation, jamais un accès direct — voir architecture §9). Le champ
-//    "mot de passe de l'établissement" a été remplacé par "code
-//    établissement", et un vrai enregistrement dans demandes_affiliation
-//    est créé.
-//
-// 6. La "matière enseignée" à l'inscription était un champ de texte libre —
-//    chaque enseignant tapait ce qu'il voulait ("EPS", "Éducation physique
-//    et sportive", etc.), créant des doublons dans le catalogue de matières
-//    géré par les censeurs. Remplacé par une sélection à cases à cocher,
-//    multi-matières, tirée du catalogue existant — plus aucune saisie libre
-//    nulle part dans le parcours enseignant.
-//
-// 7. [NOUVEAU CORRECTIF] Le chargement du catalogue de matières à
-//    l'inscription enseignant ("Chargement du catalogue...") pouvait rester
-//    bloqué indéfiniment sans aucun message si la requête Supabase échouait
-//    (l'erreur n'était jamais vérifiée) — cas typique : à ce stade l'usager
-//    n'est pas encore connecté (le compte n'existe pas), la requête part
-//    donc avec le rôle "anon". Si la policy RLS SELECT sur la table
-//    "matieres" n'autorise que le rôle "authenticated", le chargement
-//    échoue silencieusement et aucune case à cocher n'apparaît jamais.
-//    Corrigé : l'erreur est maintenant vérifiée, loguée, et affichée dans
-//    la notification en haut de l'écran.
-//    ⚠️ ACTION MANUELLE À VÉRIFIER : la policy RLS SELECT sur "matieres"
-//    doit autoriser le rôle "anon" (c'est un catalogue public, consulté
-//    avant que le compte existe — aucun risque de sécurité à l'ouvrir en
-//    lecture à un visiteur non connecté).
-// =========================================================================
-
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Génère un code établissement lisible et raisonnablement unique
 const genererCodeEtablissement = (nom) => {
   const base = nom.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'ETAB';
@@ -85,8 +22,6 @@ export default function AppRouter() {
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
   const [etablissementActifId, setEtablissementActifId] = useState(null);
-  // [NOUVEAU] Permet au super admin de basculer vers son espace chef s'il
-  // en a un — voir chargerProfilEtDonnees et le rendu de SuperAdminDashboard.
   const [aAffiliationChef, setAAffiliationChef] = useState(false);
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
@@ -107,13 +42,8 @@ export default function AppRouter() {
   const [nomSaisi, setNomSaisi] = useState('');
   const [prenomsSaisi, setPrenomsSaisi] = useState('');
   const [dateNaissanceSaisie, setDateNaissanceSaisie] = useState('');
-  // Remplace l'ancien champ texte libre "matiereSaisie" : désormais une
-  // sélection multiple d'identifiants, tirée du vrai catalogue de matières.
   const [matiereIdsSaisies, setMatiereIdsSaisies] = useState([]);
   const [catalogueMatieresInscription, setCatalogueMatieresInscription] = useState([]);
-  // [NOUVEAU] Distingue "en cours de chargement" de "chargé mais vide" ou
-  // "en erreur" — avant, ces trois états étaient indiscernables à l'écran
-  // (toujours "Chargement du catalogue..." tant que la liste était vide).
   const [chargementCatalogueMatieres, setChargementCatalogueMatieres] = useState(false);
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
@@ -137,10 +67,6 @@ export default function AppRouter() {
     setDateNaissanceSaisie(valeur);
   };
 
-  // Charge le catalogue de matières dès qu'on arrive sur l'étape
-  // d'inscription enseignant — c'est le même catalogue que celui géré par
-  // les censeurs (table "matieres"), jamais une liste tapée à la main.
-  // [CORRIGÉ] vérifie désormais l'erreur au lieu de l'ignorer silencieusement.
   useEffect(() => {
     if (etapeAuth === 'enseignant' && modeAuth === 'inscription') {
       setChargementCatalogueMatieres(true);
@@ -158,14 +84,20 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
+  // CORRECTION CLÉ : Réinitialisation complète de tous les états lors de la déconnexion
   const gererDeconnexionGlobale = async () => {
-    try { await supabase.auth.signOut(); }
-    catch (err) { console.error("Erreur lors de la déconnexion Supabase", err); }
+    try { 
+      await supabase.auth.signOut(); 
+    } catch (err) { 
+      console.error("Erreur lors de la déconnexion Supabase", err); 
+    }
     setUserRole('');
     setSessionUser(null);
     setProfilUtilisateur(null);
     setEtapeAuth(null);
     setEtapeChoixEtablissement(false);
+    setEtablissementActifId(null);
+    setChoixModeEcole('choix');
     afficherNotification("🔓 Déconnexion réussie.");
   };
 
@@ -182,16 +114,13 @@ export default function AppRouter() {
       if (!session?.user) {
         setUserRole('');
         setProfilUtilisateur(null);
+        setEtapeChoixEtablissement(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- Présence en temps réel : signale "je suis en ligne" tant que cet
-  // onglet est ouvert et connecté à un établissement actif. Utilisé par le
-  // dashboard chef pour afficher "X personnes en ligne maintenant", séparé
-  // du total de membres affiliés (qui lui vient d'une requête classique).
   useEffect(() => {
     if (!sessionUser?.id || !etablissementActifId) return;
 
@@ -199,7 +128,7 @@ export default function AppRouter() {
       config: { presence: { key: sessionUser.id } },
     });
 
-    canal.on('presence', { event: 'sync' }, () => {}); // le dashboard chef écoute lui-même la synchro
+    canal.on('presence', { event: 'sync' }, () => {});
 
     canal.subscribe(async (statut) => {
       if (statut === 'SUBSCRIBED') {
@@ -214,9 +143,6 @@ export default function AppRouter() {
     return () => { supabase.removeChannel(canal); };
   }, [sessionUser?.id, etablissementActifId, userRole, profilUtilisateur?.prenom, profilUtilisateur?.nom]);
 
-  // --- Détermine le rôle réel de l'utilisateur à partir de ses affiliations
-  // (plus fiable que de stocker un "role" sur le profil, qui n'existe pas
-  // dans le schéma) : priorité CHEF > CENSEUR > ENSEIGNANT si plusieurs.
   const chargerProfilEtDonnees = async (userId) => {
     try {
       const { data: profil, error: profilError } = await supabase
@@ -228,11 +154,7 @@ export default function AppRouter() {
       if (profilError) console.warn("Avis chargement profil:", profilError.message);
       if (profil) setProfilUtilisateur(profil);
 
-      // [NOUVEAU] Le super admin n'est jamais scopé à un établissement — sa
-      // ligne vit dans une table dédiée (super_admins), vérifiée en priorité
-      // absolue avant toute logique d'affiliation. Un super admin peut aussi
-      // avoir par ailleurs une affiliation classique (ex. il est aussi chef
-      // d'un établissement) : le rôle super admin prime toujours dans ce cas.
+      // SÉCURITÉ : Vérification absolue du Super Admin en premier
       const { data: superAdminRow, error: erreurSuperAdmin } = await supabase
         .from('super_admins')
         .select('statut')
@@ -243,11 +165,6 @@ export default function AppRouter() {
         afficherNotification("⚠️ Vérification super admin échouée : " + erreurSuperAdmin.message);
       }
       if (superAdminRow?.statut === 'ACTIVE') {
-        // [NOUVEAU] Un super admin peut aussi être chef d'un établissement
-        // qu'il a lui-même créé (cumul de rôles) — on vérifie ici s'il a une
-        // affiliation CHEF active, pour lui permettre de basculer vers son
-        // espace chef depuis le menu super admin, plutôt que de la rendre
-        // définitivement inaccessible.
         const { data: affiliationChefEventuelle } = await supabase
           .from('affiliations_etablissement')
           .select('id')
@@ -258,6 +175,7 @@ export default function AppRouter() {
         setAAffiliationChef(!!affiliationChefEventuelle);
         setUserRole('superadmin');
         setEtablissementActifId(null);
+        setEtapeChoixEtablissement(false);
         return 'superadmin';
       }
 
@@ -274,10 +192,6 @@ export default function AppRouter() {
       else if (roles.includes('ENSEIGNANT')) roleDetecte = 'enseignant';
       else roleDetecte = profil?.preferences_json?.role_signup || '';
 
-      // Établissement retenu pour le suivi de présence en temps réel :
-      // celui de l'affiliation qui a déterminé le rôle affiché (pour un
-      // enseignant multi-établissements, c'est le premier trouvé — limite
-      // acceptée pour cette passe, à affiner si besoin réel plus tard).
       const roleVersRole = { chef: 'CHEF', censeur: 'CENSEUR', enseignant: 'ENSEIGNANT' };
       const affiliationRetenue = (affiliationsActives || []).find(a => a.role === roleVersRole[roleDetecte]);
       setEtablissementActifId(affiliationRetenue?.etablissement_id || null);
@@ -285,12 +199,12 @@ export default function AppRouter() {
       if (roleDetecte) {
         setUserRole(roleDetecte);
         if (roleDetecte === 'chef' && !roles.includes('CHEF')) {
-          // Rôle choisi à l'inscription mais pas encore d'établissement créé/rejoint
           setEtapeChoixEtablissement(true);
+        } else {
+          setEtapeChoixEtablissement(false);
         }
       }
 
-      // Invitations en attente adressées à cet email (chef ou censeur qui a invité)
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) {
         const { data: invitations } = await supabase
@@ -372,17 +286,10 @@ export default function AppRouter() {
             dateFormatee = `${datePartita[2]}-${datePartita[1]}-${datePartita[0]}`;
           }
 
-          // Matière(s) choisies à l'inscription : une note de préférence
-          // générale (pas encore rattachée à un établissement précis — ça,
-          // ça se fait à l'affiliation). On garde les noms exacts du
-          // catalogue, jamais une saisie libre.
           const nomsMatieresChoisies = catalogueMatieresInscription
             .filter(m => matiereIdsSaisies.includes(m.id))
             .map(m => m.nom);
 
-          // Colonnes réelles de utilisateurs_profils uniquement : user_id, prenom, nom,
-          // telephone, preferences_json. Le reste (genre, date de naissance, matière,
-          // rôle choisi à l'inscription) part dans preferences_json pour ne rien perdre.
           const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
             {
               user_id: data.user.id,
@@ -422,13 +329,6 @@ export default function AppRouter() {
       if (session) {
         setSessionUser(session.user);
         const roleReellementDetecte = await chargerProfilEtDonnees(session.user.id);
-        // Un chef nouvellement inscrit, sans affiliation CHEF encore active,
-        // doit passer par la création/le rattachement d'établissement.
-        // [CORRIGÉ] On se base sur le rôle réellement détecté par
-        // chargerProfilEtDonnees, pas sur le bouton cliqué pour se
-        // connecter — un super admin (ou toute personne cliquant par
-        // erreur sur "Chef" alors que son vrai rôle est différent) ne doit
-        // jamais être redirigé vers cet écran.
         if (roleReellementDetecte === 'chef') setEtapeChoixEtablissement(true);
       }
     } catch (err) {
@@ -452,12 +352,6 @@ export default function AppRouter() {
       }
       try {
         const code = genererCodeEtablissement(nomEcoleSaisi);
-        // On génère l'id nous-mêmes AVANT l'insertion : ça évite d'avoir à
-        // relire la ligne juste après (via .select()), ce qui échouait car
-        // la policy de LECTURE exige une affiliation active — qu'on n'a pas
-        // encore à cet instant précis (elle se crée juste après). Sans
-        // .select(), pas de "RETURNING" soumis à cette policy, donc pas de
-        // blocage.
         const nouvelEtablissementId = crypto.randomUUID();
 
         const { error: etabError } = await supabase
@@ -471,8 +365,6 @@ export default function AppRouter() {
           }]);
         if (etabError) throw etabError;
 
-        // La pièce manquante dans l'ancien fichier : sans cette ligne, le
-        // chef ne "possède" jamais réellement son établissement.
         const { error: affError } = await supabase.from('affiliations_etablissement').insert([{
           user_id: user.id,
           etablissement_id: nouvelEtablissementId,
@@ -482,14 +374,14 @@ export default function AppRouter() {
         }]);
         if (affError) {
           if (affError.code === '23505') {
-            afficherNotification("⚠️ Vous êtes déjà chef actif d'un autre établissement (un chef ne peut en diriger qu'un seul à la fois).");
+            afficherNotification("⚠️ Vous êtes déjà chef actif d'un autre établissement.");
           } else {
             afficherNotification("⚠️ Établissement créé, mais erreur d'affiliation : " + affError.message);
           }
           return;
         }
 
-        afficherNotification(`🏫 Établissement créé ! Code : ${code} (notez-le, il sert à inviter votre équipe)`);
+        afficherNotification(`🏫 Établissement créé ! Code : ${code}`);
         setEtapeChoixEtablissement(false);
         setUserRole('chef');
         await chargerProfilEtDonnees(user.id);
@@ -617,7 +509,7 @@ export default function AppRouter() {
                   {etapeAuth === 'enseignant' && (
                     <div>
                       <label style={styles.libelle}>Matière(s) enseignée(s)</label>
-                      <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si besoin. Vous préciserez les classes et l'école lors de votre demande d'affiliation.</p>
+                      <p style={{ fontSize: '11px', color: '#64748b', margin: '-2px 0 8px 0' }}>Cochez-en plusieurs si besoin.</p>
                       {chargementCatalogueMatieres ? (
                         <p style={{ fontSize: '12px', color: '#64748b' }}>Chargement du catalogue...</p>
                       ) : erreurCatalogueMatieres ? (
@@ -633,7 +525,7 @@ export default function AppRouter() {
                           </button>
                         </div>
                       ) : catalogueMatieresInscription.length === 0 ? (
-                        <p style={{ fontSize: '12px', color: '#991b1b' }}>Aucune matière disponible pour l'instant — contactez le support.</p>
+                        <p style={{ fontSize: '12px', color: '#991b1b' }}>Aucune matière disponible pour l'instant.</p>
                       ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', backgroundColor: '#f8fafc' }}>
                           {catalogueMatieresInscription.map(m => {
@@ -780,7 +672,6 @@ export default function AppRouter() {
     await supabase.from('invitations').update({ statut: 'ACCEPTEE' }).eq('id', invitation.id);
     setInvitationsRecues(prev => prev.filter(i => i.id !== invitation.id));
     afficherNotification(`✅ Vous avez rejoint ${invitation.etablissements?.nom} !`);
-    // On recharge pour que le rôle/l'affiliation fraîchement créée soit pris en compte partout
     setTimeout(() => window.location.reload(), 1200);
   };
 

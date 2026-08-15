@@ -278,7 +278,7 @@ export default function CenseurDashboard() {
     // reste invisible ici faute de policy SELECT pour le rôle CENSEUR).
     const { data: demandesEnseignants, error: erreurDemandesAffiliation } = await supabase
       .from('demandes_affiliation')
-      .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
+      .select('id, user_id, role_demande, created_at, utilisateurs_profils!user_id(nom, prenom)')
       .eq('etablissement_id', etablissementId)
       .eq('role_demande', 'ENSEIGNANT')
       .eq('statut', 'EN_ATTENTE')
@@ -311,7 +311,7 @@ export default function CenseurDashboard() {
 
     const { data: affiliationsEnseignants } = await supabase
       .from('affiliations_etablissement')
-      .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+      .select('id, user_id, utilisateurs_profils!user_id(nom, prenom, telephone)')
       .eq('etablissement_id', etablissementId)
       .eq('role', 'ENSEIGNANT')
       .eq('statut', 'ACTIVE');

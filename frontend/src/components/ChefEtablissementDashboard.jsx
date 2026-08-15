@@ -200,7 +200,7 @@ export default function ChefEtablissementDashboard() {
         // SELECT pour le rôle CHEF).
         const { data: demandes, error: erreurDemandesAffiliation } = await supabase
           .from('demandes_affiliation')
-          .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
+          .select('id, user_id, role_demande, created_at, utilisateurs_profils!user_id(nom, prenom)')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('statut', 'EN_ATTENTE')
           .order('created_at', { ascending: true });
@@ -212,7 +212,7 @@ export default function ChefEtablissementDashboard() {
 
         const { data: departs } = await supabase
           .from('demandes_depart')
-          .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils(nom, prenom)')
+          .select('id, user_id, role_demandeur, motif, created_at, utilisateurs_profils!user_id(nom, prenom)')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('statut', 'EN_ATTENTE')
           .order('created_at', { ascending: true });
@@ -243,7 +243,7 @@ export default function ChefEtablissementDashboard() {
 
         const { data: affiliationsEnseignants } = await supabase
           .from('affiliations_etablissement')
-          .select('id, user_id, utilisateurs_profils(nom, prenom, telephone)')
+          .select('id, user_id, utilisateurs_profils!user_id(nom, prenom, telephone)')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('role', 'ENSEIGNANT')
           .eq('statut', 'ACTIVE');

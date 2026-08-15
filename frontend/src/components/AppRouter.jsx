@@ -82,12 +82,15 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
+  // Déconnexion optimisée : vide complètement le stockage et force le rechargement
   const gererDeconnexionGlobale = async () => {
     try { 
       await supabase.auth.signOut(); 
     } catch (err) { 
       console.error("Erreur lors de la déconnexion Supabase", err); 
     }
+    localStorage.clear();
+    sessionStorage.clear();
     setUserRole('');
     setSessionUser(null);
     setProfilUtilisateur(null);
@@ -96,6 +99,9 @@ export default function AppRouter() {
     setEtablissementActifId(null);
     setChoixModeEcole('choix');
     afficherNotification("🔓 Déconnexion réussie.");
+    setTimeout(() => {
+      window.location.reload();
+    }, 400);
   };
 
   useEffect(() => {
@@ -142,6 +148,7 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
+      // Recherche unique et sécurisée par user_id avec upsert implicite de lecture
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -262,6 +269,7 @@ export default function AppRouter() {
             .filter(m => matiereIdsSaisies.includes(m.id))
             .map(m => m.nom);
 
+          // Utilisation stricte de l'upsert par user_id pour éviter les doublons de profil
           const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
             {
               user_id: data.user.id,
@@ -307,7 +315,7 @@ export default function AppRouter() {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support.";
+        messageErreur = "Cet e-mail est déjà enregistré.";
       }
       afficherNotification("❌ " + messageErreur);
     }

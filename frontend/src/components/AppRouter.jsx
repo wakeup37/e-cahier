@@ -4,7 +4,6 @@ import Application from '../Application.jsx';
 import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
-import SuperAdminDashboard from './SuperAdminDashboard';
 
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';
@@ -22,7 +21,6 @@ export default function AppRouter() {
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
   const [etablissementActifId, setEtablissementActifId] = useState(null);
-  const [aAffiliationChef, setAAffiliationChef] = useState(false);
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
@@ -144,32 +142,6 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      // PRIORITÉ ABSOLUE : Vérification Super Admin
-      const { data: superAdminRow, error: erreurSuperAdmin } = await supabase
-        .from('super_admins')
-        .select('statut')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (erreurSuperAdmin) {
-        console.error('Erreur vérification super_admins :', erreurSuperAdmin);
-      }
-
-      if (superAdminRow?.statut === 'ACTIVE') {
-        const { data: affiliationChefEventuelle } = await supabase
-          .from('affiliations_etablissement')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('role', 'CHEF')
-          .eq('statut', 'ACTIVE')
-          .maybeSingle();
-        setAAffiliationChef(!!affiliationChefEventuelle);
-        setUserRole('superadmin');
-        setEtablissementActifId(null);
-        setEtapeChoixEtablissement(false);
-        return 'superadmin';
-      }
-
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -335,7 +307,7 @@ export default function AppRouter() {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support pour nettoyer ce compte.";
+        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, contactez le support.";
       }
       afficherNotification("❌ " + messageErreur);
     }
@@ -600,7 +572,6 @@ export default function AppRouter() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
               <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un établissement</button>
               <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Rejoindre un établissement existant</button>
-              {/* BOUTON DE RETOUR AJOUTÉ ICI */}
               <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '6px' }} onClick={gererDeconnexionGlobale}>⬅️ Retour au choix du profil / Déconnexion</button>
             </div>
           )}
@@ -712,13 +683,6 @@ export default function AppRouter() {
 
       {userRole === 'chef' && (
         <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
-      )}
-
-      {userRole === 'superadmin' && (
-        <SuperAdminDashboard
-          estAussiChef={aAffiliationChef}
-          onBasculerVersChef={() => setUserRole('chef')}
-        />
       )}
     </div>
   );

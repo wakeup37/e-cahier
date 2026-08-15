@@ -2002,7 +2002,7 @@ export default function EnseignantDashboard() {
         {/* MODALE DE CONFIRMATION UNIVERSELLE POUR ACTIONS IRRÉVERSIBLES */}
         {modalConfirmation.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>{modalConfirmation.titre}</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
                 {modalConfirmation.message}
@@ -2020,7 +2020,7 @@ export default function EnseignantDashboard() {
 
         {modalDeconnexion && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Confirmation de Déconnexion</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
                 Êtes-vous sûr de vouloir vous déconnecter de votre session E-cahier ?
@@ -2039,7 +2039,7 @@ export default function EnseignantDashboard() {
 
         {modalDepart.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Demande de Départ / Mutation</h3>
                 <button onClick={() => setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2069,7 +2069,7 @@ export default function EnseignantDashboard() {
 
         {modalChoixEcoleProposerClasse && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px' }}>
+            <div style={{ ...styles.cardWide, width: '400px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🏫 Pour quel établissement ?</h3>
                 <button onClick={() => setModalChoixEcoleProposerClasse(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2169,7 +2169,7 @@ export default function EnseignantDashboard() {
 
         {champASupprimer && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '16px' }}>
-            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Supprimer ce champ ?</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
                 Êtes-vous sûr de vouloir retirer ce champ de la fiche ? Cette action est irréversible.
@@ -2189,7 +2189,7 @@ export default function EnseignantDashboard() {
 
         {modalSecurite && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2237,7 +2237,7 @@ export default function EnseignantDashboard() {
 
         {modalPromotion && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🎓 Évolution de Carrière : Devenir Censeur</h3>
                 <button onClick={() => setModalPromotion(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2353,7 +2353,7 @@ export default function EnseignantDashboard() {
 
         {modalDuplicationIntelligente.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚡ Duplication Intelligente</h3>
                 <button onClick={() => setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -2527,7 +2527,7 @@ export default function EnseignantDashboard() {
 
         {modalPaiement && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>💳 Abonnement Mode Sans Affiliation</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
                 Définissez vos propres classes en toute autonomie. Montant : <strong style={{ color: '#d97706' }}>1 900 FCFA / mois</strong>.
@@ -2605,7 +2605,7 @@ export default function EnseignantDashboard() {
 
         {champEnEditionPleinEcran && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '16px' }}>
-            <div style={{ ...styles.cardWide, width: '90vw', maxWidth: '650px', height: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRadius: '24px' }}>
+            <div style={{ ...styles.cardWide, width: '90vw', maxWidth: '650px', height: '80vh', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRadius: '24px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
                   <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✍️ Rédiger : {champEnEditionPleinEcran.label}</h3>
@@ -3163,7 +3163,7 @@ export default function EnseignantDashboard() {
 
         {modalReutiliserBiblio.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '480px' }}>
+            <div style={{ ...styles.cardWide, width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>♻️ Réutiliser « {modalReutiliserBiblio.item?.nom} »</h3>
                 <button onClick={() => setModalReutiliserBiblio({ ouvert: false, item: null, classeChoisie: '', cycleChoisi: '', leconChoisi: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -3237,7 +3237,7 @@ export default function EnseignantDashboard() {
 
         {modalReportSeance.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '440px' }}>
+            <div style={{ ...styles.cardWide, width: '440px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>↩️ Reporter « {modalReportSeance.seance?.titre} »</h3>
                 <button onClick={() => setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>

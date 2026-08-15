@@ -192,12 +192,22 @@ export default function ChefEtablissementDashboard() {
         setFormEcoleEdition(affiliation.etablissements);
         setInfosChef(prev => ({ ...prev, etablissement: affiliation.etablissements?.nom }));
 
-        const { data: demandes } = await supabase
+        // [CORRIGÉ] on récupère désormais l'erreur : si la lecture des
+        // demandes d'affiliation ne remonte rien, on veut savoir si c'est
+        // parce qu'il n'y en a réellement aucune, ou si une policy RLS
+        // bloque la lecture (cas typique : la demande a bien été créée par
+        // l'enseignant/le censeur, mais reste invisible ici faute de policy
+        // SELECT pour le rôle CHEF).
+        const { data: demandes, error: erreurDemandesAffiliation } = await supabase
           .from('demandes_affiliation')
           .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
           .eq('etablissement_id', affiliation.etablissement_id)
           .eq('statut', 'EN_ATTENTE')
           .order('created_at', { ascending: true });
+        if (erreurDemandesAffiliation) {
+          console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
+          showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
+        }
         setDemandesAffiliationRecues(demandes || []);
 
         const { data: departs } = await supabase
@@ -588,53 +598,53 @@ export default function ChefEtablissementDashboard() {
     );
   }
 
+  // [CORRIGÉ] Sur mobile, window.open('', '_blank') ouvrait un vrai nouvel
+  // onglet, obligeant à repasser par le sélecteur d'onglets du navigateur
+  // pour revenir à l'app. Remplacé par un iframe invisible qui imprime dans
+  // le même onglet — aucune navigation, aucune perte de focus.
   const telechargerDocumentPDF = (titre, contenuHTML) => {
-    const fenetreImpression = window.open('', '_blank');
-    if (!fenetreImpression) {
-      showToast("⚠️ Ouverture bloquée par votre navigateur. Autorisez les pop-ups.");
-      return;
-    }
-    fenetreImpression.document.write(`
+    const documentComplet = `
       <html>
         <head>
           <title>${titre}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; padding: 20px; margin: 0; }
-            .pdf-container { max-width: 800px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
-            .pdf-header { display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
-            .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
-            .btn-imprimer { background: #2563eb; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
-            .btn-retour { background: #ef4444; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 13px; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff; color: #1e293b; padding: 20px; margin: 0; }
+            .pdf-container { max-width: 800px; margin: 0 auto; }
+            .pdf-header { border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
             h1 { margin: 0; font-size: 20px; color: #0f172a; }
             p { margin: 8px 0; font-size: 14px; line-height: 1.6; }
-            @media print {
-              body { background: #fff; padding: 0; }
-              .pdf-container { box-shadow: none; padding: 0; }
-              .pdf-header .btn-group { display: none; }
-            }
           </style>
         </head>
         <body>
           <div class="pdf-container">
-            <div class="pdf-header">
-              <h1>${titre}</h1>
-              <div class="btn-group">
-                <button class="btn-imprimer" onclick="window.print()">🖨️ Imprimer / Sauvegarder</button>
-                <button class="btn-retour" onclick="window.close()">✕ Fermer & Retourner à l'app</button>
-              </div>
-            </div>
-            <div class="pdf-content">
-              ${contenuHTML}
-            </div>
+            <div class="pdf-header"><h1>${titre}</h1></div>
+            <div class="pdf-content">${contenuHTML}</div>
           </div>
-          <script>
-            window.onload = function() { setTimeout(function() { window.print(); }, 800); }
-          </script>
         </body>
       </html>
-    `);
-    fenetreImpression.document.close();
+    `;
+
+    const iframeImpression = document.createElement('iframe');
+    iframeImpression.style.position = 'fixed';
+    iframeImpression.style.right = '0';
+    iframeImpression.style.bottom = '0';
+    iframeImpression.style.width = '0';
+    iframeImpression.style.height = '0';
+    iframeImpression.style.border = '0';
+    document.body.appendChild(iframeImpression);
+
+    const docIframe = iframeImpression.contentWindow.document;
+    docIframe.open();
+    docIframe.write(documentComplet);
+    docIframe.close();
+
+    setTimeout(() => {
+      iframeImpression.contentWindow.focus();
+      iframeImpression.contentWindow.print();
+      setTimeout(() => { if (iframeImpression.parentNode) document.body.removeChild(iframeImpression); }, 1000);
+    }, 300);
+
     showToast(`📥 Document "${titre}" prêt !`);
   };
 
@@ -1122,7 +1132,7 @@ export default function ChefEtablissementDashboard() {
 
         {modalQuitterEcole && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>⚠️ Quitter l'établissement</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir rompre l'affiliation avec <strong>{ecoleConfig?.nom}</strong> ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
@@ -1135,7 +1145,7 @@ export default function ChefEtablissementDashboard() {
 
         {modalDeconnexion && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Déconnexion</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Êtes-vous sûr de vouloir vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
@@ -1148,7 +1158,7 @@ export default function ChefEtablissementDashboard() {
 
         {modalSecurite && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -1242,7 +1252,7 @@ export default function ChefEtablissementDashboard() {
 
         {modalConfirmationActionAnnee.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: modalConfirmationActionAnnee.actionType === 'fermer' ? '#991b1b' : '#166534', fontSize: '18px', fontWeight: '800' }}>
                 {modalConfirmationActionAnnee.actionType === 'fermer' ? '⚠️ Clôturer l’année scolaire ?' : '🟢 Ouvrir une nouvelle année ?'}
               </h3>
@@ -1272,7 +1282,7 @@ export default function ChefEtablissementDashboard() {
 
         {modalConfirmationGenerique.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '420px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b', fontSize: '18px', fontWeight: '800' }}>
                 {modalConfirmationGenerique.titre}
               </h3>

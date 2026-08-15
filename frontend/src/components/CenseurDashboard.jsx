@@ -271,13 +271,22 @@ export default function CenseurDashboard() {
       .maybeSingle();
     setAnneeActiveId(annee?.id || null);
 
-    const { data: demandesEnseignants } = await supabase
+    // [CORRIGÉ] on récupère désormais l'erreur : si la lecture des demandes
+    // d'affiliation ne remonte rien, on veut savoir si c'est parce qu'il
+    // n'y en a réellement aucune, ou si une policy RLS bloque la lecture
+    // (le cas typique : la demande a bien été créée par l'enseignant, mais
+    // reste invisible ici faute de policy SELECT pour le rôle CENSEUR).
+    const { data: demandesEnseignants, error: erreurDemandesAffiliation } = await supabase
       .from('demandes_affiliation')
       .select('id, user_id, role_demande, created_at, utilisateurs_profils(nom, prenom)')
       .eq('etablissement_id', etablissementId)
       .eq('role_demande', 'ENSEIGNANT')
       .eq('statut', 'EN_ATTENTE')
       .order('created_at', { ascending: true });
+    if (erreurDemandesAffiliation) {
+      console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
+      showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
+    }
     setDemandesAffiliationEnseignants(demandesEnseignants || []);
 
     const { data: demandeDepartExistante } = await supabase
@@ -794,7 +803,7 @@ export default function CenseurDashboard() {
     setClassesEtablissement(classesRafraichies || []);
 
     setSeriesChoisiesSecondCycle({});
-    showToast(`✅ ${noms.length} classe(s) créée(s) pour ${niveauSecondCycle} !`);
+    showToast(`✅ ${items.length} classe(s) créée(s) pour ${niveauSecondCycle} !`);
   };
 
   const ajouterLigneLotNiveaux = () => {
@@ -1799,7 +1808,7 @@ export default function CenseurDashboard() {
 
         {modalGererClasses.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>✏️ Classes de {modalGererClasses.prof?.nomComplet}</h3>
                 <button onClick={() => setModalGererClasses({ ouvert: false, prof: null, attributions: [] })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
@@ -1832,7 +1841,7 @@ export default function CenseurDashboard() {
                       {matieresProposees.length === 0 ? (
                         <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière au catalogue ne correspond à cette classe.</p>
                       ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
                           {matieresProposees.map(m => {
                             const estCochee = formAjoutAttribution.matiereIdsChoisies.includes(m.id);
                             return (
@@ -1862,7 +1871,7 @@ export default function CenseurDashboard() {
 
         {modalConfirmation.ouvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '380px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>{modalConfirmation.titre}</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
                 {modalConfirmation.message}
@@ -1880,7 +1889,7 @@ export default function CenseurDashboard() {
 
         {modalDepartCenseurOuvert && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '420px' }}>
+            <div style={{ ...styles.cardWide, width: '420px', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#991b1b', fontSize: '18px', fontWeight: '800' }}>Motif de départ</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '14px' }}>Ce motif sera visible par le chef d'établissement qui traitera votre demande.</p>
               <form onSubmit={soumettreDemandeDepartCenseur}>
@@ -1902,7 +1911,7 @@ export default function CenseurDashboard() {
 
         {modalDeconnexion && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center' }}>
+            <div style={{ ...styles.cardWide, width: '400px', textAlign: 'center', maxHeight: '85vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 10px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🚪 Déconnexion</h3>
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Voulez-vous vraiment vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
@@ -1915,7 +1924,7 @@ export default function CenseurDashboard() {
 
         {modalSecurite && (
           <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px' }}>
+            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
                 <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>

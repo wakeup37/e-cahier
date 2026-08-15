@@ -233,11 +233,15 @@ export default function AppRouter() {
       // absolue avant toute logique d'affiliation. Un super admin peut aussi
       // avoir par ailleurs une affiliation classique (ex. il est aussi chef
       // d'un établissement) : le rôle super admin prime toujours dans ce cas.
-      const { data: superAdminRow } = await supabase
+      const { data: superAdminRow, error: erreurSuperAdmin } = await supabase
         .from('super_admins')
         .select('statut')
         .eq('user_id', userId)
         .maybeSingle();
+      if (erreurSuperAdmin) {
+        console.error('Erreur vérification super_admins :', erreurSuperAdmin);
+        afficherNotification("⚠️ Vérification super admin échouée : " + erreurSuperAdmin.message);
+      }
       if (superAdminRow?.statut === 'ACTIVE') {
         // [NOUVEAU] Un super admin peut aussi être chef d'un établissement
         // qu'il a lui-même créé (cumul de rôles) — on vérifie ici s'il a une

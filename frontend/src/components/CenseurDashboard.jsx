@@ -652,7 +652,7 @@ export default function CenseurDashboard() {
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_ACCEPTEE',
       `✅ Votre demande pour rejoindre l'établissement en tant qu'enseignant a été acceptée !`,
-      'professeurs', affiliationCenseur.etablissement_id
+      'affiliation', affiliationCenseur.etablissement_id
     );
 
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
@@ -674,7 +674,7 @@ export default function CenseurDashboard() {
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_REFUSEE',
       `❌ Votre demande pour rejoindre l'établissement en tant qu'enseignant a été refusée.`,
-      'professeurs', affiliationCenseur.etablissement_id
+      'affiliation', affiliationCenseur.etablissement_id
     );
 
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
@@ -1034,7 +1034,7 @@ export default function CenseurDashboard() {
     await envoyerNotification(
       formAttribution.enseignantId, 'CLASSE_ATTRIBUEE',
       `🏫 On vous a attribué ${lignes.length} attribution(s) de classe/matière`,
-      'classes', affiliationCenseur.etablissement_id
+      'cycles', affiliationCenseur.etablissement_id
     );
 
     setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
@@ -1103,7 +1103,7 @@ export default function CenseurDashboard() {
       await envoyerNotification(
         modalGererClasses.prof.userId, 'CLASSE_ATTRIBUEE',
         `🏫 On vous a attribué la classe "${nouvelle.classes?.nom}" en ${nouvelle.matieres?.nom}`,
-        'classes', affiliationCenseur.etablissement_id
+        'cycles', affiliationCenseur.etablissement_id
       );
     }
 
@@ -1150,7 +1150,7 @@ export default function CenseurDashboard() {
     await envoyerNotification(
       demande.enseignant_id, 'PROPOSITION_ACCEPTEE',
       `✅ Votre proposition de classe "${nomFinal}" a été acceptée !`,
-      'classes', demande.etablissement_id
+      'cycles', demande.etablissement_id
     );
 
     setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -1173,7 +1173,7 @@ export default function CenseurDashboard() {
         await envoyerNotification(
           demande.enseignant_id, 'PROPOSITION_REFUSEE',
           `❌ Votre proposition de classe a été refusée.`,
-          'classes', demande.etablissement_id
+          'cycles', demande.etablissement_id
         );
 
         setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -1338,7 +1338,7 @@ export default function CenseurDashboard() {
         profId,
         'ALERT',
         "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission. Merci de régulariser la situation.",
-        '/enseignant',
+        'cycles',
         affiliationCenseur.etablissement_id
       );
       if (error) { echecs++; dernierMessageErreur = error.message; }
@@ -1561,7 +1561,7 @@ export default function CenseurDashboard() {
       await envoyerNotification(
         prog.enseignantUserId, 'FICHE_VISEE',
         `✅ Votre séance "${seanceAViser.titre}" (${classeKey}) a été visée par le censeur`,
-        'visa', affiliationCenseur.etablissement_id
+        'cycles', affiliationCenseur.etablissement_id
       );
     }
 
@@ -1580,7 +1580,7 @@ export default function CenseurDashboard() {
       enseignantUserId,
       'SUCCESS',
       `Votre fiche de leçon "${leconTitre}" a été visée par le censeur.`,
-      '/enseignant',
+      'cycles',
       affiliationCenseur.etablissement_id
     );
 
@@ -1604,7 +1604,7 @@ export default function CenseurDashboard() {
           enseignantUserId,
           'ALERT',
           `⚠️ Votre fiche de leçon "${leconTitre}" a été retournée par le censeur pour corrections.`,
-          '/enseignant',
+          'cycles',
           affiliationCenseur.etablissement_id
         );
 
@@ -3038,7 +3038,7 @@ export default function CenseurDashboard() {
                             prof.userId,
                             'ALERT',
                             "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission.",
-                            '/enseignant',
+                            'cycles',
                             affiliationCenseur.etablissement_id
                           );
                           if (error) {

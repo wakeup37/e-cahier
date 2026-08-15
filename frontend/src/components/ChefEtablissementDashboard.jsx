@@ -846,7 +846,7 @@ export default function ChefEtablissementDashboard() {
           await envoyerNotification(
             prof.userId, 'AFFILIATION_TERMINEE',
             `🚪 Vous avez été retiré(e) de l'établissement "${ecoleConfig?.nom}". Motif : ${motif.trim()}`,
-            'profil_ecole', affiliationChef.etablissement_id
+            'affiliation', affiliationChef.etablissement_id
           );
         }
 
@@ -968,7 +968,7 @@ export default function ChefEtablissementDashboard() {
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_ACCEPTEE',
       `✅ Votre demande pour rejoindre l'établissement en tant que ${demande.role_demande.toLowerCase()} a été acceptée !`,
-      'profil_ecole', affiliationChef.etablissement_id
+      demande.role_demande === 'ENSEIGNANT' ? 'affiliation' : 'profil_ecole', affiliationChef.etablissement_id
     );
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
@@ -990,7 +990,7 @@ export default function ChefEtablissementDashboard() {
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_REFUSEE',
       `❌ Votre demande pour rejoindre l'établissement a été refusée.`,
-      'profil_ecole', affiliationChef.etablissement_id
+      demande.role_demande === 'ENSEIGNANT' ? 'affiliation' : 'profil_ecole', affiliationChef.etablissement_id
     );
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
@@ -1007,7 +1007,7 @@ export default function ChefEtablissementDashboard() {
     await envoyerNotification(
       demande.user_id, 'DEPART_APPROUVE',
       `✅ Votre demande de départ de l'établissement a été approuvée.`,
-      'profil_ecole', affiliationChef.etablissement_id
+      demande.role_demandeur === 'ENSEIGNANT' ? 'affiliation' : 'profil_ecole', affiliationChef.etablissement_id
     );
 
     setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));
@@ -1030,7 +1030,7 @@ export default function ChefEtablissementDashboard() {
         await envoyerNotification(
           demande.user_id, 'DEPART_REFUSE',
           `❌ Votre demande de départ de l'établissement a été refusée.`,
-          'profil_ecole', affiliationChef.etablissement_id
+          demande.role_demandeur === 'ENSEIGNANT' ? 'affiliation' : 'profil_ecole', affiliationChef.etablissement_id
         );
 
         setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));

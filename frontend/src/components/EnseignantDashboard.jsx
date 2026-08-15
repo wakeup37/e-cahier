@@ -858,7 +858,7 @@ export default function EnseignantDashboard() {
     await notifierParRole(
       aff.etablissement_id, 'CHEF', 'DEMANDE_DEPART_RECUE',
       `🚪 Un enseignant a demandé à quitter l'établissement`,
-      'professeurs'
+      'censeurs'
     );
 
     const nouvelleDemande = {

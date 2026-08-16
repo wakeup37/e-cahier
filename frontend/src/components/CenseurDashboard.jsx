@@ -1365,7 +1365,7 @@ export default function CenseurDashboard() {
 
   // =========================================================================
   // PROGRAMME & PROGRESSION — vue lecture seule du programme d'un enseignant,
-  // avec statistiques de progression, et génération de rapports ponctuels.
+  // avec statistiques de progression.
   // =========================================================================
   const calculerProgrammeEtStatsEnseignant = async (enseignantUserId) => {
     if (!enseignantUserId || !anneeActiveId) return { groupe: {}, totaux: { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 } };

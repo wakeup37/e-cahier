@@ -83,19 +83,29 @@ export default function ChefEtablissementDashboard() {
     });
   };
 
-  // Envoie une notification à TOUS les membres actifs de l'établissement,
-  // SAUF l'auteur de l'action lui-même — utilisé pour l'ouverture/fermeture
-  // d'année (celui qui déclenche l'action ne se notifie pas lui-même).
+  // [OPTIMISÉ] Envoie une notification à TOUS les membres actifs de
+  // l'établissement, SAUF l'auteur de l'action lui-même — utilisé pour
+  // l'ouverture/fermeture d'année. Avant : une insertion Supabase par membre,
+  // en série (300 membres = 300 allers-retours réseau à la queue leu leu).
+  // Maintenant : toutes les lignes construites d'un coup, puis une seule
+  // requête .insert() avec le tableau complet — Postgres les insère en une
+  // seule opération, quel que soit le nombre de membres.
   const envoyerNotificationATousLesMembres = async (etablissementId, type, message, lienCible) => {
     const { data: membres } = await supabase
       .from('affiliations_etablissement')
       .select('user_id')
       .eq('etablissement_id', etablissementId)
       .eq('statut', 'ACTIVE');
-    for (const m of (membres || [])) {
-      if (m.user_id === userId) continue;
-      await envoyerNotification(m.user_id, type, message, lienCible, etablissementId);
-    }
+    const lignes = (membres || [])
+      .filter(m => m.user_id !== userId)
+      .map(m => ({
+        user_id: m.user_id,
+        type,
+        payload_json: { message, lien_cible: lienCible, etablissement_id: etablissementId },
+        canaux: ['in_app'],
+      }));
+    if (lignes.length === 0) return;
+    await supabase.from('notifications').insert(lignes);
   };
 
   useEffect(() => {
@@ -166,11 +176,15 @@ export default function ChefEtablissementDashboard() {
       }
       setUserId(user.id);
 
-      const { data: profil, error: erreurProfil } = await supabase
-        .from('utilisateurs_profils')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // [OPTIMISÉ] Ces deux requêtes ne dépendent que de l'utilisateur
+      // connecté — aucune raison de s'attendre l'une l'autre.
+      const [
+        { data: profil, error: erreurProfil },
+        { data: affiliation, error: erreurAffiliation },
+      ] = await Promise.all([
+        supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
+        supabase.from('affiliations_etablissement').select('*, etablissements(*)').eq('user_id', user.id).eq('role', 'CHEF').eq('statut', 'ACTIVE').maybeSingle(),
+      ]);
 
       if (erreurProfil) {
         showToast("⚠️ Impossible de charger le profil : " + erreurProfil.message);
@@ -178,14 +192,6 @@ export default function ChefEtablissementDashboard() {
         setInfosChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, emailSecurite: user.email, telephone: profil.telephone || '' }));
         setFormProfilChef(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, telephone: profil.telephone || '' }));
       }
-
-      const { data: affiliation, error: erreurAffiliation } = await supabase
-        .from('affiliations_etablissement')
-        .select('*, etablissements(*)')
-        .eq('user_id', user.id)
-        .eq('role', 'CHEF')
-        .eq('statut', 'ACTIVE')
-        .maybeSingle();
 
       if (erreurAffiliation) {
         showToast("⚠️ Erreur de chargement de l'établissement : " + erreurAffiliation.message);
@@ -220,20 +226,65 @@ export default function ChefEtablissementDashboard() {
           return lignes.map(l => ({ ...l, utilisateurs_profils: profilParId[l[colonneUserId]] || null }));
         };
 
-        const { data: demandesBrutes, error: erreurDemandesAffiliation } = await supabase
-          .from('demandes_affiliation')
-          .select('id, user_id, role_demande, created_at')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('statut', 'EN_ATTENTE')
-          .order('created_at', { ascending: true });
+        const etablissementId = affiliation.etablissement_id;
+
+        // [OPTIMISÉ] Toutes ces requêtes ne dépendent que de etablissementId
+        // (ou de user.id) — aucune n'a besoin de l'année scolaire active ou
+        // des résultats d'une autre requête de ce groupe. Elles partent
+        // donc toutes en même temps plutôt qu'à la queue leu leu.
+        const [
+          { data: demandesBrutes, error: erreurDemandesAffiliation },
+          { data: departsBrutes },
+          { data: invitationsEnvoyeesData },
+          { data: anneeActiveData },
+          { data: affiliationsEnseignantsBrutes },
+          { data: personnelData },
+          { data: censeursActifsData },
+          { data: documentsData },
+          { data: fichesData },
+          { data: notifs },
+        ] = await Promise.all([
+          supabase.from('demandes_affiliation').select('id, user_id, role_demande, created_at').eq('etablissement_id', etablissementId).eq('statut', 'EN_ATTENTE').order('created_at', { ascending: true }),
+          supabase.from('demandes_depart').select('id, user_id, role_demandeur, motif, created_at').eq('etablissement_id', etablissementId).eq('statut', 'EN_ATTENTE').order('created_at', { ascending: true }),
+          supabase.from('invitations').select('id, email, role_propose, statut, created_at').eq('etablissement_id', etablissementId).order('created_at', { ascending: false }),
+          supabase.from('annees_scolaires').select('*').eq('etablissement_id', etablissementId).eq('est_active', true).maybeSingle(),
+          supabase.from('affiliations_etablissement').select('id, user_id').eq('etablissement_id', etablissementId).eq('role', 'ENSEIGNANT').eq('statut', 'ACTIVE'),
+          supabase.from('personnel').select('*').eq('etablissement_id', etablissementId),
+          supabase.from('affiliations_etablissement').select('id').eq('etablissement_id', etablissementId).eq('role', 'CENSEUR').eq('statut', 'ACTIVE'),
+          supabase.from('documents_etablissement').select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))').eq('etablissement_id', etablissementId).is('deleted_at', null).order('created_at', { ascending: false }),
+          supabase.from('bibliotheque_etablissement').select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)').eq('etablissement_id', etablissementId).order('created_at', { ascending: false }),
+          supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
+        ]);
+
         if (erreurDemandesAffiliation) {
           console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
           showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
         }
+        setAnneeActive(anneeActiveData || null);
+
+        // [OPTIMISÉ] Ces requêtes dépendent des résultats de la vague
+        // précédente (ids de demandeurs/enseignants, annee.id) — deuxième
+        // vague obligée d'attendre la première, mais toujours en parallèle
+        // entre elles.
+        const [
+          demandesAvecProfils,
+          departsAvecProfils,
+          { data: classesData },
+          { data: attributionsData },
+          { data: profilsEnseignants },
+        ] = await Promise.all([
+          rattacherProfils(demandesBrutes),
+          rattacherProfils(departsBrutes),
+          supabase.from('classes').select('id').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000').is('deleted_at', null),
+          supabase.from('attributions_classes').select('enseignant_id, matieres(nom), classes(nom)').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000'),
+          (affiliationsEnseignantsBrutes || []).length > 0
+            ? supabase.from('utilisateurs_profils').select('user_id, nom, prenom, telephone').in('user_id', [...new Set((affiliationsEnseignantsBrutes || []).map(a => a.user_id))])
+            : Promise.resolve({ data: [] }),
+        ]);
+
         // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent
         // déjà en base (créés avant le correctif anti-doublon), on n'affiche
         // qu'une seule fois chaque personne pour un même rôle demandé.
-        const demandesAvecProfils = await rattacherProfils(demandesBrutes);
         const demandesDedupliquees = [];
         const clesDejaVues = new Set();
         demandesAvecProfils.forEach(d => {
@@ -243,62 +294,13 @@ export default function ChefEtablissementDashboard() {
           demandesDedupliquees.push(d);
         });
         setDemandesAffiliationRecues(demandesDedupliquees);
-
-        const { data: departsBrutes } = await supabase
-          .from('demandes_depart')
-          .select('id, user_id, role_demandeur, motif, created_at')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('statut', 'EN_ATTENTE')
-          .order('created_at', { ascending: true });
-        setDemandesDepartRecues(await rattacherProfils(departsBrutes));
-
-        const { data: invitationsEnvoyeesData } = await supabase
-          .from('invitations')
-          .select('id, email, role_propose, statut, created_at')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .order('created_at', { ascending: false });
+        setDemandesDepartRecues(departsAvecProfils);
         setInvitationsEnvoyees(invitationsEnvoyeesData || []);
-
-        const { data: anneeActiveData } = await supabase
-          .from('annees_scolaires')
-          .select('*')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('est_active', true)
-          .maybeSingle();
-        setAnneeActive(anneeActiveData || null);
-
-        const { data: classesData } = await supabase
-          .from('classes')
-          .select('id')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000')
-          .is('deleted_at', null);
         setNombreClassesReel((classesData || []).length);
 
-        const { data: affiliationsEnseignantsBrutes } = await supabase
-          .from('affiliations_etablissement')
-          .select('id, user_id')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('role', 'ENSEIGNANT')
-          .eq('statut', 'ACTIVE');
-
-        let affiliationsEnseignants = affiliationsEnseignantsBrutes || [];
-        if (affiliationsEnseignants.length > 0) {
-          const idsEnseignants = [...new Set(affiliationsEnseignants.map(a => a.user_id))];
-          const { data: profilsEnseignants } = await supabase
-            .from('utilisateurs_profils')
-            .select('user_id, nom, prenom, telephone')
-            .in('user_id', idsEnseignants);
-          const profilEnseignantParId = {};
-          (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
-          affiliationsEnseignants = affiliationsEnseignants.map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
-        }
-
-        const { data: attributionsData } = await supabase
-          .from('attributions_classes')
-          .select('enseignant_id, matieres(nom), classes(nom)')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('annee_scolaire_id', anneeActiveData?.id || '00000000-0000-0000-0000-000000000000');
+        const profilEnseignantParId = {};
+        (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
+        const affiliationsEnseignants = (affiliationsEnseignantsBrutes || []).map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
 
         const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
           const attrsDeCetEnseignant = (attributionsData || []).filter(at => at.enseignant_id === a.user_id);
@@ -313,29 +315,13 @@ export default function ChefEtablissementDashboard() {
         });
         setListeProfesseursEtablissementBrute(profsAvecClasses);
 
-        const { data: personnelData } = await supabase
-          .from('personnel')
-          .select('*')
-          .eq('etablissement_id', affiliation.etablissement_id);
         setPersonnelAdministratifManuel((personnelData || []).map(p => ({
           id: p.id, nomComplet: `${p.prenom} ${p.nom}`.trim(), role: p.fonction,
           matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
         })));
 
-        const { data: censeursActifsData } = await supabase
-          .from('affiliations_etablissement')
-          .select('id')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .eq('role', 'CENSEUR')
-          .eq('statut', 'ACTIVE');
         setNombreCenseursActifs((censeursActifsData || []).length);
 
-        const { data: documentsData } = await supabase
-          .from('documents_etablissement')
-          .select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
         setDocumentsEtablissement((documentsData || []).map(d => ({
           ...d,
           cle_stockage: d.versions_document?.fichiers_metadonnees?.cle_stockage,
@@ -345,11 +331,6 @@ export default function ChefEtablissementDashboard() {
         // Bibliothèque pédagogique de l'établissement — même source que
         // l'onglet Archives Pédagogiques du censeur (bibliotheque_etablissement),
         // remplace l'ancienne lecture localStorage qui ne recevait plus rien.
-        const { data: fichesData } = await supabase
-          .from('bibliotheque_etablissement')
-          .select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)')
-          .eq('etablissement_id', affiliation.etablissement_id)
-          .order('created_at', { ascending: false });
         setFichesPedagogiquesEcole((fichesData || []).map(f => ({
           id: f.id,
           enseignant: `${f.utilisateurs_profils?.prenom || ''} ${f.utilisateurs_profils?.nom || ''}`.trim(),
@@ -362,12 +343,6 @@ export default function ChefEtablissementDashboard() {
         })));
 
         // Notifications non lues (cloche)
-        const { data: notifs } = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', user.id)
-          .is('lue_at', null)
-          .order('created_at', { ascending: false });
         setNotificationsChef((notifs || []).map(n => ({
           id: n.id,
           texte: n.payload_json?.message || '',
@@ -1091,7 +1066,11 @@ export default function ChefEtablissementDashboard() {
               {/* [CORRIGÉ] Cet écran n'avait aucun moyen de sortir — un
                   compte qui n'a pas encore d'établissement (ou qui s'est
                   connecté par erreur ici) restait totalement bloqué. */}
-              <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-secondaire" style={{ marginTop: '10px', color: '#ef4444' }}>⬅️ Retour</button>
+              <button onClick={async () => {
+                try { await supabase.auth.signOut(); } catch (err) { console.warn('signOut a échoué, nettoyage forcé :', err); }
+                localStorage.clear();
+                window.location.reload();
+              }} className="bouton bouton-secondaire" style={{ marginTop: '10px', color: '#ef4444' }}>⬅️ Retour</button>
             </div>
           )}
 

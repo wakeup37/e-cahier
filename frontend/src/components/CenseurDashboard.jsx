@@ -1444,38 +1444,92 @@ export default function CenseurDashboard() {
     setChargementProgression(false);
   };
 
-  // [NOUVEAU] Calcule les chiffres globaux (tous enseignants de l'établissement
-  // confondus) pour la vue d'ensemble en haut de l'onglet Programme & Progression,
-  // ainsi que le détail par classe × enseignant utilisé quand on déplie
-  // "Progression globale".
+  // [OPTIMISÉ] Version en requêtes groupées : au lieu d'appeler
+  // calculerProgrammeEtStatsEnseignant() une fois par enseignant (donc
+  // N enseignants × 4 requêtes séquentielles = très lent avec un gros
+  // établissement), on récupère TOUT en 4 requêtes au total quel que soit
+  // le nombre d'enseignants (programmes → cycles → leçons → séances, chacune
+  // avec un .in(...) sur la liste complète des ids obtenus à l'étape d'avant),
+  // puis on reconstruit les agrégats côté JavaScript.
   const chargerVueEnsembleProgression = async () => {
     if (!anneeActiveId || listeProfesseursEtablissement.length === 0) {
       setVueEnsembleProgression({ nbSeances: 0, nbVisees: 0, nbEnRetard: 0, progressionGlobale: 0, nbClassesCompletes: 0, nbClassesSuivies: 0, parClasseEnseignant: [] });
       return;
     }
     setChargementVueEnsemble(true);
-    const totalEcole = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
-    const parClasseEnseignant = [];
 
-    for (const prof of listeProfesseursEtablissement) {
-      const { groupe } = await calculerProgrammeEtStatsEnseignant(prof.userId);
-      Object.entries(groupe).forEach(([classeNom, prog]) => {
-        const cyclesDeLaClasse = prog.cycles || [];
-        const nbSeances = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbSeances, 0);
-        const nbVisees = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbVisees, 0);
-        const nbEnRetard = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbEnRetard, 0);
-        totalEcole.nbSeances += nbSeances;
-        totalEcole.nbVisees += nbVisees;
-        totalEcole.nbEnRetard += nbEnRetard;
-        if (nbSeances > 0) {
-          parClasseEnseignant.push({
-            classe: classeNom, enseignant: prof.nomComplet, matiere: prof.matiere,
-            nbSeances, nbVisees, nbEnRetard,
-            progression: Math.round((nbVisees / nbSeances) * 100),
-          });
-        }
-      });
+    const idsEnseignants = listeProfesseursEtablissement.map(p => p.userId);
+    const profParId = {};
+    listeProfesseursEtablissement.forEach(p => { profParId[p.userId] = p; });
+
+    const { data: programmesData } = await supabase
+      .from('programmes_annuels').select('id, proprietaire_user_id')
+      .in('proprietaire_user_id', idsEnseignants)
+      .eq('annee_scolaire_id', anneeActiveId);
+
+    const proprietaireParProgramme = {};
+    (programmesData || []).forEach(p => { proprietaireParProgramme[p.id] = p.proprietaire_user_id; });
+    const idsProgrammes = (programmesData || []).map(p => p.id);
+
+    if (idsProgrammes.length === 0) {
+      setVueEnsembleProgression({ nbSeances: 0, nbVisees: 0, nbEnRetard: 0, progressionGlobale: 0, nbClassesCompletes: 0, nbClassesSuivies: 0, parClasseEnseignant: [] });
+      setChargementVueEnsemble(false);
+      return;
     }
+
+    const { data: cyclesData } = await supabase
+      .from('cycles')
+      .select('id, classe_nom, programme_annuel_id')
+      .in('programme_annuel_id', idsProgrammes);
+    const idsCycles = (cyclesData || []).map(c => c.id);
+
+    const { data: leconsData } = idsCycles.length > 0
+      ? await supabase.from('lecons').select('id, cycle_id').in('cycle_id', idsCycles)
+      : { data: [] };
+    const idsLecons = (leconsData || []).map(l => l.id);
+
+    const { data: seancesData } = idsLecons.length > 0
+      ? await supabase.from('seances').select('statut, date_prevue, lecon_id').in('lecon_id', idsLecons)
+      : { data: [] };
+
+    const aujourdHui = new Date().toISOString().slice(0, 10);
+    const cycleParId = {};
+    (cyclesData || []).forEach(c => { cycleParId[c.id] = c; });
+    const leconParId = {};
+    (leconsData || []).forEach(l => { leconParId[l.id] = l; });
+
+    // Regroupe les séances par (enseignant, classe) directement, sans repasser
+    // par la structure imbriquée cycles/leçons — on n'a besoin que des totaux ici.
+    const statsParEnseignantClasse = {};
+    (seancesData || []).forEach(sc => {
+      const lecon = leconParId[sc.lecon_id];
+      const cycle = lecon ? cycleParId[lecon.cycle_id] : null;
+      if (!cycle) return;
+      const enseignantId = proprietaireParProgramme[cycle.programme_annuel_id];
+      if (!enseignantId) return;
+      const classeNom = cycle.classe_nom || 'Sans classe';
+      const cle = `${enseignantId}||${classeNom}`;
+      if (!statsParEnseignantClasse[cle]) statsParEnseignantClasse[cle] = { enseignantId, classeNom, nbSeances: 0, nbVisees: 0, nbEnRetard: 0 };
+      const s = statsParEnseignantClasse[cle];
+      s.nbSeances += 1;
+      if (sc.statut === 'VISEE') s.nbVisees += 1;
+      if (['BROUILLON', 'PROGRAMMEE'].includes(sc.statut) && sc.date_prevue && sc.date_prevue <= aujourdHui) s.nbEnRetard += 1;
+    });
+
+    const totalEcole = { nbSeances: 0, nbVisees: 0, nbEnRetard: 0 };
+    const parClasseEnseignant = [];
+    Object.values(statsParEnseignantClasse).forEach(s => {
+      const prof = profParId[s.enseignantId];
+      if (!prof || s.nbSeances === 0) return;
+      totalEcole.nbSeances += s.nbSeances;
+      totalEcole.nbVisees += s.nbVisees;
+      totalEcole.nbEnRetard += s.nbEnRetard;
+      parClasseEnseignant.push({
+        classe: s.classeNom, enseignant: prof.nomComplet, matiere: prof.matiere,
+        nbSeances: s.nbSeances, nbVisees: s.nbVisees, nbEnRetard: s.nbEnRetard,
+        progression: Math.round((s.nbVisees / s.nbSeances) * 100),
+      });
+    });
 
     const nbClassesCompletes = parClasseEnseignant.filter(c => c.progression === 100).length;
 

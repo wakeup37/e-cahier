@@ -265,19 +265,12 @@ export default function CenseurDashboard() {
     }
     setUserId(user.id);
 
-    const { data: profil } = await supabase
-      .from('utilisateurs_profils')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    const { data: affiliation, error: erreurAffiliation } = await supabase
-      .from('affiliations_etablissement')
-      .select('*, etablissements(*)')
-      .eq('user_id', user.id)
-      .eq('role', 'CENSEUR')
-      .eq('statut', 'ACTIVE')
-      .maybeSingle();
+    // [OPTIMISÉ] Ces deux requêtes ne dépendent que de l'utilisateur connecté
+    // — aucune raison qu'elles s'attendent l'une l'autre.
+    const [{ data: profil }, { data: affiliation, error: erreurAffiliation }] = await Promise.all([
+      supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
+      supabase.from('affiliations_etablissement').select('*, etablissements(*)').eq('user_id', user.id).eq('role', 'CENSEUR').eq('statut', 'ACTIVE').maybeSingle(),
+    ]);
 
     if (erreurAffiliation || !affiliation) {
       setChargementInitial(false);
@@ -299,46 +292,94 @@ export default function CenseurDashboard() {
       setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '', telephone: profil.telephone || '' }));
     }
 
-    const { data: annee } = await supabase
-      .from('annees_scolaires')
-      .select('*')
-      .eq('etablissement_id', etablissementId)
-      .eq('est_active', true)
-      .maybeSingle();
+    // [OPTIMISÉ] Toutes ces requêtes ne dépendent que de etablissementId (ou
+    // de user.id) — aucune n'a besoin de l'année scolaire active, donc elles
+    // partent toutes en même temps plutôt qu'à la queue leu leu. C'est le
+    // gros du gain : ~11 allers-retours réseau qui se chevauchent au lieu de
+    // s'additionner.
+    const [
+      { data: annee },
+      { data: demandesEnseignantsBrutes, error: erreurDemandesAffiliation },
+      { data: demandeDepartExistante },
+      { data: affiliationsEnseignantsBrutes },
+      { data: matieresEnseignants },
+      { data: matieresData },
+      { data: documentsData },
+      { data: personnel },
+      { data: demande },
+      { data: seances, error: erreurSeances },
+      { data: archive },
+      { data: notifs },
+    ] = await Promise.all([
+      supabase.from('annees_scolaires').select('*').eq('etablissement_id', etablissementId).eq('est_active', true).maybeSingle(),
+      // [CORRIGÉ] Jointure automatique remplacée par une requête séparée
+      // (voir plus bas) pour éviter l'ambiguïté PostgREST demandes_affiliation/utilisateurs_profils.
+      supabase.from('demandes_affiliation').select('id, user_id, role_demande, created_at').eq('etablissement_id', etablissementId).eq('role_demande', 'ENSEIGNANT').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: true }),
+      supabase.from('demandes_depart').select('id').eq('user_id', user.id).eq('statut', 'EN_ATTENTE').maybeSingle(),
+      supabase.from('affiliations_etablissement').select('id, user_id').eq('etablissement_id', etablissementId).eq('role', 'ENSEIGNANT').eq('statut', 'ACTIVE'),
+      supabase.from('matieres_enseignant').select('user_id, matiere_id, matieres(nom, niveaux_applicables, series_applicables)').eq('etablissement_id', etablissementId),
+      supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
+      supabase.from('documents_etablissement').select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))').eq('etablissement_id', etablissementId).is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('personnel').select('*').eq('etablissement_id', etablissementId),
+      supabase.from('demandes_changement_role').select('*').eq('user_id', user.id).eq('etablissement_id', etablissementId).eq('role_demande', 'CHEF').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('seances').select(`
+        id, date_prevue, statut, contenu_json,
+        statut_visa, envoyee_at, visee_at, observation_visa,
+        classes ( nom ),
+        lecons (
+          id, titre,
+          cycles (
+            id, titre, competence,
+            programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
+              utilisateurs_profils:proprietaire_user_id (nom, prenom) )
+          )
+        )
+      `).in('statut', ['ENVOYEE', 'RECUE']),
+      supabase.from('bibliotheque_etablissement').select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)').eq('etablissement_id', etablissementId).order('created_at', { ascending: false }),
+      supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
+    ]);
+
     setAnneeActiveId(annee?.id || null);
 
-    // [CORRIGÉ] on récupère désormais l'erreur : si la lecture des demandes
-    // d'affiliation ne remonte rien, on veut savoir si c'est parce qu'il
-    // n'y en a réellement aucune, ou si une policy RLS bloque la lecture
-    // (le cas typique : la demande a bien été créée par l'enseignant, mais
-    // reste invisible ici faute de policy SELECT pour le rôle CENSEUR).
-    // [CORRIGÉ] La jointure automatique "utilisateurs_profils!user_id(...)"
-    // continuait à échouer avec la même erreur d'ambiguïté malgré le hint —
-    // au lieu de continuer à chercher la bonne syntaxe PostgREST, on
-    // récupère les profils séparément et on les rattache nous-mêmes. Ça
-    // élimine complètement le risque d'ambiguïté de relation.
-    const { data: demandesEnseignantsBrutes, error: erreurDemandesAffiliation } = await supabase
-      .from('demandes_affiliation')
-      .select('id, user_id, role_demande, created_at')
-      .eq('etablissement_id', etablissementId)
-      .eq('role_demande', 'ENSEIGNANT')
-      .eq('statut', 'EN_ATTENTE')
-      .order('created_at', { ascending: true });
     if (erreurDemandesAffiliation) {
       console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
       showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
     }
-    let demandesEnseignants = demandesEnseignantsBrutes || [];
-    if (demandesEnseignants.length > 0) {
-      const idsDemandeurs = [...new Set(demandesEnseignants.map(d => d.user_id))];
-      const { data: profilsDemandeurs } = await supabase
-        .from('utilisateurs_profils')
-        .select('user_id, nom, prenom')
-        .in('user_id', idsDemandeurs);
-      const profilParId = {};
-      (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
-      demandesEnseignants = demandesEnseignants.map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
-    }
+
+    // [OPTIMISÉ] Ces deux relectures de profils, et les deux requêtes qui
+    // dépendent de l'année scolaire active, ne dépendent QUE des résultats
+    // de la vague précédente — elles aussi partent en parallèle entre elles,
+    // dans une deuxième vague (obligée d'attendre la première pour connaître
+    // annee.id et les listes d'ids demandeurs/enseignants).
+    const idsDemandeurs = [...new Set((demandesEnseignantsBrutes || []).map(d => d.user_id))];
+    const idsEnseignants = [...new Set((affiliationsEnseignantsBrutes || []).map(a => a.user_id))];
+
+    const [
+      { data: profilsDemandeurs },
+      { data: profilsEnseignants },
+      { data: attributions },
+      { data: classesData },
+      { data: demandesAttrib },
+    ] = await Promise.all([
+      idsDemandeurs.length > 0
+        ? supabase.from('utilisateurs_profils').select('user_id, nom, prenom').in('user_id', idsDemandeurs)
+        : Promise.resolve({ data: [] }),
+      idsEnseignants.length > 0
+        ? supabase.from('utilisateurs_profils').select('user_id, nom, prenom, telephone').in('user_id', idsEnseignants)
+        : Promise.resolve({ data: [] }),
+      supabase.from('attributions_classes').select('enseignant_id, matiere_id, matieres(nom), classes(nom)').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', annee?.id || '00000000-0000-0000-0000-000000000000'),
+      annee?.id
+        ? supabase.from('classes').select('id, nom, niveau, serie').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', annee.id).is('deleted_at', null).order('nom', { ascending: true })
+        : Promise.resolve({ data: [] }),
+      annee?.id
+        ? supabase.from('demandes_attributions_classes').select('id, enseignant_id, classe_id, classe_nom_propose, matiere_id, etablissement_id, annee_scolaire_id, created_at, classes(nom), matieres(nom), utilisateurs_profils:enseignant_id(nom, prenom)').eq('etablissement_id', etablissementId).eq('statut', 'EN_ATTENTE').order('created_at', { ascending: true })
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    // --- Demandes d'affiliation enseignants (rattachement des profils + dédoublonnage) ---
+    const profilParId = {};
+    (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
+    let demandesEnseignants = (demandesEnseignantsBrutes || []).map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
     // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent déjà
     // en base (créés avant le correctif anti-doublon), on n'affiche qu'une
     // seule fois chaque personne — la plus ancienne demande est conservée.
@@ -351,12 +392,6 @@ export default function CenseurDashboard() {
     });
     setDemandesAffiliationEnseignants(demandesEnseignantsDedupliquees);
 
-    const { data: demandeDepartExistante } = await supabase
-      .from('demandes_depart')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('statut', 'EN_ATTENTE')
-      .maybeSingle();
     setDemandeDepartCenseurEnCours(!!demandeDepartExistante);
 
     setEcoleConfigGlobale({
@@ -371,35 +406,10 @@ export default function CenseurDashboard() {
       typeEnseignement: etab?.parametres_json?.typeEnseignement || 'GENERAL',
     });
 
-    const { data: affiliationsEnseignantsBrutes } = await supabase
-      .from('affiliations_etablissement')
-      .select('id, user_id')
-      .eq('etablissement_id', etablissementId)
-      .eq('role', 'ENSEIGNANT')
-      .eq('statut', 'ACTIVE');
-
-    let affiliationsEnseignants = affiliationsEnseignantsBrutes || [];
-    if (affiliationsEnseignants.length > 0) {
-      const idsEnseignants = [...new Set(affiliationsEnseignants.map(a => a.user_id))];
-      const { data: profilsEnseignants } = await supabase
-        .from('utilisateurs_profils')
-        .select('user_id, nom, prenom, telephone')
-        .in('user_id', idsEnseignants);
-      const profilEnseignantParId = {};
-      (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
-      affiliationsEnseignants = affiliationsEnseignants.map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
-    }
-
-    const { data: matieresEnseignants } = await supabase
-      .from('matieres_enseignant')
-      .select('user_id, matiere_id, matieres(nom, niveaux_applicables, series_applicables)')
-      .eq('etablissement_id', etablissementId);
-
-    const { data: attributions } = await supabase
-      .from('attributions_classes')
-      .select('enseignant_id, matiere_id, matieres(nom), classes(nom)')
-      .eq('etablissement_id', etablissementId)
-      .eq('annee_scolaire_id', annee?.id || '00000000-0000-0000-0000-000000000000');
+    // --- Enseignants affiliés (rattachement des profils) ---
+    const profilEnseignantParId = {};
+    (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
+    let affiliationsEnseignants = (affiliationsEnseignantsBrutes || []).map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
 
     const profsAvecClasses = (affiliationsEnseignants || []).map(a => {
       const attrsDeCetEnseignant = (attributions || []).filter(at => at.enseignant_id === a.user_id);
@@ -437,58 +447,22 @@ export default function CenseurDashboard() {
     setEnseignantsParClasse(groupeParClasse);
     setListeProfesseursEtablissementBrute(profsAvecClasses);
 
-    if (annee?.id) {
-      const { data: classesData } = await supabase
-        .from('classes')
-        .select('id, nom, niveau, serie')
-        .eq('etablissement_id', etablissementId)
-        .eq('annee_scolaire_id', annee.id)
-        .is('deleted_at', null)
-        .order('nom', { ascending: true });
-      setClassesEtablissement(classesData || []);
+    setClassesEtablissement(classesData || []);
+    setDemandesAttributionsRecues((demandesAttrib || []).map(d => ({ ...d, nomClasseEdite: d.classes?.nom || d.classe_nom_propose || '' })));
 
-      const { data: demandesAttrib } = await supabase
-        .from('demandes_attributions_classes')
-        .select('id, enseignant_id, classe_id, classe_nom_propose, matiere_id, etablissement_id, annee_scolaire_id, created_at, classes(nom), matieres(nom), utilisateurs_profils:enseignant_id(nom, prenom)')
-        .eq('etablissement_id', etablissementId)
-        .eq('statut', 'EN_ATTENTE')
-        .order('created_at', { ascending: true });
-      setDemandesAttributionsRecues((demandesAttrib || []).map(d => ({ ...d, nomClasseEdite: d.classes?.nom || d.classe_nom_propose || '' })));
-    }
-
-    const { data: matieresData } = await supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true });
     setMatieresDisponibles(matieresData || []);
 
-    const { data: documentsData } = await supabase
-      .from('documents_etablissement')
-      .select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))')
-      .eq('etablissement_id', etablissementId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
     setDocumentsEtablissement((documentsData || []).map(d => ({
       ...d,
       cle_stockage: d.versions_document?.fichiers_metadonnees?.cle_stockage,
       taille_octets: d.versions_document?.fichiers_metadonnees?.taille_octets,
     })));
 
-    const { data: personnel } = await supabase
-      .from('personnel')
-      .select('*')
-      .eq('etablissement_id', etablissementId);
     setPersonnelAdministratifManuel((personnel || []).map(p => ({
       id: p.id, nomComplet: `${p.prenom} ${p.nom}`.trim(), role: p.fonction,
       matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
     })));
 
-    const { data: demande } = await supabase
-      .from('demandes_changement_role')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('etablissement_id', etablissementId)
-      .eq('role_demande', 'CHEF')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
     if (demande) {
       setDemandePromotion({
         date: new Date(demande.created_at).toLocaleDateString(),
@@ -497,23 +471,6 @@ export default function CenseurDashboard() {
         statut: demande.statut === 'EN_ATTENTE' ? 'En attente de validation' : demande.statut,
       });
     }
-
-    const { data: seances, error: erreurSeances } = await supabase
-      .from('seances')
-      .select(`
-        id, date_prevue, statut, contenu_json,
-        statut_visa, envoyee_at, visee_at, observation_visa,
-        classes ( nom ),
-        lecons (
-          id, titre,
-          cycles (
-            id, titre, competence,
-            programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
-              utilisateurs_profils:proprietaire_user_id (nom, prenom) )
-          )
-        )
-      `)
-      .in('statut', ['ENVOYEE', 'RECUE']);
 
     if (erreurSeances) {
       console.error('Erreur chargement séances (onglet Visa) :', erreurSeances);
@@ -562,12 +519,6 @@ export default function CenseurDashboard() {
     });
     setProgrammesClasses(groupe);
 
-    const { data: archive } = await supabase
-      .from('bibliotheque_etablissement')
-      .select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)')
-      .eq('etablissement_id', etablissementId)
-      .order('created_at', { ascending: false });
-
     setArchiveEcole((archive || []).map(a => ({
       id: a.id,
       enseignant: `${a.utilisateurs_profils?.prenom || ''} ${a.utilisateurs_profils?.nom || ''}`.trim(),
@@ -579,13 +530,6 @@ export default function CenseurDashboard() {
       details: a.contenu_snapshot_json,
     })));
 
-    // Notifications non lues (cloche)
-    const { data: notifs } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', user.id)
-      .is('lue_at', null)
-      .order('created_at', { ascending: false });
     setNotificationsCenseur((notifs || []).map(n => ({
       id: n.id,
       texte: n.payload_json?.message || '',

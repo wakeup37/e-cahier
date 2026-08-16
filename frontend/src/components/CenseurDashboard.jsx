@@ -26,6 +26,37 @@ const NIVEAUX_PREMIER_CYCLE = ['6ème', '5ème', '4ème', '3ème'];
 const NIVEAUX_SECOND_CYCLE = ['Seconde', 'Première', 'Terminale'];
 const TOUS_NIVEAUX = [...NIVEAUX_PREMIER_CYCLE, ...NIVEAUX_SECOND_CYCLE];
 
+// [NOUVEAU] Grille curriculaire officielle — sert à déterminer si une classe
+// est réellement "complète" (toutes les matières obligatoires couvertes),
+// et non plus juste "au moins un enseignant attribué". Un élément peut être
+// soit une matière obligatoire (string), soit un groupe au choix (array —
+// un seul enseignant parmi les options suffit, ex. Arts/Musique/Info, LV2).
+// Les noms ci-dessous reprennent exactement l'orthographe du catalogue réel
+// (ex. "Mathematique" sans accent/singulier, "Allemand (LV2)" avec suffixe).
+const MATIERES_BASE_PREMIER_CYCLE = [
+  'Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'EDHC', 'Histoire-Géographie',
+  ['Arts Plastiques', 'Éducation Musicale', 'Informatique'],
+];
+const GROUPE_LV2 = ['Allemand (LV2)', 'Espagnol (LV2)'];
+
+const MATIERES_REQUISES_PAR_NIVEAU = {
+  '6ème': MATIERES_BASE_PREMIER_CYCLE,
+  '5ème': MATIERES_BASE_PREMIER_CYCLE,
+  '4ème': [...MATIERES_BASE_PREMIER_CYCLE, GROUPE_LV2],
+  '3ème': [...MATIERES_BASE_PREMIER_CYCLE, GROUPE_LV2],
+  // Second cycle : EDHC disparaît ; Première et Terminale ajoutent la Philosophie.
+  'Seconde': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
+  'Première': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', 'Philosophie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
+  'Terminale': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', 'Philosophie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
+};
+
+// Normalisation tolérante (accents/casse/ponctuation) — les matières sont
+// nommées librement par le censeur dans le catalogue, donc "S.V.T", "svt",
+// "SVT" doivent tous matcher la même exigence.
+const normaliserNomMatiere = (nom) => (nom || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]/g, '');
+
 export default function CenseurDashboard() {
 
   // =========================================================================
@@ -950,6 +981,34 @@ export default function CenseurDashboard() {
   const matiereApplicableAClasse = (matiere, classe) => true;
 
   const matieresPourClasse = (classeOuClasses) => matieresDisponibles;
+
+  // [NOUVEAU] Évalue la complétude réelle d'une classe : compare les matières
+  // couvertes (via enseignantsParClasse) à la grille curriculaire officielle
+  // du niveau. Retourne aussi la liste des matières encore manquantes, pour
+  // affichage. Si le niveau de la classe n'est pas reconnu dans la grille
+  // (ex. classe créée sans niveau renseigné), on retombe sur l'ancien
+  // comportement "au moins un enseignant attribué" pour ne rien casser.
+  const evaluerCompletudeClasse = (classe) => {
+    const profsDeLaClasse = enseignantsParClasse[classe.nom] || [];
+    const matieresCouvertes = new Set(profsDeLaClasse.map(p => normaliserNomMatiere(p.matiere)));
+    const grille = MATIERES_REQUISES_PAR_NIVEAU[classe.niveau];
+
+    if (!grille) {
+      return { complete: profsDeLaClasse.length > 0, matieresManquantes: [], grilleConnue: false };
+    }
+
+    const matieresManquantes = [];
+    grille.forEach(exigence => {
+      if (Array.isArray(exigence)) {
+        const satisfait = exigence.some(nom => matieresCouvertes.has(normaliserNomMatiere(nom)));
+        if (!satisfait) matieresManquantes.push(exigence.join(' ou '));
+      } else {
+        if (!matieresCouvertes.has(normaliserNomMatiere(exigence))) matieresManquantes.push(exigence);
+      }
+    });
+
+    return { complete: matieresManquantes.length === 0, matieresManquantes, grilleConnue: true };
+  };
 
   const enregistrerProgrammeMatiere = async (matiereId, niveaux, series) => {
     const { data, error } = await supabase
@@ -2628,7 +2687,7 @@ export default function CenseurDashboard() {
             {/* [NOUVEAU] Résumé en un coup d'œil — évite de scroller jusqu'à
                 "Vue par classe" pour savoir où en est la couverture. */}
             {classesEtablissement.length > 0 && (() => {
-              const nbCompletes = classesEtablissement.filter(cl => (enseignantsParClasse[cl.nom] || []).length > 0).length;
+              const nbCompletes = classesEtablissement.filter(cl => evaluerCompletudeClasse(cl).complete).length;
               const nbTotal = classesEtablissement.length;
               const pourcentage = nbTotal > 0 ? Math.round((nbCompletes / nbTotal) * 100) : 0;
               return (
@@ -3006,12 +3065,15 @@ export default function CenseurDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {classesEtablissement.map(cl => {
                   const profsDeLaClasse = enseignantsParClasse[cl.nom] || [];
-                  const estComplete = profsDeLaClasse.length > 0;
+                  const { complete: estComplete, matieresManquantes, grilleConnue } = evaluerCompletudeClasse(cl);
                   return (
                     <div key={cl.id} style={{ ...styles.itemRow, alignItems: 'flex-start', flexDirection: 'column', gap: '6px' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: estComplete ? '#16a34a' : '#ef4444', flexShrink: 0 }} title={estComplete ? 'Au moins un enseignant attribué' : 'Aucun enseignant attribué'}></span>
+                        <span style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: estComplete ? '#16a34a' : '#ef4444', flexShrink: 0 }} title={estComplete ? 'Classe complète' : 'Classe incomplète'}></span>
                         <strong style={{ fontSize: '13px', color: '#0f172a' }}>{cl.nom}</strong>
+                        {!grilleConnue && (
+                          <span style={{ fontSize: '9px', backgroundColor: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '4px', fontWeight: '800' }} title="Niveau non renseigné ou non reconnu — on vérifie juste qu'au moins un enseignant est attribué.">Niveau inconnu</span>
+                        )}
                       </span>
                       {profsDeLaClasse.length === 0 ? (
                         <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic', margin: 0 }}>⚠️ Aucun enseignant attribué à cette classe.</p>
@@ -3023,6 +3085,11 @@ export default function CenseurDashboard() {
                             </span>
                           ))}
                         </div>
+                      )}
+                      {grilleConnue && matieresManquantes.length > 0 && (
+                        <p style={{ fontSize: '11px', color: '#c2410c', margin: 0 }}>
+                          ⚠️ Manque : {matieresManquantes.join(', ')}
+                        </p>
                       )}
                     </div>
                   );

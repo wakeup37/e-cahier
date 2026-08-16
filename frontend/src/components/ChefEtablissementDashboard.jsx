@@ -72,6 +72,46 @@ export default function ChefEtablissementDashboard() {
   const [notifChefOuvert, setNotifChefOuvert] = useState(false);
   const notifChefRef = useRef(null);
 
+  // [NOUVEAU] Petit "ding" généré directement (Web Audio API) — pas besoin
+  // d'héberger de fichier son. Joué côté RÉCEPTEUR quand une notification
+  // arrive en temps réel (pas côté émetteur).
+  const jouerSonNotification = () => {
+    try {
+      const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClasse) return;
+      const ctx = new AudioContextClasse();
+      const oscillateur = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillateur.type = 'sine';
+      oscillateur.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      oscillateur.connect(gain);
+      gain.connect(ctx.destination);
+      oscillateur.start();
+      oscillateur.stop(ctx.currentTime + 0.35);
+    } catch (e) {
+      console.warn('Son de notification indisponible :', e);
+    }
+  };
+
+  // [NOUVEAU] Bandeau de notification système — visible même si l'onglet
+  // e-cahier n'est pas au premier plan, tant qu'il reste ouvert quelque
+  // part (pas si l'onglet/l'appli est complètement fermé).
+  const afficherNotificationSysteme = (texte, lienCible) => {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const notif = new Notification('E-cahier !', { body: texte, icon: '/favicon.ico' });
+      notif.onclick = () => {
+        window.focus();
+        if (lienCible) setActiveTab(lienCible);
+        notif.close();
+      };
+    } catch (e) {
+      console.warn('Notification système indisponible :', e);
+    }
+  };
+
   const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
     if (!destinataireUserId) return;
     await supabase.from('notifications').insert({
@@ -120,6 +160,8 @@ export default function ChefEtablissementDashboard() {
           lu: false,
           lienCible: n.payload_json?.lien_cible,
         }, ...prev]);
+        jouerSonNotification();
+        afficherNotificationSysteme(n.payload_json?.message || 'Nouvelle notification', n.payload_json?.lien_cible);
         // [NOUVEAU] Recharge automatiquement les données dès qu'une
         // notification arrive — évite d'avoir à rafraîchir la page
         // manuellement pour voir les changements faits par quelqu'un d'autre.
@@ -359,6 +401,14 @@ export default function ChefEtablissementDashboard() {
 
   useEffect(() => {
     chargerDonnees();
+  }, []);
+  // [NOUVEAU] Demande la permission d'affichage des notifications système
+  // une seule fois — si l'utilisateur a déjà répondu, le navigateur ne
+  // redemande pas.
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
   }, []);
 
   // =========================================================================

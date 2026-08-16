@@ -94,6 +94,50 @@ export default function CenseurDashboard() {
   // =========================================================================
   // NOUVEAU : SYSTÈME DE NOTIFICATIONS IN-APP
   // =========================================================================
+  // [NOUVEAU] Petit "ding" généré directement (Web Audio API) — pas besoin
+  // d'héberger de fichier son. Joué côté RÉCEPTEUR quand une notification
+  // arrive en temps réel (pas côté émetteur).
+  const jouerSonNotification = () => {
+    try {
+      const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClasse) return;
+      const ctx = new AudioContextClasse();
+      const oscillateur = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillateur.type = 'sine';
+      oscillateur.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      oscillateur.connect(gain);
+      gain.connect(ctx.destination);
+      oscillateur.start();
+      oscillateur.stop(ctx.currentTime + 0.35);
+    } catch (e) {
+      console.warn('Son de notification indisponible :', e);
+    }
+  };
+
+  // [NOUVEAU] Bandeau de notification système (API Notification du
+  // navigateur) — visible même si l'onglet e-cahier n'est pas au premier
+  // plan, tant qu'il reste ouvert quelque part. Ne fonctionne pas si
+  // l'onglet/l'appli est complètement fermé (nécessiterait un vrai système
+  // de push serveur, hors périmètre ici).
+  const afficherNotificationSysteme = (texte, lienCible) => {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const notif = new Notification('E-cahier !', { body: texte, icon: '/favicon.ico' });
+      // [NOUVEAU] Clique sur le bandeau → ramène l'onglet e-cahier au
+      // premier plan et bascule directement sur le bon onglet du dashboard.
+      notif.onclick = () => {
+        window.focus();
+        if (lienCible) setActiveTab(lienCible);
+        notif.close();
+      };
+    } catch (e) {
+      console.warn('Notification système indisponible :', e);
+    }
+  };
+
   const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
     if (!destinataireUserId) return { error: null };
     const { error } = await supabase.from('notifications').insert({
@@ -120,6 +164,8 @@ export default function CenseurDashboard() {
           lu: false,
           lienCible: n.payload_json?.lien_cible,
         }, ...prev]);
+        jouerSonNotification();
+        afficherNotificationSysteme(n.payload_json?.message || 'Nouvelle notification', n.payload_json?.lien_cible);
         // [NOUVEAU] Presque toute action importante (attribution, visa,
         // demande traitée...) envoie déjà une notification — on en profite
         // pour recharger automatiquement les données du dashboard dès
@@ -580,6 +626,14 @@ export default function CenseurDashboard() {
   };
 
   useEffect(() => { chargerTout(); }, []);
+  // [NOUVEAU] Demande la permission d'affichage des notifications système
+  // une seule fois — si l'utilisateur a déjà répondu (accepté ou refusé),
+  // le navigateur ne redemande pas.
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;

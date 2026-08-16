@@ -167,6 +167,11 @@ export default function CenseurDashboard() {
   const [enseignantChoisiProgression, setEnseignantChoisiProgression] = useState('');
   const [programmeProgressionCharge, setProgrammeProgressionCharge] = useState({});
   const [chargementProgression, setChargementProgression] = useState(false);
+  // [NOUVEAU] Vue d'ensemble globale — progression tous enseignants confondus,
+  // avec détail dépliable par classe et par enseignant.
+  const [vueEnsembleProgression, setVueEnsembleProgression] = useState(null);
+  const [chargementVueEnsemble, setChargementVueEnsemble] = useState(false);
+  const [detailProgressionOuvert, setDetailProgressionOuvert] = useState(false);
   const [cyclesOuvertsProgression, setCyclesOuvertsProgression] = useState({});
   const toggleCycleProgression = (cycleId) => setCyclesOuvertsProgression(prev => ({ ...prev, [cycleId]: !prev[cycleId] }));
   const [matiereProgrammeOuverte, setMatiereProgrammeOuverte] = useState(null);
@@ -730,6 +735,9 @@ export default function CenseurDashboard() {
   };
 
   const [classeEnRenommage, setClasseEnRenommage] = useState({ id: null, nom: '' });
+  // [NOUVEAU] Recherche rapide dans la liste "Classes existantes" — utile
+  // dès qu'un établissement a beaucoup de classes.
+  const [rechercheClasseTexte, setRechercheClasseTexte] = useState('');
 
   const renommerClasse = async (e) => {
     e.preventDefault();
@@ -1432,6 +1440,57 @@ export default function CenseurDashboard() {
     setProgrammeProgressionCharge(groupe);
     setChargementProgression(false);
   };
+
+  // [NOUVEAU] Calcule les chiffres globaux (tous enseignants de l'établissement
+  // confondus) pour la vue d'ensemble en haut de l'onglet Programme & Progression,
+  // ainsi que le détail par classe × enseignant utilisé quand on déplie
+  // "Progression globale".
+  const chargerVueEnsembleProgression = async () => {
+    if (!anneeActiveId || listeProfesseursEtablissement.length === 0) {
+      setVueEnsembleProgression({ nbSeances: 0, nbVisees: 0, nbEnRetard: 0, progressionGlobale: 0, nbClassesCompletes: 0, nbClassesSuivies: 0, parClasseEnseignant: [] });
+      return;
+    }
+    setChargementVueEnsemble(true);
+    const totalEcole = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
+    const parClasseEnseignant = [];
+
+    for (const prof of listeProfesseursEtablissement) {
+      const { groupe } = await calculerProgrammeEtStatsEnseignant(prof.userId);
+      Object.entries(groupe).forEach(([classeNom, prog]) => {
+        const cyclesDeLaClasse = prog.cycles || [];
+        const nbSeances = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbSeances, 0);
+        const nbVisees = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbVisees, 0);
+        const nbEnRetard = cyclesDeLaClasse.reduce((s, c) => s + c.stats.nbEnRetard, 0);
+        totalEcole.nbSeances += nbSeances;
+        totalEcole.nbVisees += nbVisees;
+        totalEcole.nbEnRetard += nbEnRetard;
+        if (nbSeances > 0) {
+          parClasseEnseignant.push({
+            classe: classeNom, enseignant: prof.nomComplet, matiere: prof.matiere,
+            nbSeances, nbVisees, nbEnRetard,
+            progression: Math.round((nbVisees / nbSeances) * 100),
+          });
+        }
+      });
+    }
+
+    const nbClassesCompletes = parClasseEnseignant.filter(c => c.progression === 100).length;
+
+    setVueEnsembleProgression({
+      nbSeances: totalEcole.nbSeances,
+      nbVisees: totalEcole.nbVisees,
+      nbEnRetard: totalEcole.nbEnRetard,
+      progressionGlobale: totalEcole.nbSeances > 0 ? Math.round((totalEcole.nbVisees / totalEcole.nbSeances) * 100) : 0,
+      nbClassesCompletes,
+      nbClassesSuivies: parClasseEnseignant.length,
+      parClasseEnseignant: parClasseEnseignant.sort((a, b) => a.classe.localeCompare(b.classe)),
+    });
+    setChargementVueEnsemble(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'progression' && anneeActiveId) chargerVueEnsembleProgression();
+  }, [activeTab, anneeActiveId, listeProfesseursEtablissement.length]);
 
   const genererRapportPonctuel = async (portee) => {
     if (!affiliationCenseur || !anneeActiveId) return;
@@ -2327,6 +2386,54 @@ export default function CenseurDashboard() {
               </button>
             </div>
 
+            {/* [NOUVEAU] Vue d'ensemble — chiffres globaux avant de choisir un
+                enseignant précis. "Progression globale" se déplie pour montrer
+                le détail classe par classe et enseignant par enseignant. */}
+            {anneeActiveId && vueEnsembleProgression && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                  <button
+                    onClick={() => setDetailProgressionOuvert(!detailProgressionOuvert)}
+                    style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid #bfdbfe', backgroundColor: '#eff6ff', borderRadius: '12px', padding: '14px 16px' }}
+                  >
+                    <p style={{ fontSize: '10px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase', margin: '0 0 4px 0' }}>Progression globale {detailProgressionOuvert ? '▲' : '▼'}</p>
+                    <p style={{ fontSize: '22px', fontWeight: '900', color: '#1e3a8a', margin: 0 }}>{vueEnsembleProgression.progressionGlobale}%</p>
+                  </button>
+                  <div style={{ border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', borderRadius: '12px', padding: '14px 16px' }}>
+                    <p style={{ fontSize: '10px', fontWeight: '800', color: '#166534', textTransform: 'uppercase', margin: '0 0 4px 0' }}>Classes complètes</p>
+                    <p style={{ fontSize: '22px', fontWeight: '900', color: '#166534', margin: 0 }}>{vueEnsembleProgression.nbClassesCompletes}/{vueEnsembleProgression.nbClassesSuivies}</p>
+                  </div>
+                  <div style={{ border: '1px solid #fecaca', backgroundColor: '#fef2f2', borderRadius: '12px', padding: '14px 16px' }}>
+                    <p style={{ fontSize: '10px', fontWeight: '800', color: '#991b1b', textTransform: 'uppercase', margin: '0 0 4px 0' }}>Séances en retard</p>
+                    <p style={{ fontSize: '22px', fontWeight: '900', color: '#991b1b', margin: 0 }}>{vueEnsembleProgression.nbEnRetard}</p>
+                  </div>
+                </div>
+
+                {detailProgressionOuvert && (
+                  <div style={{ marginTop: '10px', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                    {vueEnsembleProgression.parClasseEnseignant.length === 0 ? (
+                      <p style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', padding: '14px' }}>Aucune donnée de progression pour l'instant.</p>
+                    ) : (
+                      vueEnsembleProgression.parClasseEnseignant.map((c, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < vueEnsembleProgression.parClasseEnseignant.length - 1 ? '1px solid #f1f5f9' : 'none', backgroundColor: '#fff', flexWrap: 'wrap' }}>
+                          <div>
+                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>{c.classe}</strong>
+                            <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>{c.enseignant} · {c.matiere}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '80px', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                              <div style={{ width: `${c.progression}%`, height: '100%', backgroundColor: c.progression === 100 ? '#16a34a' : c.progression >= 40 ? '#2563eb' : '#f59e0b' }}></div>
+                            </div>
+                            <span style={{ fontSize: '12px', fontWeight: '800', color: '#334155', minWidth: '32px', textAlign: 'right' }}>{c.progression}%</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
               <select value={enseignantChoisiProgression} onChange={(e) => chargerProgrammeEnseignantChoisi(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 240px', margin: 0 }}>
                 <option value="">— Choisir un enseignant —</option>
@@ -2516,7 +2623,26 @@ export default function CenseurDashboard() {
         {activeTab === 'classes' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Créez les classes de l'année, attribuez-les directement, ou traitez les propositions des enseignants.</p>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Créez les classes de l'année, attribuez-les directement, ou traitez les propositions des enseignants.</p>
+
+            {/* [NOUVEAU] Résumé en un coup d'œil — évite de scroller jusqu'à
+                "Vue par classe" pour savoir où en est la couverture. */}
+            {classesEtablissement.length > 0 && (() => {
+              const nbCompletes = classesEtablissement.filter(cl => (enseignantsParClasse[cl.nom] || []).length > 0).length;
+              const nbTotal = classesEtablissement.length;
+              const pourcentage = nbTotal > 0 ? Math.round((nbCompletes / nbTotal) * 100) : 0;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                    {nbCompletes}/{nbTotal} classe{nbTotal > 1 ? 's' : ''} avec au moins un enseignant
+                  </div>
+                  <div style={{ flex: 1, minWidth: '120px', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                    <div style={{ width: `${pourcentage}%`, height: '100%', backgroundColor: pourcentage === 100 ? '#16a34a' : pourcentage >= 50 ? '#2563eb' : '#f59e0b', borderRadius: '999px', transition: 'width 0.3s ease' }}></div>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#334155' }}>{pourcentage}%</div>
+                </div>
+              );
+            })()}
 
             {!anneeActiveId && (
               <p style={{ fontSize: '13px', color: '#991b1b', backgroundColor: '#fef2f2', padding: '12px', borderRadius: '10px', marginBottom: '20px' }}>⚠️ Aucune année scolaire active — le chef doit d'abord en ouvrir une.</p>
@@ -2686,9 +2812,22 @@ export default function CenseurDashboard() {
 
               {classesEtablissement.length > 0 && (
                 <div style={{ marginTop: '16px' }}>
-                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>Classes existantes — renommer ou supprimer</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                    <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: 0 }}>Classes existantes — renommer ou supprimer</p>
+                    {classesEtablissement.length > 6 && (
+                      <input
+                        type="text"
+                        placeholder="🔍 Rechercher une classe..."
+                        value={rechercheClasseTexte}
+                        onChange={(e) => setRechercheClasseTexte(e.target.value)}
+                        style={{ ...styles.inputStyle, margin: 0, maxWidth: '220px', fontSize: '12px', padding: '6px 10px' }}
+                      />
+                    )}
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
-                    {classesEtablissement.map(c => {
+                    {classesEtablissement
+                      .filter(c => c.nom.toLowerCase().includes(rechercheClasseTexte.trim().toLowerCase()))
+                      .map(c => {
                       const enRenommage = classeEnRenommage.id === c.id;
                       return (
                         <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', flexWrap: 'wrap' }}>
@@ -2867,9 +3006,13 @@ export default function CenseurDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {classesEtablissement.map(cl => {
                   const profsDeLaClasse = enseignantsParClasse[cl.nom] || [];
+                  const estComplete = profsDeLaClasse.length > 0;
                   return (
                     <div key={cl.id} style={{ ...styles.itemRow, alignItems: 'flex-start', flexDirection: 'column', gap: '6px' }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>{cl.nom}</strong>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: estComplete ? '#16a34a' : '#ef4444', flexShrink: 0 }} title={estComplete ? 'Au moins un enseignant attribué' : 'Aucun enseignant attribué'}></span>
+                        <strong style={{ fontSize: '13px', color: '#0f172a' }}>{cl.nom}</strong>
+                      </span>
                       {profsDeLaClasse.length === 0 ? (
                         <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic', margin: 0 }}>⚠️ Aucun enseignant attribué à cette classe.</p>
                       ) : (

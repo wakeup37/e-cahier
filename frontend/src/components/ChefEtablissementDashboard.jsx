@@ -62,7 +62,6 @@ export default function ChefEtablissementDashboard() {
   const [inputNouvelleAnneeIntitule, setInputNouvelleAnneeIntitule] = useState('');
   const [nouvelleInvitationEmail, setNouvelleInvitationEmail] = useState('');
   const [nouvelleInvitationRole, setNouvelleInvitationRole] = useState('CENSEUR');
-  const [rapportsCenseurs, setRapportsCenseurs] = useState(() => safeGetArray('app_chef_rapports_censeurs', []));
 
   // =========================================================================
   // NOTIFICATIONS (cloche) — mêmes principes que CenseurDashboard.jsx :
@@ -1172,7 +1171,6 @@ export default function ChefEtablissementDashboard() {
                   <button onClick={() => { setActiveTab('censeurs'); setMenuBurgerChefOuvert(false); }} className="bouton-option">👥 Invitations & Demandes</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerChefOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
                   <button onClick={() => { setActiveTab('fichiers_pedagogiques'); setMenuBurgerChefOuvert(false); }} className="bouton-option">📚 Fiches Pédagogiques</button>
-                  <button onClick={() => { setActiveTab('rapports'); setMenuBurgerChefOuvert(false); }} className="bouton-option">📈 Rapports Détaillés</button>
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
                     <button onClick={() => { setModalDeconnexion(true); setMenuBurgerChefOuvert(false); }} className="bouton-option" style={{ color: '#ef4444', fontWeight: '900', textAlign: 'center' }}>🚪 Se déconnecter</button>
                   </div>
@@ -1762,24 +1760,6 @@ export default function ChefEtablissementDashboard() {
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'rapports' && (
-          <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>📈 Rapports Détaillés</h2>
-            {rapportsCenseurs.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun rapport.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {rapportsCenseurs.map((rapport, index) => (
-                  <div key={index} style={styles.itemRow}>
-                    <strong style={{ color: '#0f172a' }}>Censeur : {rapport.censeur}</strong>
-                    <button onClick={() => telechargerDocumentPDF(`Rapport ${rapport.censeur}`, `<p>Rapport du ${rapport.date}</p>`)} className="bouton bouton-principal" style={{ padding: '6px 12px', fontSize: '12px' }}>📥 Voir PDF</button>
-                  </div>
-                ))}
               </div>
             )}
           </div>

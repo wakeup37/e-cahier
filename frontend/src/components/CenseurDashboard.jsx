@@ -1549,71 +1549,6 @@ export default function CenseurDashboard() {
     if (activeTab === 'progression' && anneeActiveId) chargerVueEnsembleProgression();
   }, [activeTab, anneeActiveId, listeProfesseursEtablissement.length]);
 
-  const genererRapportPonctuel = async (portee) => {
-    if (!affiliationCenseur || !anneeActiveId) return;
-    const etablissementId = affiliationCenseur.etablissement_id;
-
-    let donneesJson;
-    if (portee === 'ENSEIGNANT') {
-      if (!enseignantChoisiProgression) { showToast("⚠️ Choisissez d'abord un enseignant."); return; }
-      const prof = listeProfesseursEtablissement.find(p => p.userId === enseignantChoisiProgression);
-      const { totaux } = await calculerProgrammeEtStatsEnseignant(enseignantChoisiProgression);
-      donneesJson = {
-        portee: 'ENSEIGNANT', enseignant: prof?.nomComplet || 'Inconnu',
-        nb_seances: totaux.nbSeances, nb_visees: totaux.nbVisees,
-        nb_reportees: totaux.nbReportees, nb_en_retard: totaux.nbEnRetard,
-        progression_globale: totaux.nbSeances > 0 ? Math.round((totaux.nbVisees / totaux.nbSeances) * 100) : 0,
-      };
-    } else {
-      const totalEcole = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
-      const parEnseignant = [];
-      for (const prof of listeProfesseursEtablissement) {
-        const { totaux } = await calculerProgrammeEtStatsEnseignant(prof.userId);
-        totalEcole.nbSeances += totaux.nbSeances;
-        totalEcole.nbVisees += totaux.nbVisees;
-        totalEcole.nbReportees += totaux.nbReportees;
-        totalEcole.nbEnRetard += totaux.nbEnRetard;
-        if (totaux.nbSeances > 0) {
-          parEnseignant.push({ enseignant: prof.nomComplet, ...totaux, progression: Math.round((totaux.nbVisees / totaux.nbSeances) * 100) });
-        }
-      }
-      donneesJson = {
-        portee: 'ETABLISSEMENT',
-        nb_seances: totalEcole.nbSeances, nb_visees: totalEcole.nbVisees,
-        nb_reportees: totalEcole.nbReportees, nb_en_retard: totalEcole.nbEnRetard,
-        progression_globale: totalEcole.nbSeances > 0 ? Math.round((totalEcole.nbVisees / totalEcole.nbSeances) * 100) : 0,
-        par_enseignant: parEnseignant,
-      };
-    }
-
-    const { data: chef } = await supabase
-      .from('affiliations_etablissement')
-      .select('user_id')
-      .eq('etablissement_id', etablissementId)
-      .eq('role', 'CHEF')
-      .eq('statut', 'ACTIVE')
-      .maybeSingle();
-
-    const { error } = await supabase.from('rapports').insert({
-      etablissement_id: etablissementId, annee_scolaire_id: anneeActiveId,
-      genere_par_user_id: userId, type_periode: 'PONCTUEL',
-      donnees_json: donneesJson, envoye_a_user_id: chef?.user_id || null,
-    });
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-
-    if (chef?.user_id) {
-      await envoyerNotification(
-        chef.user_id, 'RAPPORT_PONCTUEL',
-        portee === 'ENSEIGNANT'
-          ? `📊 Nouveau rapport de progression pour ${donneesJson.enseignant}`
-          : `📊 Nouveau rapport de progression pour tout l'établissement`,
-        'rapports', etablissementId
-      );
-    }
-
-    showToast(portee === 'ENSEIGNANT' ? "✅ Rapport envoyé au chef d'établissement !" : "✅ Rapport global envoyé au chef d'établissement !");
-  };
-
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
     if (!nouveauAdminNom.trim() || !affiliationCenseur) return;
@@ -2433,14 +2368,9 @@ export default function CenseurDashboard() {
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'progression' && (
           <div style={styles.cardWide}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📊 Programme & Progression</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Consultez le programme annuel de chaque enseignant, sa progression, et transmettez un rapport au chef d'établissement.</p>
-              </div>
-              <button onClick={() => genererRapportPonctuel('ETABLISSEMENT')} className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }} disabled={!anneeActiveId}>
-                📤 Rapport global de l'établissement
-              </button>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📊 Programme & Progression</h2>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Consultez le programme annuel de chaque enseignant et sa progression.</p>
             </div>
 
             {/* [NOUVEAU] Vue d'ensemble — chiffres globaux avant de choisir un
@@ -2496,11 +2426,6 @@ export default function CenseurDashboard() {
                 <option value="">— Choisir un enseignant —</option>
                 {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
               </select>
-              {enseignantChoisiProgression && (
-                <button onClick={() => genererRapportPonctuel('ENSEIGNANT')} className="bouton bouton-succes" disabled={!anneeActiveId}>
-                  📤 Envoyer ce rapport au chef
-                </button>
-              )}
             </div>
 
             {!enseignantChoisiProgression ? (

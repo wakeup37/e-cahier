@@ -1182,7 +1182,18 @@ export default function EnseignantDashboard() {
         const { data: nouvelleLecon, error } = await supabase
           .from('lecons').insert({
             cycle_id: cycleCorrespondant.id, titre: titreLecon || 'Nouvelle Leçon', statut: 'EN_COURS',
-            contenu_json: modalAssistant.valeursChampsLecon || {},
+            // [CORRIGÉ] Les libellés des champs personnalisés (ex. "Objectifs
+            // pédagogiques") n'existaient qu'en local dans le navigateur de
+            // l'enseignant — jamais transmis. On les embarque maintenant
+            // directement dans contenu_json sous la clé _labels, en plus des
+            // valeurs habituelles (qui restent à plat, rien ne change pour
+            // les lectures existantes) — n'importe qui lisant cette fiche
+            // ailleurs (le censeur) peut désormais savoir à quoi correspond
+            // chaque valeur, sans dépendre du navigateur de l'enseignant.
+            contenu_json: {
+              ...(modalAssistant.valeursChampsLecon || {}),
+              _labels: Object.fromEntries((champsPersonnalisesLecon || []).map(c => [c.id, c.label])),
+            },
             plan_seances: Array.isArray(modalAssistant.planSeances) ? modalAssistant.planSeances : [],
           }).select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
@@ -1908,8 +1919,8 @@ export default function EnseignantDashboard() {
           </div>
 
           {/* LOGO CENTRAL (ENTRE PROFIL ET NOTIFICATIONS) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
-            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)', flexShrink: 0 }}>
+            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
@@ -3189,7 +3200,7 @@ export default function EnseignantDashboard() {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '14px' }}>Choisissez une fiche déjà enregistrée — vous pourrez la modifier, choisir les classes cibles et les dates avant de l'envoyer, exactement comme une fiche neuve.</p>
 
               {bibliothequeFiltree.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '20px' }}>Aucune fiche enregistrée dans votre bibliothèque pour l'instant.</p>
+                <div style={{ ...styles.emptyState, padding: '20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '26px' }}>📁</span><p style={styles.emptyStateText}>Aucune fiche enregistrée dans votre bibliothèque pour l'instant.</p></div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {bibliothequeFiltree.map(item => (
@@ -3494,7 +3505,7 @@ export default function EnseignantDashboard() {
                 )}
 
                 {structureVueParEcole.length === 0 && !(modeSansAffiliation && classesSansAffiliation.length > 0) && (
-                  <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune classe pour l'instant — affiliez-vous à un établissement puis proposez vos classes.</p>
+                  <div style={styles.emptyState}><span style={styles.emptyStateIcon}>🏫</span><p style={styles.emptyStateText}>Aucune classe pour l'instant — affiliez-vous à un établissement puis proposez vos classes.</p></div>
                 )}
               </div>
             ) : (
@@ -3700,7 +3711,7 @@ export default function EnseignantDashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
               {bibliothequeFiltree.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucune fiche enregistrée pour l'instant.</p>
+                <div style={styles.emptyState}><span style={styles.emptyStateIcon}>📁</span><p style={styles.emptyStateText}>Aucune fiche enregistrée pour l'instant.</p></div>
               ) : (
                 bibliothequeParClasse.map(([classe, fiches]) => {
                   const estOuverte = !!classesOuvertesBiblio[classe];
@@ -3753,7 +3764,7 @@ export default function EnseignantDashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {!Array.isArray(rapportsSeances) || rapportsSeances.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '30px' }}>Aucun rapport transmis.</p>
+                <div style={styles.emptyState}><span style={styles.emptyStateIcon}>↩️</span><p style={styles.emptyStateText}>Aucune séance reportée pour l'instant.</p></div>
               ) : (
                 rapportsSeances.map(r => (
                   <div key={r.id} style={styles.itemRow}>
@@ -3788,7 +3799,7 @@ export default function EnseignantDashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
               {!Array.isArray(affiliations) || affiliations.length === 0 ? (
-                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#94a3b8' }}>Aucune école affiliée pour le moment.</p>
+                <div style={{ ...styles.emptyState, padding: '20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '26px' }}>🏫</span><p style={styles.emptyStateText}>Aucune école affiliée pour le moment.</p></div>
               ) : (
                 affiliations.map(aff => {
                   const demandeEnCours = Array.isArray(demandesDepart) ? demandesDepart.find(d => d.ecoleId === aff.id && d.statut.includes('En attente')) : null;
@@ -3839,7 +3850,7 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '12px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '38vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },

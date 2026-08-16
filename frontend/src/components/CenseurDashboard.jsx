@@ -327,9 +327,9 @@ export default function CenseurDashboard() {
         statut_visa, envoyee_at, visee_at, observation_visa,
         classes ( nom ),
         lecons (
-          id, titre,
+          id, titre, contenu_json, statut_visa,
           cycles (
-            id, titre, competence,
+            id, titre, competence, plan_lecons, date_debut, date_fin,
             programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
               utilisateurs_profils:proprietaire_user_id (nom, prenom) )
           )
@@ -494,7 +494,11 @@ export default function CenseurDashboard() {
       }
       let cy = groupe[classeNom].cycles.find(c => c.id === cycle?.id);
       if (!cy) {
-        cy = { id: cycle?.id, titre: cycle?.titre || '', competence: cycle?.competence || '', lecons: [] };
+        cy = {
+          id: cycle?.id, titre: cycle?.titre || '', competence: cycle?.competence || '',
+          planLecons: cycle?.plan_lecons || [], dateDebut: cycle?.date_debut || '', dateFin: cycle?.date_fin || '',
+          lecons: [],
+        };
         groupe[classeNom].cycles.push(cy);
       }
       let lc = cy.lecons.find(l => l.id === sc.lecons?.id);
@@ -503,6 +507,7 @@ export default function CenseurDashboard() {
           id: sc.lecons?.id, titre: sc.lecons?.titre || '', seances: [],
           statutVisa: sc.lecons?.statut_visa || 'NON_ENVOYEE',
           observationVisa: sc.lecons?.observation_visa || '',
+          contenuJson: sc.lecons?.contenu_json || {},
         };
         cy.lecons.push(lc);
       }
@@ -1820,8 +1825,8 @@ export default function CenseurDashboard() {
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
-            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)', flexShrink: 0 }}>
+            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
@@ -2195,7 +2200,7 @@ export default function CenseurDashboard() {
             </div>
 
             {Object.keys(programmesClasses || {}).length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche soumise pour le moment.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>✍️</span><p style={styles.emptyStateText}>Aucune fiche à valider pour le moment. Dès qu'un enseignant enverra une séance, elle apparaîtra ici.</p></div>
             ) : (
               Object.entries(programmesClasses || {}).map(([classeNom, prog]) => {
                 
@@ -2240,15 +2245,39 @@ export default function CenseurDashboard() {
                             {(cy.lecons || []).map(lc => (
                               <div key={lc.id}>
                                 {(lc.statutVisa === 'ENVOYEE' || lc.statutVisa === 'RECUE') && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', backgroundColor: '#eff6ff', padding: '12px 16px', borderRadius: '10px', marginBottom: '8px', borderLeft: '4px solid #2563eb' }}>
-                                    <div>
-                                      <span style={{ fontSize: '10px', color: '#1e3a8a', textTransform: 'uppercase', fontWeight: '800' }}>📖 Fiche de leçon — {cy.titre}{cy.competence ? ` (${cy.competence})` : ''}</span>
-                                      <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{lc.titre}</p>
+                                  <div style={{ backgroundColor: '#eff6ff', padding: '12px 16px', borderRadius: '10px', marginBottom: '8px', borderLeft: '4px solid #2563eb' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                      <div>
+                                        <span style={{ fontSize: '10px', color: '#1e3a8a', textTransform: 'uppercase', fontWeight: '800' }}>📖 Fiche de leçon — {cy.titre}{cy.competence ? ` (${cy.competence})` : ''}</span>
+                                        <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>{lc.titre}</p>
+                                        {(cy.dateDebut || cy.dateFin) && (
+                                          <span style={{ fontSize: '11px', color: '#64748b' }}>Cycle : {cy.dateDebut || '?'} → {cy.dateFin || '?'}</span>
+                                        )}
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => retournerLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
+                                        <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
+                                      </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                      <button onClick={() => retournerLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
-                                      <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
-                                    </div>
+                                    {/* [NOUVEAU] Contenu réel de la fiche de leçon — libellés récupérés
+                                        depuis _labels (embarqué à la création par l'enseignant), donc
+                                        lisible peu importe qui consulte, sans dépendre de son navigateur. */}
+                                    {(() => {
+                                      const contenu = lc.contenuJson || {};
+                                      const labels = contenu._labels || {};
+                                      const entrees = Object.entries(contenu).filter(([cle, valeur]) => cle !== '_labels' && valeur);
+                                      if (entrees.length === 0) return null;
+                                      return (
+                                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                          {entrees.map(([cle, valeur]) => (
+                                            <div key={cle}>
+                                              <span style={{ fontSize: '10px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase' }}>{labels[cle] || cle}</span>
+                                              <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#334155', whiteSpace: 'pre-wrap' }}>{String(valeur)}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                                 {([...(lc.seances || [])])
@@ -2319,7 +2348,7 @@ export default function CenseurDashboard() {
             </div>
 
             {fichesFiltrees.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche archivée trouvée.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>📚</span><p style={styles.emptyStateText}>Aucune fiche archivée pour l'instant. Les fiches visées apparaîtront ici automatiquement.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {fichesParClasse.map(([classe, fiches]) => {
@@ -2433,7 +2462,7 @@ export default function CenseurDashboard() {
             ) : chargementProgression ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Chargement...</p>
             ) : Object.keys(programmeProgressionCharge).length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun programme trouvé pour cet enseignant sur l'année en cours.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>📖</span><p style={styles.emptyStateText}>Aucun programme trouvé pour cet enseignant sur l'année en cours.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {Object.entries(programmeProgressionCharge).map(([classeNom, prog]) => (
@@ -2582,7 +2611,7 @@ export default function CenseurDashboard() {
 
             <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginBottom: '12px', borderBottom: '2px solid #cbd5e1', paddingBottom: '6px' }}>Enseignants affiliés au réseau ({listeProfesseursEtablissement.length})</h3>
             {professeursFiltres.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun professeur trouvé.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>👨‍🏫</span><p style={styles.emptyStateText}>Aucun professeur trouvé. Invitez-en un par email ci-dessus pour commencer.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {professeursFiltres.map((prof, i) => (
@@ -2939,7 +2968,7 @@ export default function CenseurDashboard() {
 
             <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>📥 Propositions des enseignants en attente</h3>
             {demandesAttributionsRecues.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune proposition en attente.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>📥</span><p style={styles.emptyStateText}>Aucune proposition en attente.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {demandesAttributionsRecues.map(demande => {
@@ -2983,7 +3012,7 @@ export default function CenseurDashboard() {
             <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>🏫 Vue par classe</h3>
             <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>Chaque classe créée, avec tous les enseignants qui lui sont attribués, groupés par matière. Une classe vide signifie qu'aucun enseignant n'y est encore rattaché.</p>
             {classesEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune classe créée pour l'instant.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🏫</span><p style={styles.emptyStateText}>Aucune classe créée pour l'instant — utilisez l'un des formulaires ci-dessus pour commencer.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {classesEtablissement.map(cl => {
@@ -3031,7 +3060,7 @@ export default function CenseurDashboard() {
             </form>
 
             {matieresDisponibles.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune matière au catalogue pour l'instant.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>📖</span><p style={styles.emptyStateText}>Aucune matière au catalogue pour l'instant — ajoutez-en une ci-dessus.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {matieresDisponibles.map(m => {
@@ -3142,7 +3171,7 @@ export default function CenseurDashboard() {
             </div>
 
             {documentsEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun document stocké pour l'instant.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>📤</span><p style={styles.emptyStateText}>Aucun document stocké pour l'instant — uploadez-en un ci-dessus.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {documentsEtablissement.map(doc => (
@@ -3179,7 +3208,7 @@ export default function CenseurDashboard() {
             </div>
 
             {listeProfesseursEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun enseignant enregistré dans l'établissement.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>⏰</span><p style={styles.emptyStateText}>Aucun enseignant enregistré dans l'établissement pour l'instant.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {listeProfesseursEtablissement.map((prof, idx) => {
@@ -3332,7 +3361,7 @@ const styles = {
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   pInfo: { margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#0f172a' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '12px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '38vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },

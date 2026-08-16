@@ -1134,8 +1134,8 @@ export default function ChefEtablissementDashboard() {
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
-            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px' }}>E-cahier !</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.08)', padding: '6px 12px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.12)', flexShrink: 0 }}>
+            <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>E-cahier !</span>
             <span style={{ fontSize: '12px' }}>📖</span>
           </div>
 
@@ -1581,7 +1581,7 @@ export default function ChefEtablissementDashboard() {
 
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👥 Demandes d'affiliation reçues</h2>
             {demandesAffiliationRecues.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande en attente.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>📥</span><p style={styles.emptyStateText}>Aucune demande en attente.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {demandesAffiliationRecues.map(demande => (
@@ -1611,7 +1611,7 @@ export default function ChefEtablissementDashboard() {
 
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '28px 0 16px 0' }}>🚪 Demandes de départ</h2>
             {demandesDepartRecues.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune demande de départ en attente.</p>
+              <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🚪</span><p style={styles.emptyStateText}>Aucune demande de départ en attente.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {demandesDepartRecues.map(demande => {
@@ -1640,7 +1640,7 @@ export default function ChefEtablissementDashboard() {
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>👨‍🏫 Annuaire des Enseignants</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '28px' }}>
               {professeursFiltres.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun enseignant affilié pour l'instant.</p>
+                <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>👨‍🏫</span><p style={styles.emptyStateText}>Aucun enseignant affilié pour l'instant.</p></div>
               ) : professeursFiltres.map(prof => (
                 <div key={prof.affiliationId} style={styles.itemRow}>
                   <div style={{ flex: 1 }}>
@@ -1669,7 +1669,7 @@ export default function ChefEtablissementDashboard() {
             </form>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {personnelAdministratifManuel.length === 0 ? (
-                <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun membre du personnel enregistré.</p>
+                <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🗂️</span><p style={styles.emptyStateText}>Aucun membre du personnel enregistré.</p></div>
               ) : personnelAdministratifManuel.map(p => (
                 <div key={p.id} style={styles.itemRow}>
                   <div>
@@ -1715,7 +1715,7 @@ export default function ChefEtablissementDashboard() {
             </div>
 
             {fichesPedagogiquesParClasse.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucune fiche pour l'instant.</p>
+              <div style={styles.emptyState}><span style={styles.emptyStateIcon}>📚</span><p style={styles.emptyStateText}>Aucune fiche pour l'instant. Les fiches visées par le censeur apparaîtront ici automatiquement.</p></div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {fichesPedagogiquesParClasse.map(([classe, fiches]) => {
@@ -1782,7 +1782,7 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '12px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
-  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
+  navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '38vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },
   avatarNavbarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarNavbarPlaceholder: { fontSize: '14px', color: '#94a3b8' },

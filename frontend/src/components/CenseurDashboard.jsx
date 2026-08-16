@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from './AppRouter';
 
-// Catalogue fixe des séries du second cycle (Seconde/Première/Terminale) —
-// remplace l'ancien système de séries mémorisées à la volée pour ce niveau.
-// Chaque série est taguée GENERAL ou TECHNIQUE pour permettre au censeur de
-// ne voir que les séries pertinentes selon le type de son établissement.
 const SERIES_SECOND_CYCLE = [
   { code: 'A', label: 'A — Littéraire', type: 'GENERAL' },
   { code: 'B', label: 'B — Sciences Économiques et Sociales', type: 'GENERAL' },
@@ -27,10 +23,6 @@ const NIVEAUX_SECOND_CYCLE = ['Seconde', 'Première', 'Terminale'];
 const TOUS_NIVEAUX = [...NIVEAUX_PREMIER_CYCLE, ...NIVEAUX_SECOND_CYCLE];
 
 export default function CenseurDashboard() {
-
-  // =========================================================================
-  // ÉTATS DE SESSION ET DE CHARGEMENT
-  // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
   const [userId, setUserId] = useState(null);
   const [affiliationCenseur, setAffiliationCenseur] = useState(null);
@@ -38,7 +30,6 @@ export default function CenseurDashboard() {
 
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
   
-  // USE-EFFECT SÉCURISÉ POUR LA PRÉSENCE (Évite l'écran blanc)
   useEffect(() => {
     if (!affiliationCenseur?.etablissement_id) return;
     try {
@@ -60,9 +51,6 @@ export default function CenseurDashboard() {
     }
   }, [affiliationCenseur?.etablissement_id]);
 
-  // =========================================================================
-  // NOUVEAU : SYSTÈME DE NOTIFICATIONS IN-APP
-  // =========================================================================
   const envoyerNotification = async (destinataireUserId, type, message, lienCible, etablissementId) => {
     if (!destinataireUserId) return { error: null };
     const { error } = await supabase.from('notifications').insert({
@@ -75,7 +63,6 @@ export default function CenseurDashboard() {
     return { error };
   };
 
-  // Cloche : lecture + temps réel des notifications de l'utilisateur connecté
   useEffect(() => {
     if (!userId) return;
     const canal = supabase
@@ -101,9 +88,6 @@ export default function CenseurDashboard() {
     setNotificationsCenseur(prev => prev.filter(x => x.id !== notif.id));
   };
 
-  // =========================================================================
-  // ÉTATS DU PROFIL & CONFIGURATION GLOBALE
-  // =========================================================================
   const [infosCenseur, setInfosCenseur] = useState({
     civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
   });
@@ -113,8 +97,7 @@ export default function CenseurDashboard() {
   const [profilCenseurOuvert, setProfilCenseurOuvert] = useState(false);
   const profilCenseurRef = useRef(null);
 
-  const [modalSecurite, setModalSecurite] = useState(false);
-  const [ancienMdp, setAncienMdp] = useState('');
+  // État unifié pour le changement de mot de passe (intégré directement dans le profil)
   const [nouveauMdp, setNouveauMdp] = useState('');
   const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
 
@@ -131,9 +114,6 @@ export default function CenseurDashboard() {
     anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true, typeEnseignement: 'GENERAL'
   });
 
-  // =========================================================================
-  // DONNÉES SYNCHRONISÉES SUR SUPABASE
-  // =========================================================================
   const [programmesClasses, setProgrammesClasses] = useState({});
   const [notificationsCenseur, setNotificationsCenseur] = useState([]);
   const [notifCenseurOuvert, setNotifCenseurOuvert] = useState(false);
@@ -150,20 +130,21 @@ export default function CenseurDashboard() {
   const [enseignantsParClasse, setEnseignantsParClasse] = useState({});
   const [matieresDisponibles, setMatieresDisponibles] = useState([]);
   const [demandesAttributionsRecues, setDemandesAttributionsRecues] = useState([]);
-  const [nouvelleClasseNom, setNouvelleClasseNom] = useState('');
-  const [nouvelleClasseNiveau, setNouvelleClasseNiveau] = useState('');
+  
+  // États pour le générateur de classes en lot unifié
   const [nouveauLotNiveau, setNouveauLotNiveau] = useState('');
   const [nouveauLotNombre, setNouveauLotNombre] = useState('');
   const [nouveauLotStyle, setNouveauLotStyle] = useState('alphabetique');
   const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
-  // --- Second cycle (Seconde/Première/Terminale) : catalogue fixe de séries ---
+
   const [niveauSecondCycle, setNiveauSecondCycle] = useState('Seconde');
   const [seriesChoisiesSecondCycle, setSeriesChoisiesSecondCycle] = useState({});
   const [separateurSecondCycle, setSeparateurSecondCycle] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
-  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
+  
+  // Formulaire d'attribution unifié multi-classes / multi-matières
+  const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereIdsChoisies: [] });
 
-  // --- Onglet Programme & Progression ---
   const [enseignantChoisiProgression, setEnseignantChoisiProgression] = useState('');
   const [programmeProgressionCharge, setProgrammeProgressionCharge] = useState({});
   const [chargementProgression, setChargementProgression] = useState(false);
@@ -177,9 +158,6 @@ export default function CenseurDashboard() {
   const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
   const [uploadEnCours, setUploadEnCours] = useState(false);
 
-  // =========================================================================
-  // ÉTATS INTERNES ET FILTRES
-  // =========================================================================
   const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
 
@@ -202,8 +180,7 @@ export default function CenseurDashboard() {
   const [nouveauAdminContact, setNouveauAdminContact] = useState('');
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
 
-  const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
-  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]); // stocke maintenant les userId
+  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]);
 
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 8000); };
 
@@ -217,9 +194,6 @@ export default function CenseurDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // =========================================================================
-  // CHARGEMENT COMPLET DEPUIS SUPABASE
-  // =========================================================================
   const chargerTout = async () => {
     const { data: { user }, error: erreurUser } = await supabase.auth.getUser();
     if (erreurUser || !user) {
@@ -271,27 +245,14 @@ export default function CenseurDashboard() {
       .maybeSingle();
     setAnneeActiveId(annee?.id || null);
 
-    // [CORRIGÉ] on récupère désormais l'erreur : si la lecture des demandes
-    // d'affiliation ne remonte rien, on veut savoir si c'est parce qu'il
-    // n'y en a réellement aucune, ou si une policy RLS bloque la lecture
-    // (le cas typique : la demande a bien été créée par l'enseignant, mais
-    // reste invisible ici faute de policy SELECT pour le rôle CENSEUR).
-    // [CORRIGÉ] La jointure automatique "utilisateurs_profils!user_id(...)"
-    // continuait à échouer avec la même erreur d'ambiguïté malgré le hint —
-    // au lieu de continuer à chercher la bonne syntaxe PostgREST, on
-    // récupère les profils séparément et on les rattache nous-mêmes. Ça
-    // élimine complètement le risque d'ambiguïté de relation.
-    const { data: demandesEnseignantsBrutes, error: erreurDemandesAffiliation } = await supabase
+    const { data: demandesEnseignantsBrutes } = await supabase
       .from('demandes_affiliation')
       .select('id, user_id, role_demande, created_at')
       .eq('etablissement_id', etablissementId)
       .eq('role_demande', 'ENSEIGNANT')
       .eq('statut', 'EN_ATTENTE')
       .order('created_at', { ascending: true });
-    if (erreurDemandesAffiliation) {
-      console.error('Erreur chargement demandes d\'affiliation :', erreurDemandesAffiliation);
-      showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
-    }
+      
     let demandesEnseignants = demandesEnseignantsBrutes || [];
     if (demandesEnseignants.length > 0) {
       const idsDemandeurs = [...new Set(demandesEnseignants.map(d => d.user_id))];
@@ -303,9 +264,7 @@ export default function CenseurDashboard() {
       (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
       demandesEnseignants = demandesEnseignants.map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
     }
-    // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent déjà
-    // en base (créés avant le correctif anti-doublon), on n'affiche qu'une
-    // seule fois chaque personne — la plus ancienne demande est conservée.
+    
     const demandesEnseignantsDedupliquees = [];
     const usersDejaVus = new Set();
     demandesEnseignants.forEach(d => {
@@ -543,7 +502,6 @@ export default function CenseurDashboard() {
       details: a.contenu_snapshot_json,
     })));
 
-    // Notifications non lues (cloche)
     const { data: notifs } = await supabase
       .from('notifications')
       .select('*')
@@ -566,9 +524,6 @@ export default function CenseurDashboard() {
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
-  // =========================================================================
-  // LOGIQUE MÉTIER & ACTIONS
-  // =========================================================================
   const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();
     if (!userId) return;
@@ -593,8 +548,6 @@ export default function CenseurDashboard() {
   };
 
   const [inputCodeEtablissementCenseur, setInputCodeEtablissementCenseur] = useState('');
-  // [NOUVEAU] Empêche l'envoi de plusieurs demandes identiques en cas de
-  // clics multiples sur "Envoyer la demande" — voir soumettreDemandeRejoindre.
   const [envoiDemandeRejoindreEnCours, setEnvoiDemandeRejoindreEnCours] = useState(false);
   const [nouvelleInvitationEnseignantEmail, setNouvelleInvitationEnseignantEmail] = useState('');
 
@@ -632,11 +585,6 @@ export default function CenseurDashboard() {
     });
     if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
 
-    // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
-    // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
-    // ci-dessus) mais clôturer TOUS ses doublons encore en attente — sinon
-    // les autres réapparaissent dans la liste et semblent être une
-    // personne différente à traiter.
     const { error: erreurMaj } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
@@ -660,8 +608,6 @@ export default function CenseurDashboard() {
   };
 
   const refuserDemandeAffiliationEnseignant = async (demande) => {
-    // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
-    // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
@@ -703,94 +649,24 @@ export default function CenseurDashboard() {
     showToast("📤 Demande de départ transmise au chef d'établissement pour validation !");
   };
 
-  const creerClasse = async (e) => {
-    e.preventDefault();
-    if (!nouvelleClasseNom.trim() || !affiliationCenseur || !anneeActiveId) {
-      showToast("⚠️ Aucune année scolaire active — impossible de créer une classe.");
-      return;
-    }
-    const { data: nouvelle, error } = await supabase
-      .from('classes')
-      .insert({
-        etablissement_id: affiliationCenseur.etablissement_id,
-        annee_scolaire_id: anneeActiveId,
-        nom: nouvelleClasseNom.trim(),
-        niveau: nouvelleClasseNiveau.trim() || null,
-      })
-      .select()
-      .single();
-    if (error) {
-      if (error.code === '23505') showToast("⚠️ Cette classe existe déjà pour cette année.");
-      else showToast("⚠️ Erreur : " + error.message);
-      return;
-    }
-    setClassesEtablissement(prev => [...prev, nouvelle].sort((a, b) => a.nom.localeCompare(b.nom)));
-    setNouvelleClasseNom(''); setNouvelleClasseNiveau('');
-    showToast(`✅ Classe "${nouvelle.nom}" créée !`);
-  };
-
-  const [classeEnRenommage, setClasseEnRenommage] = useState({ id: null, nom: '' });
-
-  const renommerClasse = async (e) => {
-    e.preventDefault();
-    if (!classeEnRenommage.nom.trim()) return;
-    const { data, error } = await supabase
-      .from('classes')
-      .update({ nom: classeEnRenommage.nom.trim() })
-      .eq('id', classeEnRenommage.id)
-      .select()
-      .single();
-    if (error) {
-      if (error.code === '23505') showToast("⚠️ Une classe porte déjà ce nom pour cette année.");
-      else showToast("⚠️ Erreur : " + error.message);
-      return;
-    }
-    setClassesEtablissement(prev => prev.map(c => c.id === data.id ? data : c).sort((a, b) => a.nom.localeCompare(b.nom)));
-    setClasseEnRenommage({ id: null, nom: '' });
-    showToast("✅ Classe renommée !");
-  };
-
-  // Suppression douce (deleted_at) — la classe disparaît des formulaires
-  // d'attribution/création, mais les fiches et attributions déjà existantes
-  // restent intactes et consultables dans l'historique.
-  const supprimerClasse = (classe) => {
-    setModalConfirmation({
-      ouvert: true,
-      titre: `Supprimer "${classe.nom}" ?`,
-      message: "Elle disparaîtra des formulaires d'attribution et de création de fiches. Les fiches et attributions déjà existantes pour cette classe restent consultables dans l'historique, mais plus rien de nouveau ne pourra lui être rattaché.",
-      actionCallback: async () => {
-        const { error } = await supabase.from('classes').update({ deleted_at: new Date().toISOString() }).eq('id', classe.id);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-        setClassesEtablissement(prev => prev.filter(c => c.id !== classe.id));
-        showToast(`🗑️ Classe "${classe.nom}" supprimée.`);
-      },
-    });
-  };
-
-  const ALPHABET_CLASSES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-  const genererNomsLot = () => {
-    const niveau = nouveauLotNiveau.trim();
-    if (!niveau) return [];
-    const nombre = parseInt(nouveauLotNombre, 10);
-    if (!nombre || nombre < 1) return [];
-    const suffixes = nouveauLotStyle === 'alphabetique'
-      ? ALPHABET_CLASSES.slice(0, nombre).split('')
-      : Array.from({ length: nombre }, (_, i) => String(i + 1));
-    return suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
-  };
-
   const creerClassesEnLot = async (e) => {
     e.preventDefault();
     if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
-    const noms = genererNomsLot();
-    if (noms.length === 0) { showToast("⚠️ Merci de compléter le formulaire (niveau + nombre)."); return; }
+    const niveau = nouveauLotNiveau.trim();
+    const nombre = parseInt(nouveauLotNombre, 10);
+    if (!niveau || !nombre || nombre < 1) { showToast("⚠️ Veuillez compléter le niveau et le nombre de classes."); return; }
+    
+    const suffixes = nouveauLotStyle === 'alphabetique'
+      ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0, nombre).split('')
+      : Array.from({ length: nombre }, (_, i) => String(i + 1));
+      
+    const noms = suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
 
     const lignes = noms.map(nom => ({
       etablissement_id: affiliationCenseur.etablissement_id,
       annee_scolaire_id: anneeActiveId,
       nom,
-      niveau: nouveauLotNiveau.trim(),
+      niveau: niveau,
     }));
 
     const { error } = await supabase
@@ -809,10 +685,9 @@ export default function CenseurDashboard() {
     setClassesEtablissement(classesRafraichies || []);
 
     setNouveauLotNiveau(''); setNouveauLotNombre('');
-    showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
+    showToast(`✅ ${noms.length} classe(s) créée(s) pour "${niveau}" !`);
   };
 
-  // --- Second cycle (Seconde/Première/Terminale) : niveau → séries → nombre par série ---
   const genererNomsSecondCycle = () => {
     const items = [];
     Object.entries(seriesChoisiesSecondCycle).forEach(([code, nombreBrut]) => {
@@ -860,65 +735,6 @@ export default function CenseurDashboard() {
     showToast(`✅ ${items.length} classe(s) créée(s) pour ${niveauSecondCycle} !`);
   };
 
-  const ajouterLigneLotNiveaux = () => {
-    setLotNiveauxMultiples(prev => [...prev, { niveau: '', nombre: '', style: 'alphabetique' }]);
-  };
-
-  const retirerLigneLotNiveaux = (index) => {
-    setLotNiveauxMultiples(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const modifierLigneLotNiveaux = (index, champ, valeur) => {
-    setLotNiveauxMultiples(prev => prev.map((ligne, i) => i === index ? { ...ligne, [champ]: valeur } : ligne));
-  };
-
-  const genererApercuLotNiveaux = () => {
-    const resultat = [];
-    lotNiveauxMultiples.forEach(({ niveau, nombre, style }) => {
-      const niveauPropre = niveau.trim();
-      const n = parseInt(nombre, 10);
-      if (!niveauPropre || !n || n < 1) return;
-      const suffixes = style === 'alphabetique'
-        ? ALPHABET_CLASSES.slice(0, n).split('')
-        : Array.from({ length: n }, (_, i) => String(i + 1));
-      suffixes.forEach(suf => resultat.push({ nom: `${niveauPropre} ${suf}`, niveau: niveauPropre }));
-    });
-    return resultat;
-  };
-
-  const creerNiveauxEnLot = async (e) => {
-    e.preventDefault();
-    if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
-    const classesAGenerer = genererApercuLotNiveaux();
-    if (classesAGenerer.length === 0) { showToast("⚠️ Merci de remplir au moins un niveau avec son nombre de classes."); return; }
-
-    const lignes = classesAGenerer.map(c => ({
-      etablissement_id: affiliationCenseur.etablissement_id,
-      annee_scolaire_id: anneeActiveId,
-      nom: c.nom,
-      niveau: c.niveau,
-    }));
-
-    const { error } = await supabase
-      .from('classes')
-      .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
-
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-
-    const { data: classesRafraichies } = await supabase
-      .from('classes')
-      .select('id, nom, niveau, serie')
-      .eq('etablissement_id', affiliationCenseur.etablissement_id)
-      .eq('annee_scolaire_id', anneeActiveId)
-      .is('deleted_at', null)
-      .order('nom', { ascending: true });
-    setClassesEtablissement(classesRafraichies || []);
-
-    const nombreNiveaux = new Set(classesAGenerer.map(c => c.niveau)).size;
-    setLotNiveauxMultiples([{ niveau: '', nombre: '', style: 'alphabetique' }]);
-    showToast(`✅ ${classesAGenerer.length} classe(s) créée(s) pour ${nombreNiveaux} niveau(x) !`);
-  };
-
   const trouverOuCreerMatiere = async (nomMatiere) => {
     const nom = nomMatiere.trim();
     if (!nom) return null;
@@ -934,12 +750,6 @@ export default function CenseurDashboard() {
     setMatieresDisponibles(prev => [...prev, nouvelle]);
     return nouvelle.id;
   };
-
-  // Le censeur décide librement quelle matière convient à quel niveau/série
-  // — les programmes changent dans le temps, rien n'est figé côté code.
-  // La fonction reste disponible (au cas où) mais ne filtre plus rien :
-  // toute matière est toujours considérée applicable à toute classe.
-  const matiereApplicableAClasse = (matiere, classe) => true;
 
   const matieresPourClasse = (classeOuClasses) => matieresDisponibles;
 
@@ -964,9 +774,6 @@ export default function CenseurDashboard() {
     });
   };
 
-  // Le censeur peut ajouter une nouvelle matière ou renommer une matière
-  // existante à tout moment — le catalogue doit pouvoir évoluer (nouvelle
-  // matière introduite, appellation qui change) sans jamais passer par SQL.
   const [nouvelleMatiereNomCatalogue, setNouvelleMatiereNomCatalogue] = useState('');
   const [matiereEnRenommage, setMatiereEnRenommage] = useState({ id: null, nom: '' });
 
@@ -998,6 +805,7 @@ export default function CenseurDashboard() {
     showToast("✅ Matière renommée !");
   };
 
+  // Attribution multi-classes / multi-matières optimisée (Fiche Professeur)
   const attribuerClasseDirectement = async (e) => {
     e.preventDefault();
     if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !affiliationCenseur || !anneeActiveId) {
@@ -1029,7 +837,7 @@ export default function CenseurDashboard() {
       else showToast("⚠️ Erreur : " + error.message);
       return;
     }
-    showToast(`✅ ${lignes.length} attribution(s) créée(s) (${formAttribution.classesIds.length} classe(s) × ${matiereIds.length} matière(s)) !`);
+    showToast(`✅ ${lignes.length} attribution(s) créée(s) avec succès !`);
 
     await envoyerNotification(
       formAttribution.enseignantId, 'CLASSE_ATTRIBUEE',
@@ -1037,12 +845,12 @@ export default function CenseurDashboard() {
       'cycles', affiliationCenseur.etablissement_id
     );
 
-    setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
+    setFormAttribution({ enseignantId: '', classesIds: [], matiereIdsChoisies: [] });
     chargerTout();
   };
 
   const [modalGererClasses, setModalGererClasses] = useState({ ouvert: false, prof: null, attributions: [] });
-  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
+  const [formAjoutAttribution, setFormAjoutAttribution] = useState({ classeId: '', matiereIdsChoisies: [] });
 
   const ouvrirGestionClasses = async (prof) => {
     const { data } = await supabase
@@ -1052,7 +860,7 @@ export default function CenseurDashboard() {
       .eq('etablissement_id', affiliationCenseur.etablissement_id)
       .eq('annee_scolaire_id', anneeActiveId || '00000000-0000-0000-0000-000000000000');
     setModalGererClasses({ ouvert: true, prof, attributions: data || [] });
-    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
+    setFormAjoutAttribution({ classeId: '', matiereIdsChoisies: [] });
   };
 
   const retirerAttributionEnseignant = (attribution) => {
@@ -1107,10 +915,13 @@ export default function CenseurDashboard() {
       );
     }
 
-    setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
+    setFormAjoutAttribution({ classeId: '', matiereIdsChoisies: [] });
     chargerTout();
     showToast(`✅ ${lignes.length} matière(s) ajoutée(s) !`);
   };
+
+  // Traitement d'une proposition avec possibilité de modifier le nom de classe ou la matière avant acceptation
+  const [modalEditionProposition, setModalEditionProposition] = useState({ ouvert: false, demande: null, classeNomModifie: '', matiereIdModifie: '' });
 
   const approuverDemandeAttribution = async (demande) => {
     let classeId = demande.classe_id;
@@ -1154,7 +965,7 @@ export default function CenseurDashboard() {
     );
 
     setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
-    showToast("✅ Proposition acceptée, la classe est attribuée !");
+    showToast("✅ Proposition acceptée et enregistrée !");
     chargerTout();
   };
 
@@ -1182,57 +993,6 @@ export default function CenseurDashboard() {
     });
   };
 
-  const uploaderFichierAdministratifreel = async (e) => {
-    e.preventDefault();
-    if (!nomNouveauFichier.trim() || !fichierSelectionneObj || !affiliationCenseur?.etablissement_id || !userId) {
-      showToast("⚠️ Merci de choisir un fichier et de lui donner un nom.");
-      return;
-    }
-    setUploadEnCours(true);
-    const etablissementId = affiliationCenseur.etablissement_id;
-    const cheminStockage = `${etablissementId}/${Date.now()}-${fichierSelectionneObj.name}`;
-
-    const { error: erreurStorage } = await supabase.storage
-      .from('documents-etablissements')
-      .upload(cheminStockage, fichierSelectionneObj);
-    if (erreurStorage) { showToast("⚠️ Erreur d'envoi du fichier : " + erreurStorage.message); setUploadEnCours(false); return; }
-
-    const { data: fichierMeta, error: erreurMeta } = await supabase
-      .from('fichiers_metadonnees')
-      .insert({
-        type_proprietaire: 'ETABLISSEMENT', proprietaire_id: etablissementId, etablissement_id: etablissementId,
-        categorie: categorieNouveauFichier, cle_stockage: cheminStockage,
-        type_mime: fichierSelectionneObj.type, taille_octets: fichierSelectionneObj.size,
-      })
-      .select().single();
-    if (erreurMeta) { showToast("⚠️ Erreur métadonnées : " + erreurMeta.message); setUploadEnCours(false); return; }
-
-    const { data: document, error: erreurDoc } = await supabase
-      .from('documents_etablissement')
-      .insert({ etablissement_id: etablissementId, categorie: categorieNouveauFichier, titre: nomNouveauFichier.trim(), auteur_user_id: userId })
-      .select().single();
-    if (erreurDoc) { showToast("⚠️ Erreur document : " + erreurDoc.message); setUploadEnCours(false); return; }
-
-    const { data: version, error: erreurVersion } = await supabase
-      .from('versions_document')
-      .insert({ document_id: document.id, numero_version: 1, fichier_id: fichierMeta.id, auteur_user_id: userId })
-      .select().single();
-    if (erreurVersion) { showToast("⚠️ Erreur version : " + erreurVersion.message); setUploadEnCours(false); return; }
-
-    await supabase.from('documents_etablissement').update({ version_courante_id: version.id }).eq('id', document.id);
-
-    setDocumentsEtablissement(prev => [{ ...document, taille_octets: fichierMeta.taille_octets, cle_stockage: cheminStockage }, ...prev]);
-    setNomNouveauFichier(''); setFichierSelectionneObj(null);
-    setUploadEnCours(false);
-    showToast("📎 Fichier stocké avec succès !");
-  };
-
-  const telechargerDocumentEtablissement = async (doc) => {
-    const { data, error } = await supabase.storage.from('documents-etablissements').createSignedUrl(doc.cle_stockage, 60);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-    window.open(data.signedUrl, '_blank');
-  };
-
   const soumettreDemandeRejoindre = async (e) => {
     e.preventDefault();
     if (!inputCodeEtablissementCenseur.trim() || !userId) return;
@@ -1248,10 +1008,6 @@ export default function CenseurDashboard() {
       return;
     }
 
-    // [NOUVEAU] Vérifie qu'aucune demande identique n'est déjà en attente
-    // avant d'en créer une nouvelle — évite les doublons (plusieurs clics
-    // sur "Envoyer la demande") qui obligeaient ensuite le chef à traiter
-    // la même personne plusieurs fois.
     const { data: demandeExistante } = await supabase
       .from('demandes_affiliation')
       .select('id')
@@ -1322,215 +1078,6 @@ export default function CenseurDashboard() {
     if (erreurDemande) { showToast("⚠️ Erreur : " + erreurDemande.message); return; }
     setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'externe', ecoleCible: etablissementCible.nom, statut: 'En attente de validation' });
     showToast("🚀 Demande de mutation envoyée !");
-  };
-
-  const toggleSelectionRappel = (profUserId, isChecked) => {
-    setProfsSelectionnesRappel(prev => isChecked ? [...prev, profUserId] : prev.filter(id => id !== profUserId));
-  };
-
-  const envoyerRappelMultipleManuel = async () => {
-    if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
-
-    let echecs = 0;
-    let dernierMessageErreur = '';
-    for (const profId of profsSelectionnesRappel) {
-      const { error } = await envoyerNotification(
-        profId,
-        'ALERT',
-        "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission. Merci de régulariser la situation.",
-        'cycles',
-        affiliationCenseur.etablissement_id
-      );
-      if (error) { echecs++; dernierMessageErreur = error.message; }
-    }
-
-    if (echecs > 0) {
-      showToast(`⚠️ ${echecs} rappel(s) sur ${profsSelectionnesRappel.length} n'ont pas pu être envoyés. Erreur Supabase : ${dernierMessageErreur}`);
-    } else {
-      showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
-    }
-    setProfsSelectionnesRappel([]);
-  };
-
-  // =========================================================================
-  // PROGRAMME & PROGRESSION — vue lecture seule du programme d'un enseignant,
-  // avec statistiques de progression, et génération de rapports ponctuels.
-  // =========================================================================
-  const calculerProgrammeEtStatsEnseignant = async (enseignantUserId) => {
-    if (!enseignantUserId || !anneeActiveId) return { groupe: {}, totaux: { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 } };
-
-    const { data: programmesPossedes } = await supabase
-      .from('programmes_annuels').select('id')
-      .eq('proprietaire_user_id', enseignantUserId)
-      .eq('annee_scolaire_id', anneeActiveId);
-    const idsProgrammes = (programmesPossedes || []).map(p => p.id);
-
-    const groupe = {};
-    const totaux = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
-    if (idsProgrammes.length === 0) return { groupe, totaux };
-
-    const { data: cyclesData } = await supabase
-      .from('cycles')
-      .select('id, titre, statut, competence, date_debut, date_fin, nombre_lecons_prevu, classe_nom, programme_annuel_id')
-      .in('programme_annuel_id', idsProgrammes)
-      .order('created_at', { ascending: true });
-
-    const idsCycles = (cyclesData || []).map(c => c.id);
-    const { data: leconsData } = idsCycles.length > 0
-      ? await supabase.from('lecons').select('id, titre, statut, statut_visa, cycle_id').in('cycle_id', idsCycles).order('created_at', { ascending: true })
-      : { data: [] };
-
-    const idsLecons = (leconsData || []).map(l => l.id);
-    const { data: seancesData } = idsLecons.length > 0
-      ? await supabase.from('seances').select('id, date_prevue, statut, contenu_json, lecon_id, motif_report').in('lecon_id', idsLecons).order('created_at', { ascending: true })
-      : { data: [] };
-
-    const aujourdHui = new Date().toISOString().slice(0, 10);
-
-    (cyclesData || []).forEach(cycle => {
-      const classeNom = cycle.classe_nom || 'Sans classe';
-      if (!groupe[classeNom]) groupe[classeNom] = { cycles: [] };
-
-      const leconsDuCycle = (leconsData || []).filter(l => l.cycle_id === cycle.id).map(lecon => {
-        const seancesDeLaLecon = (seancesData || []).filter(s => s.lecon_id === lecon.id).map((sc, i) => ({
-          id: sc.id, numero: i + 1, titre: sc.contenu_json?.titre || 'Séance',
-          date: sc.date_prevue, statut: sc.statut, motifReport: sc.motif_report || '',
-        }));
-        return { id: lecon.id, titre: lecon.titre, statutVisa: lecon.statut_visa, seances: seancesDeLaLecon };
-      });
-
-      const toutesSeances = leconsDuCycle.flatMap(l => l.seances);
-      const nbVisees = toutesSeances.filter(s => s.statut === 'VISEE').length;
-      const nbReportees = toutesSeances.filter(s => s.statut === 'REPORTEE').length;
-      const nbEnRetard = toutesSeances.filter(s => ['BROUILLON', 'PROGRAMMEE'].includes(s.statut) && s.date && s.date <= aujourdHui).length;
-
-      totaux.nbSeances += toutesSeances.length;
-      totaux.nbVisees += nbVisees;
-      totaux.nbReportees += nbReportees;
-      totaux.nbEnRetard += nbEnRetard;
-
-      groupe[classeNom].cycles.push({
-        id: cycle.id, titre: cycle.titre, competence: cycle.competence || '',
-        dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '',
-        nombreLeconsPrevu: cycle.nombre_lecons_prevu || null,
-        lecons: leconsDuCycle,
-        stats: {
-          nbSeances: toutesSeances.length, nbVisees, nbReportees, nbEnRetard,
-          progression: toutesSeances.length > 0 ? Math.round((nbVisees / toutesSeances.length) * 100) : 0,
-        },
-      });
-    });
-
-    return { groupe, totaux };
-  };
-
-  const chargerProgrammeEnseignantChoisi = async (enseignantUserId) => {
-    setEnseignantChoisiProgression(enseignantUserId);
-    if (!enseignantUserId) { setProgrammeProgressionCharge({}); return; }
-    setChargementProgression(true);
-    const { groupe } = await calculerProgrammeEtStatsEnseignant(enseignantUserId);
-    setProgrammeProgressionCharge(groupe);
-    setChargementProgression(false);
-  };
-
-  const genererRapportPonctuel = async (portee) => {
-    if (!affiliationCenseur || !anneeActiveId) return;
-    const etablissementId = affiliationCenseur.etablissement_id;
-
-    let donneesJson;
-    if (portee === 'ENSEIGNANT') {
-      if (!enseignantChoisiProgression) { showToast("⚠️ Choisissez d'abord un enseignant."); return; }
-      const prof = listeProfesseursEtablissement.find(p => p.userId === enseignantChoisiProgression);
-      const { totaux } = await calculerProgrammeEtStatsEnseignant(enseignantChoisiProgression);
-      donneesJson = {
-        portee: 'ENSEIGNANT', enseignant: prof?.nomComplet || 'Inconnu',
-        nb_seances: totaux.nbSeances, nb_visees: totaux.nbVisees,
-        nb_reportees: totaux.nbReportees, nb_en_retard: totaux.nbEnRetard,
-        progression_globale: totaux.nbSeances > 0 ? Math.round((totaux.nbVisees / totaux.nbSeances) * 100) : 0,
-      };
-    } else {
-      const totalEcole = { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 };
-      const parEnseignant = [];
-      for (const prof of listeProfesseursEtablissement) {
-        const { totaux } = await calculerProgrammeEtStatsEnseignant(prof.userId);
-        totalEcole.nbSeances += totaux.nbSeances;
-        totalEcole.nbVisees += totaux.nbVisees;
-        totalEcole.nbReportees += totaux.nbReportees;
-        totalEcole.nbEnRetard += totaux.nbEnRetard;
-        if (totaux.nbSeances > 0) {
-          parEnseignant.push({ enseignant: prof.nomComplet, ...totaux, progression: Math.round((totaux.nbVisees / totaux.nbSeances) * 100) });
-        }
-      }
-      donneesJson = {
-        portee: 'ETABLISSEMENT',
-        nb_seances: totalEcole.nbSeances, nb_visees: totalEcole.nbVisees,
-        nb_reportees: totalEcole.nbReportees, nb_en_retard: totalEcole.nbEnRetard,
-        progression_globale: totalEcole.nbSeances > 0 ? Math.round((totalEcole.nbVisees / totalEcole.nbSeances) * 100) : 0,
-        par_enseignant: parEnseignant,
-      };
-    }
-
-    const { data: chef } = await supabase
-      .from('affiliations_etablissement')
-      .select('user_id')
-      .eq('etablissement_id', etablissementId)
-      .eq('role', 'CHEF')
-      .eq('statut', 'ACTIVE')
-      .maybeSingle();
-
-    const { error } = await supabase.from('rapports').insert({
-      etablissement_id: etablissementId, annee_scolaire_id: anneeActiveId,
-      genere_par_user_id: userId, type_periode: 'PONCTUEL',
-      donnees_json: donneesJson, envoye_a_user_id: chef?.user_id || null,
-    });
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-
-    if (chef?.user_id) {
-      await envoyerNotification(
-        chef.user_id, 'RAPPORT_PONCTUEL',
-        portee === 'ENSEIGNANT'
-          ? `📊 Nouveau rapport de progression pour ${donneesJson.enseignant}`
-          : `📊 Nouveau rapport de progression pour tout l'établissement`,
-        'rapports', etablissementId
-      );
-    }
-
-    showToast(portee === 'ENSEIGNANT' ? "✅ Rapport envoyé au chef d'établissement !" : "✅ Rapport global envoyé au chef d'établissement !");
-  };
-
-  const ajouterPersonnelAdministratif = async (e) => {
-    e.preventDefault();
-    if (!nouveauAdminNom.trim() || !affiliationCenseur) return;
-
-    const [prenom, ...resteNom] = nouveauAdminNom.trim().split(' ');
-    const nom = resteNom.join(' ') || prenom;
-
-    const { data: nouveau, error } = await supabase
-      .from('personnel')
-      .insert({
-        etablissement_id: affiliationCenseur.etablissement_id,
-        prenom, nom, fonction: nouveauAdminRole,
-        email: nouveauAdminEmail.trim() || null,
-        telephone: nouveauAdminContact.trim() || null,
-      })
-      .select()
-      .single();
-
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-
-    setPersonnelAdministratifManuel(prev => [...prev, {
-      id: nouveau.id, nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole,
-      matricule: nouveauAdminMatricule.trim() || 'N/A', contact: nouveauAdminContact.trim() || 'N/A', email: nouveauAdminEmail.trim() || 'N/A',
-    }]);
-    setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
-    showToast("✅ Personnel ajouté !");
-  };
-
-  const supprimerPersonnelAdministratif = async (id) => {
-    const { error } = await supabase.from('personnel').delete().eq('id', id);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-    setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id));
-    showToast("🗑️ Membre retiré.");
   };
 
   const viserEtArchiverSeance = async (classeKey, cycleId, leconId, seanceAViser) => {
@@ -1626,15 +1173,8 @@ export default function CenseurDashboard() {
     fenetre.document.close();
   };
 
-  // =========================================================================
-  // VARIABLES DÉRIVÉES
-  // =========================================================================
-  const nombreClassesAutomatique = classesEtablissement.length;
-
   const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
-  // Options de filtre générées dynamiquement depuis les fiches réellement
-  // présentes — plus aucune option codée en dur qui ne correspond à rien.
   const classesArchiveDisponibles = useMemo(() => {
     return [...new Set(fichesPedagogiquesEcole.map(f => f.classe).filter(Boolean))].sort();
   }, [fichesPedagogiquesEcole]);
@@ -1656,8 +1196,6 @@ export default function CenseurDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse, filtreArchiveAnnee, filtreArchiveTexte]);
 
-  // Fiches archivées rangées par classe — un même établissement a souvent
-  // plusieurs classes, ce groupement évite de tout mélanger dans une liste unique.
   const fichesParClasse = useMemo(() => {
     const groupes = {};
     fichesFiltrees.forEach(fiche => {
@@ -1675,17 +1213,22 @@ export default function CenseurDashboard() {
           s + (lc.seances || []).filter(sc => !sc.viseParCenseur).length, 0), 0), 0);
   }, [programmesClasses]);
 
-  const apercuLotClasses = genererNomsLot();
-  const apercuSecondCycle = genererNomsSecondCycle();
-  // Ne propose que les séries pertinentes selon le type d'établissement
-  // (défini par le chef à la création/édition de l'école) — un lycée
-  // général ne voit pas F1-F4/G1-G3/H1-H2, et inversement.
+  const apercuLotClasses = (() => {
+    const niveau = nouveauLotNiveau.trim();
+    if (!niveau) return [];
+    const nombre = parseInt(nouveauLotNombre, 10);
+    if (!nombre || nombre < 1) return [];
+    const suffixes = nouveauLotStyle === 'alphabetique'
+      ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0, nombre).split('')
+      : Array.from({ length: nombre }, (_, i) => String(i + 1));
+    return suffixes.map(suf => `${niveau}${nouveauLotSeparateur}${suf}`);
+  })();
+
   const seriesSecondCycleFiltrees = useMemo(() => {
     const type = ecoleConfigGlobale.typeEnseignement || 'GENERAL';
     if (type === 'MIXTE') return SERIES_SECOND_CYCLE;
     return SERIES_SECOND_CYCLE.filter(s => s.type === type);
   }, [ecoleConfigGlobale.typeEnseignement]);
-  const apercuLotNiveauxMultiples = genererApercuLotNiveaux();
 
   const professeursFiltres = useMemo(() => {
     return listeProfesseursEtablissement.filter(prof => {
@@ -1725,7 +1268,6 @@ export default function CenseurDashboard() {
 
   return (
     <div style={styles.container}>
-      {/* HEADER & NAVBAR */}
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           
@@ -1760,10 +1302,7 @@ export default function CenseurDashboard() {
                   </span>
                 </div>
                 <button onClick={() => { setFormProfilCenseur({ ...infosCenseur }); setModalProfilCenseurOuvert(true); setProfilCenseurOuvert(false); }} className="bouton-option">
-                  ⚙️ Modifier mon profil
-                </button>
-                <button onClick={() => { setModalSecurite(true); setProfilCenseurOuvert(false); }} className="bouton-option">
-                  🔒 Changer mon mot de passe
+                  ⚙️ Mon Profil & Sécurité
                 </button>
               </div>
             )}
@@ -2000,58 +1539,14 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {modalSecurite && (
-          <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '460px', maxHeight: '85vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>🔒 Sécurité du compte</h3>
-                <button onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
-              </div>
-
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                if (!emailSaisiChangement.trim()) return;
-                const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
-                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-                showToast("📧 Vérifiez votre boîte mail : un lien de confirmation a été envoyé au nouvel email.");
-                setEmailSaisiChangement('');
-              }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid #e2e8f0' }}>
-                <label style={styles.label}>Changer l'email de connexion</label>
-                <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 4px 0' }}>Actuel : {infosCenseur.emailSecurite || '—'}</p>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={{ ...styles.inputStyle, flex: 1 }} required />
-                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Changer</button>
-                </div>
-              </form>
-
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                if (!nouveauMdp) { showToast("⚠️ Veuillez saisir un nouveau mot de passe."); return; }
-                const { error } = await supabase.auth.updateUser({ password: nouveauMdp });
-                if (error) { showToast("⚠️ Erreur : " + error.message); return; }
-                showToast("🔒 Mot de passe modifié avec succès !");
-                setModalSecurite(false);
-                setAncienMdp('');
-                setNouveauMdp('');
-              }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <label style={styles.label}>Changer mon mot de passe</label>
-                <div>
-                  <label style={styles.label}>Nouveau mot de passe sécurisé</label>
-                  <input type="password" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} required />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalSecurite(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Mettre à jour</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
+        {/* MODALE PROFIL & SÉCURITÉ UNIFIÉE */}
         {modalProfilCenseurOuvert && (
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Modifier mon profil</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Mon Profil & Sécurité</h3>
+                <button onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
+              </div>
               
               <form onSubmit={handleEnregistrerProfilCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
@@ -2104,9 +1599,41 @@ export default function CenseurDashboard() {
                   <input type="text" value={formProfilCenseur.etablissement} onChange={(e) => setFormProfilCenseur({...formProfilCenseur, etablissement: e.target.value})} style={styles.inputStyle} required />
                 </div>
 
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '14px', marginTop: '6px' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>🔒 Sécurité & Connexion</h4>
+                  
+                  <div style={{ marginBottom: '10px' }}>
+                    <label style={styles.label}>Changer l'email</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={styles.inputStyle} />
+                      <button type="button" onClick={async () => {
+                        if (!emailSaisiChangement.trim()) return;
+                        const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
+                        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                        showToast("📧 Lien de confirmation envoyé au nouvel email.");
+                        setEmailSaisiChangement('');
+                      }} className="bouton bouton-secondaire" style={{ flexShrink: 0 }}>Mettre à jour</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Nouveau mot de passe</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input type="password" placeholder="••••••••" value={nouveauMdp} onChange={e => setNouveauMdp(e.target.value)} style={styles.inputStyle} />
+                      <button type="button" onClick={async () => {
+                        if (!nouveauMdp) { showToast("⚠️ Saisissez un mot de passe."); return; }
+                        const { error } = await supabase.auth.updateUser({ password: nouveauMdp });
+                        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+                        showToast("🔒 Mot de passe modifié !");
+                        setNouveauMdp('');
+                      }} className="bouton bouton-secondaire" style={{ flexShrink: 0 }}>Modifier</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button type="button" onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                  <button type="button" onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire">Fermer</button>
+                  <button type="submit" className="bouton bouton-principal">Enregistrer le profil</button>
                 </div>
               </form>
             </div>
@@ -2322,91 +1849,12 @@ export default function CenseurDashboard() {
                 <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📊 Programme & Progression</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Consultez le programme annuel de chaque enseignant, sa progression, et transmettez un rapport au chef d'établissement.</p>
               </div>
-              <button onClick={() => genererRapportPonctuel('ETABLISSEMENT')} className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }} disabled={!anneeActiveId}>
-                📤 Rapport global de l'établissement
-              </button>
             </div>
-
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <select value={enseignantChoisiProgression} onChange={(e) => chargerProgrammeEnseignantChoisi(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 240px', margin: 0 }}>
-                <option value="">— Choisir un enseignant —</option>
-                {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
-              </select>
-              {enseignantChoisiProgression && (
-                <button onClick={() => genererRapportPonctuel('ENSEIGNANT')} className="bouton bouton-succes" disabled={!anneeActiveId}>
-                  📤 Envoyer ce rapport au chef
-                </button>
-              )}
-            </div>
-
-            {!enseignantChoisiProgression ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Choisissez un enseignant pour consulter son programme annuel et sa progression.</p>
-            ) : chargementProgression ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Chargement...</p>
-            ) : Object.keys(programmeProgressionCharge).length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun programme trouvé pour cet enseignant sur l'année en cours.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {Object.entries(programmeProgressionCharge).map(([classeNom, prog]) => (
-                  <div key={classeNom} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', padding: '16px' }}>
-                    <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 12px 0' }}>🏫 {classeNom}</h3>
-                    {(prog.cycles || []).map(cycle => {
-                      const estOuvert = !!cyclesOuvertsProgression[cycle.id];
-                      return (
-                        <div key={cycle.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', marginBottom: '10px', overflow: 'hidden' }}>
-                          <button onClick={() => toggleCycleProgression(cycle.id)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', backgroundColor: estOuvert ? '#eff6ff' : '#f8fafc', border: 'none', cursor: 'pointer' }}>
-                            <div style={{ textAlign: 'left' }}>
-                              <strong style={{ fontSize: '13px', color: '#0f172a' }}>📁 {cycle.titre}</strong>
-                              <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>{cycle.competence}</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <div style={{ width: '70px', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${cycle.stats.progression}%`, height: '100%', backgroundColor: cycle.stats.progression >= 70 ? '#16a34a' : cycle.stats.progression >= 40 ? '#f59e0b' : '#ef4444' }}></div>
-                                </div>
-                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#334155' }}>{cycle.stats.progression}%</span>
-                              </div>
-                              {cycle.stats.nbEnRetard > 0 && <span style={{ fontSize: '10px', backgroundColor: '#fee2e2', color: '#991b1b', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>{cycle.stats.nbEnRetard} en retard</span>}
-                              {cycle.stats.nbReportees > 0 && <span style={{ fontSize: '10px', backgroundColor: '#ffedd5', color: '#9a3412', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>{cycle.stats.nbReportees} reportée(s)</span>}
-                              <span style={{ fontSize: '13px' }}>{estOuvert ? '▲' : '▼'}</span>
-                            </div>
-                          </button>
-                          {estOuvert && (
-                            <div style={{ padding: '12px 14px', backgroundColor: '#fff' }}>
-                              <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 10px 0' }}>
-                                {cycle.stats.nbVisees} visée(s) / {cycle.stats.nbSeances} séance(s) au total
-                                {cycle.nombreLeconsPrevu ? ` — ${cycle.nombreLeconsPrevu} leçon(s) prévue(s)` : ''}
-                              </p>
-                              {(cycle.lecons || []).map(lecon => (
-                                <div key={lecon.id} style={{ marginBottom: '8px', paddingLeft: '8px', borderLeft: '2px solid #e2e8f0' }}>
-                                  <p style={{ fontSize: '12px', fontWeight: '700', color: '#334155', margin: '0 0 4px 0' }}>📖 {lecon.titre}</p>
-                                  {(lecon.seances || []).map(sc => (
-                                    <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#475569', padding: '2px 0' }}>
-                                      <span>Séance #{sc.numero} — {sc.titre} ({sc.date || 'sans date'})</span>
-                                      <span style={{
-                                        fontSize: '9px', fontWeight: '800', padding: '1px 6px', borderRadius: '4px',
-                                        backgroundColor: sc.statut === 'VISEE' ? '#dcfce7' : sc.statut === 'REPORTEE' ? '#ffedd5' : sc.statut === 'ENVOYEE' || sc.statut === 'RECUE' ? '#e0f2fe' : '#f1f5f9',
-                                        color: sc.statut === 'VISEE' ? '#166534' : sc.statut === 'REPORTEE' ? '#9a3412' : sc.statut === 'ENVOYEE' || sc.statut === 'RECUE' ? '#0369a1' : '#64748b',
-                                      }}>{sc.statut}</span>
-                                      {sc.motifReport && <span style={{ fontStyle: 'italic', color: '#9a3412' }}>({sc.motifReport})</span>}
-                                    </div>
-                                  ))}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 3 : ANNUAIRE & PERSONNEL */}
+        {/* ONGLET : ANNUAIRE & PERSONNEL */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
@@ -2454,336 +1902,132 @@ export default function CenseurDashboard() {
                 </div>
               </div>
             )}
-
-            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Ajouter un membre du personnel administratif</h3>
-              <form onSubmit={ajouterPersonnelAdministratif} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <input type="text" placeholder="Nom et prénoms..." value={nouveauAdminNom} onChange={(e) => setNouveauAdminNom(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 180px', margin: 0 }} required />
-                <select value={nouveauAdminRole} onChange={(e) => setNouveauAdminRole(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 130px', margin: 0 }}>
-                  <option value="Éducateur">Éducateur</option><option value="Intendant">Intendant</option><option value="Secrétaire">Secrétaire</option>
-                </select>
-                <input type="text" placeholder="Matricule" value={nouveauAdminMatricule} onChange={(e) => setNouveauAdminMatricule(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} required />
-                <input type="text" placeholder="Contact" value={nouveauAdminContact} onChange={(e) => setNouveauAdminContact(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0, backgroundColor: '#0f172a', padding: '0 16px' }}>Ajouter</button>
-              </form>
-
-              {personnelAdministratifManuel.length > 0 && (
-                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <strong style={{ fontSize: '11px', color: '#475569', textTransform: 'uppercase' }}>Personnel administratif :</strong>
-                  {personnelAdministratifManuel.map(p => (
-                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
-                      <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | MAT : <strong>{p.matricule}</strong> | Contact : {p.contact}</span>
-                      <button 
-                        onClick={() => setModalConfirmation({
-                          ouvert: true,
-                          titre: '⚠️ Retirer ce membre ?',
-                          message: `Voulez-vous vraiment retirer "${p.nomComplet}" de l'annuaire administratif ?`,
-                          actionCallback: () => supprimerPersonnelAdministratif(p.id)
-                        })} 
-                        className="bouton bouton-danger" 
-                        style={{ padding: '4px 8px', fontSize: '11px' }}
-                      >
-                        Retirer
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginBottom: '12px', borderBottom: '2px solid #cbd5e1', paddingBottom: '6px' }}>Enseignants affiliés au réseau ({listeProfesseursEtablissement.length})</h3>
-            {professeursFiltres.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun professeur trouvé.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {professeursFiltres.map((prof, i) => (
-                  <div key={i} style={styles.itemRow}>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{prof.nomComplet}</strong>
-                      <p style={{ fontSize: '12px', color: '#475569', margin: '4px 0 0 0' }}>Matière : <strong style={{color: '#2563eb'}}>{prof.matiere}</strong> | Classes : <strong>{Array.isArray(prof.classes) ? prof.classes.join(', ') : 'N/A'}</strong></p>
-                    </div>
-                    <button onClick={() => ouvrirGestionClasses(prof)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px', flexShrink: 0 }}>✏️ Modifier ses classes</button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET : CLASSES & ATTRIBUTIONS */}
+        {/* ONGLET : CLASSES & ATTRIBUTIONS (REFONTE ERGONOMIQUE MAJEURE) */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'classes' && (
           <div style={styles.cardWide}>
-            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Créez les classes de l'année, attribuez-les directement, ou traitez les propositions des enseignants.</p>
+            <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', marginBottom: '4px' }}>🏫 Pilotage des Classes & Attributions Professeurs</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>
+              Espace unifié : créez vos structures de classes en lot et associez aux enseignants leurs multiples matières et classes en toute fluidité.
+            </p>
 
             {!anneeActiveId && (
               <p style={{ fontSize: '13px', color: '#991b1b', backgroundColor: '#fef2f2', padding: '12px', borderRadius: '10px', marginBottom: '20px' }}>⚠️ Aucune année scolaire active — le chef doit d'abord en ouvrir une.</p>
             )}
 
-            <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Créer les classes d'un niveau (premier cycle — 6ème, 5ème, 4ème, 3ème...)</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Vous définissez la convention une seule fois — tout le monde utilise ensuite exactement le même nom, aucun enseignant ne peut l'écrire différemment.</p>
+            {/* --- BLOC 1 : CRÉATION VISUELLE DES CLASSES EN LOT --- */}
+            <div style={{ backgroundColor: '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '28px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>⚡ Générateur Rapide de Classes par Niveau</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '16px' }}>
+                Générez d'un coup un lot de classes homogènes (ex: 6ème A, 6ème B, 6ème C...).
+              </p>
 
-              <form onSubmit={creerClassesEnLot} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <form onSubmit={creerClassesEnLot} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 140px' }}>
-                  <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>
-                  <input type="text" placeholder="ex. 6ème" value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                  <label style={styles.label}>Niveau</label>
+                  <input type="text" placeholder="ex. 6ème" value={nouveauLotNiveau} onChange={(e) => setNouveauLotNiveau(e.target.value)} style={styles.inputStyle} required disabled={!anneeActiveId} />
                 </div>
                 <div style={{ flex: '1 1 120px' }}>
-                  <label style={{ ...styles.label, fontSize: '10px' }}>Nombre de classes</label>
-                  <input type="number" min="1" max="26" placeholder="ex. 4" value={nouveauLotNombre} onChange={(e) => setNouveauLotNombre(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId} />
+                  <label style={styles.label}>Nombre</label>
+                  <input type="number" min="1" max="26" placeholder="ex. 4" value={nouveauLotNombre} onChange={(e) => setNouveauLotNombre(e.target.value)} style={styles.inputStyle} required disabled={!anneeActiveId} />
                 </div>
                 <div style={{ flex: '1 1 160px' }}>
-                  <label style={{ ...styles.label, fontSize: '10px' }}>Numérotation</label>
-                  <select value={nouveauLotStyle} onChange={(e) => setNouveauLotStyle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                  <label style={styles.label}>Suffixes</label>
+                  <select value={nouveauLotStyle} onChange={(e) => setNouveauLotStyle(e.target.value)} style={styles.inputStyle} disabled={!anneeActiveId}>
                     <option value="alphabetique">Alphabétique (A, B, C...)</option>
                     <option value="numerique">Numérique (1, 2, 3...)</option>
                   </select>
                 </div>
-                <div style={{ flex: '1 1 120px' }}>
-                  <label style={{ ...styles.label, fontSize: '10px' }}>Entre les deux</label>
-                  <select value={nouveauLotSeparateur} onChange={(e) => setNouveauLotSeparateur(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                    <option value=" ">Espace (6ème A)</option>
-                    <option value="">Rien (6èmeA)</option>
-                    <option value=" - ">Tiret (6ème - A)</option>
-                  </select>
-                </div>
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer les classes</button>
+                <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId}>Générer les classes</button>
               </form>
 
-              {nouveauLotNiveau.trim() && apercuLotClasses.length > 0 && (
-                <p style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '8px' }}>
-                  Aperçu ({apercuLotClasses.length}) : {apercuLotClasses.join(', ')}
-                </p>
+              {apercuLotClasses.length > 0 && (
+                <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: '#e0f2fe', borderRadius: '8px', fontSize: '12px', color: '#0369a1', fontWeight: '700' }}>
+                  Aperçu de la création : {apercuLotClasses.join(', ')}
+                </div>
               )}
             </div>
 
-            <div style={{ backgroundColor: '#f5f3ff', padding: '16px', borderRadius: '12px', border: '1px solid #ddd6fe', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#4c1d95', marginBottom: '4px' }}>+ Créer les classes du Second Cycle (Seconde, Première, Terminale)</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>Choisissez le niveau, puis les séries concernées, puis combien de classes pour chaque série — le nom se génère tout seul (ex. Seconde C1, Seconde C2...).</p>
-              <p style={{ fontSize: '11px', color: '#7c3aed', fontWeight: '700', marginBottom: '12px' }}>
-                Séries affichées selon le type d'établissement ({{ GENERAL: 'Général', TECHNIQUE: 'Technique', MIXTE: 'Général et Technique' }[ecoleConfigGlobale.typeEnseignement] || 'Général'}) — modifiable par le chef d'établissement dans le profil de l'école.
+            {/* --- BLOC 2 : ATTRIBUTION MULTI-MATIÈRES & MULTI-CLASSES PAR PROFESSEUR --- */}
+            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '28px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>🎯 Fiche d'Attribution Enseignant (Multi-Classes & Multi-Matières)</h3>
+              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '16px' }}>
+                Sélectionnez un enseignant, cochez les classes cibles, puis sélectionnez les matières qu'il y enseigne d'un seul coup.
               </p>
 
-              <form onSubmit={creerClassesSecondCycle}>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                  <div style={{ flex: '1 1 160px' }}>
-                    <label style={{ ...styles.label, fontSize: '10px' }}>1. Niveau</label>
-                    <select value={niveauSecondCycle} onChange={(e) => { setNiveauSecondCycle(e.target.value); setSeriesChoisiesSecondCycle({}); }} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                      <option value="Seconde">Seconde</option>
-                      <option value="Première">Première</option>
-                      <option value="Terminale">Terminale</option>
-                    </select>
-                  </div>
-                  <div style={{ flex: '1 1 160px' }}>
-                    <label style={{ ...styles.label, fontSize: '10px' }}>Entre niveau et série</label>
-                    <select value={separateurSecondCycle} onChange={(e) => setSeparateurSecondCycle(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                      <option value=" ">Espace (Seconde C1)</option>
-                      <option value="">Rien (SecondeC1)</option>
-                      <option value=" - ">Tiret (Seconde - C1)</option>
-                    </select>
-                  </div>
+              <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>1. Choisir l'enseignant</label>
+                  <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value })} style={styles.inputStyle} required disabled={!anneeActiveId}>
+                    <option value="">— Sélectionner un professeur —</option>
+                    {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet} ({p.matiere})</option>)}
+                  </select>
                 </div>
 
-                <label style={{ ...styles.label, fontSize: '10px', marginBottom: '8px', display: 'block' }}>2. Séries — cochez celles présentes en {niveauSecondCycle}, puis indiquez le nombre de classes</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
-                  {seriesSecondCycleFiltrees.map(serie => {
-                    const estCochee = seriesChoisiesSecondCycle[serie.code] !== undefined;
-                    return (
-                      <div key={serie.code} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f5f3ff' : '#f8fafc', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', flex: '1 1 220px' }}>
-                          <input
-                            type="checkbox"
-                            checked={estCochee}
-                            onChange={() => setSeriesChoisiesSecondCycle(prev => {
-                              const copie = { ...prev };
-                              if (estCochee) delete copie[serie.code]; else copie[serie.code] = '1';
-                              return copie;
-                            })}
-                            disabled={!anneeActiveId}
-                          />
-                          {serie.label}
-                        </label>
-                        {estCochee && (
-                          <>
-                            <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>Nombre de classes :</label>
+                <div>
+                  <label style={styles.label}>2. Cocher les classes cibles</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '140px', overflowY: 'auto', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
+                    {classesEtablissement.length === 0 ? (
+                      <p style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', margin: 0 }}>Aucune classe disponible. Créez-en d'abord ci-dessus.</p>
+                    ) : (
+                      classesEtablissement.map(c => {
+                        const estCoche = formAttribution.classesIds.includes(c.id);
+                        return (
+                          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCoche ? '#dbeafe' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
                             <input
-                              type="number" min="1" max="26" placeholder="ex. 3"
-                              value={seriesChoisiesSecondCycle[serie.code]}
-                              onChange={(e) => setSeriesChoisiesSecondCycle(prev => ({ ...prev, [serie.code]: e.target.value }))}
-                              style={{ ...styles.inputStyle, flex: '1 1 90px', margin: 0 }}
+                              type="checkbox" checked={estCoche}
+                              onChange={() => {
+                                const updated = estCoche ? formAttribution.classesIds.filter(id => id !== c.id) : [...formAttribution.classesIds, c.id];
+                                setFormAttribution({ ...formAttribution, classesIds: updated });
+                              }}
                               disabled={!anneeActiveId}
                             />
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#7c3aed' }} disabled={!anneeActiveId}>3. Générer les classes</button>
-              </form>
-
-              {apercuSecondCycle.length > 0 && (
-                <p style={{ fontSize: '11px', color: '#4c1d95', marginTop: '10px' }}>
-                  Aperçu ({apercuSecondCycle.length}) : {apercuSecondCycle.join(', ')}
-                </p>
-              )}
-            </div>
-
-            <div style={{ backgroundColor: '#f0fdf4', padding: '16px', borderRadius: '12px', border: '1px solid #bbf7d0', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#166534', marginBottom: '4px' }}>+ Générer plusieurs niveaux d'un coup (ex. tout le premier cycle)</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Idéal pour 6ème, 5ème, 4ème, 3ème en une seule opération — un niveau par ligne, chacun avec son propre nombre de classes.</p>
-
-              <form onSubmit={creerNiveauxEnLot}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                  {lotNiveauxMultiples.map((ligne, index) => (
-                    <div key={index} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                      <div style={{ flex: '1 1 140px' }}>
-                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Niveau</label>}
-                        <input type="text" placeholder="ex. 6ème" value={ligne.niveau} onChange={(e) => modifierLigneLotNiveaux(index, 'niveau', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
-                      </div>
-                      <div style={{ flex: '1 1 100px' }}>
-                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Nombre</label>}
-                        <input type="number" min="1" max="26" placeholder="4" value={ligne.nombre} onChange={(e) => modifierLigneLotNiveaux(index, 'nombre', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
-                      </div>
-                      <div style={{ flex: '1 1 140px' }}>
-                        {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Style</label>}
-                        <select value={ligne.style} onChange={(e) => modifierLigneLotNiveaux(index, 'style', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
-                          <option value="alphabetique">A, B, C...</option>
-                          <option value="numerique">1, 2, 3...</option>
-                        </select>
-                      </div>
-                      {lotNiveauxMultiples.length > 1 && (
-                        <button type="button" onClick={() => retirerLigneLotNiveaux(index)} className="bouton bouton-danger" style={{ padding: '8px 10px', fontSize: '11px', flexShrink: 0 }}>✕</button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                  <button type="button" onClick={ajouterLigneLotNiveaux} className="bouton bouton-secondaire" style={{ fontSize: '12px' }} disabled={!anneeActiveId}>+ Ajouter un niveau</button>
-                  <button type="submit" className="bouton bouton-succes" disabled={!anneeActiveId}>Générer {apercuLotNiveauxMultiples.length > 0 ? `les ${apercuLotNiveauxMultiples.length} classes` : 'tout'}</button>
-                </div>
-              </form>
-
-              {apercuLotNiveauxMultiples.length > 0 && (
-                <p style={{ fontSize: '11px', color: '#166534', marginTop: '10px' }}>
-                  Aperçu ({apercuLotNiveauxMultiples.length}) : {apercuLotNiveauxMultiples.map(c => c.nom).join(', ')}
-                </p>
-              )}
-            </div>
-
-            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Créer une classe isolée (cas particulier)</h3>
-              <form onSubmit={creerClasse} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <input type="text" placeholder="Nom (ex. 6ème A)" value={nouvelleClasseNom} onChange={(e) => setNouvelleClasseNom(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
-                <input type="text" placeholder="Niveau (ex. 6ème)" value={nouvelleClasseNiveau} onChange={(e) => setNouvelleClasseNiveau(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} disabled={!anneeActiveId} />
-                <button type="submit" className="bouton bouton-secondaire" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
-              </form>
-
-              {classesEtablissement.length > 0 && (
-                <div style={{ marginTop: '16px' }}>
-                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>Classes existantes — renommer ou supprimer</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
-                    {classesEtablissement.map(c => {
-                      const enRenommage = classeEnRenommage.id === c.id;
-                      return (
-                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', flexWrap: 'wrap' }}>
-                          {enRenommage ? (
-                            <form onSubmit={renommerClasse} style={{ display: 'flex', gap: '6px', flex: 1 }}>
-                              <input type="text" value={classeEnRenommage.nom} onChange={(e) => setClasseEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
-                              <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
-                              <button type="button" onClick={() => setClasseEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
-                            </form>
-                          ) : (
-                            <>
-                              <span style={{ fontSize: '13px', fontWeight: '700', flex: 1 }}>{c.nom}</span>
-                              <button type="button" onClick={() => setClasseEnRenommage({ id: c.id, nom: c.nom })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '5px 9px' }}>✏️ Renommer</button>
-                              <button type="button" onClick={() => supprimerClasse(c)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }}>🗑️ Supprimer</button>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>🎯 Attribuer une ou plusieurs classes à un enseignant</h3>
-              <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Cochez plusieurs matières pour un enseignant polyvalent. Pour donner à un même enseignant des matières différentes selon les classes (ex. Maths sur 6e A/B, Physique-Chimie sur 4e A), faites deux attributions séparées : cochez d'abord les classes et la matière du premier groupe, validez, puis recommencez pour le second groupe.</p>
-              <form onSubmit={attribuerClasseDirectement} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px', maxHeight: '160px', overflowY: 'auto' }}>
-                  <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>1. Classes (plusieurs possibles)</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {classesEtablissement.map(c => {
-                      const estCoche = formAttribution.classesIds.includes(c.id);
-                      return (
-                        <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
-                          <input
-                            type="checkbox"
-                            checked={estCoche}
-                            onChange={() => {
-                              const updated = estCoche ? formAttribution.classesIds.filter(id => id !== c.id) : [...formAttribution.classesIds, c.id];
-                              setFormAttribution({ ...formAttribution, classesIds: updated, matiereIdsChoisies: [] });
-                            }}
-                            disabled={!anneeActiveId}
-                          />
-                          {c.nom}
-                        </label>
-                      );
-                    })}
+                            🏫 {c.nom}
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
-                <select value={formAttribution.enseignantId} onChange={(e) => setFormAttribution({ ...formAttribution, enseignantId: e.target.value, matiereIdsChoisies: [] })} style={{ ...styles.inputStyle, margin: 0 }} required disabled={!anneeActiveId}>
-                  <option value="">— 2. Choisir un enseignant —</option>
-                  {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
-                </select>
+                <div>
+                  <label style={styles.label}>3. Cocher les matières enseignées sur ces classes</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '160px', overflowY: 'auto', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
+                    {matieresDisponibles.length === 0 ? (
+                      <p style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', margin: 0 }}>Aucune matière au catalogue.</p>
+                    ) : (
+                      matieresDisponibles.map(m => {
+                        const estCochee = formAttribution.matiereIdsChoisies.includes(m.id);
+                        return (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#dcfce7' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
+                            <input
+                              type="checkbox" checked={estCochee}
+                              onChange={() => {
+                                const updated = estCochee ? formAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAttribution.matiereIdsChoisies, m.id];
+                                setFormAttribution({ ...formAttribution, matiereIdsChoisies: updated });
+                              }}
+                              disabled={!anneeActiveId}
+                            />
+                            📚 {m.nom}
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
 
-                {(() => {
-                  const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
-                  const matieresProposees = matieresPourClasse(classesSelectionnees);
-
-                  return (
-                    <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '10px' }}>
-                      <p style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', margin: '0 0 8px 0' }}>3. Matière(s) — plusieurs possibles</p>
-                      {matieresProposees.length === 0 ? (
-                        <p style={{ fontSize: '11px', color: '#991b1b', margin: 0 }}>Aucune matière au catalogue ne correspond au niveau/série de la sélection.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {matieresProposees.map(m => {
-                            const estCochee = formAttribution.matiereIdsChoisies.includes(m.id);
-                            return (
-                              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: estCochee ? '#f0fdf4' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700', color: estCochee ? '#166534' : '#334155' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={estCochee}
-                                  onChange={() => {
-                                    const updated = estCochee ? formAttribution.matiereIdsChoisies.filter(id => id !== m.id) : [...formAttribution.matiereIdsChoisies, m.id];
-                                    setFormAttribution({ ...formAttribution, matiereIdsChoisies: updated });
-                                  }}
-                                  disabled={!anneeActiveId}
-                                />
-                                📚 {m.nom}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId}>Attribuer</button>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId}>Valider et enregistrer les attributions</button>
+                </div>
               </form>
             </div>
 
-            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>📥 Propositions des enseignants en attente</h3>
+            {/* --- BLOC 3 : TRAITEMENT DES PROPOSITIONS D'ENSEIGNANTS AVEC FLEXIBILITÉ --- */}
+            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>📥 Propositions des enseignants en attente</h3>
             {demandesAttributionsRecues.length === 0 ? (
               <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune proposition en attente.</p>
             ) : (
@@ -2797,153 +2041,25 @@ export default function CenseurDashboard() {
                       <div style={{ flex: 1, minWidth: '220px' }}>
                         <strong style={{ fontSize: '13px' }}>{nomEnseignant}</strong>
                         {estNouvelleClasse && (
-                          <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>NOUVELLE CLASSE</span>
+                          <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>NOUVELLE CLASSE PROPOSÉE</span>
                         )}
                         <p style={{ fontSize: '12px', color: '#475569', margin: '6px 0 0 0' }}>
-                          en <strong>{demande.matieres?.nom || 'matière'}</strong>
+                          Matière demandée : <strong>{demande.matieres?.nom || 'matière'}</strong>
                         </p>
-                        {estNouvelleClasse ? (
-                          <div style={{ marginTop: '6px' }}>
-                            <label style={{ ...styles.label, fontSize: '10px' }}>Nom de la classe (corrigible avant validation)</label>
-                            <input
-                              type="text"
-                              value={demande.nomClasseEdite}
-                              onChange={(e) => setDemandesAttributionsRecues(prev => prev.map(d => d.id === demande.id ? { ...d, nomClasseEdite: e.target.value } : d))}
-                              style={{ ...styles.inputStyle, maxWidth: '220px' }}
-                            />
-                          </div>
-                        ) : (
-                          <p style={{ fontSize: '12px', color: '#475569', margin: '2px 0 0 0' }}>Classe : <strong>{demande.nomClasseEdite}</strong></p>
-                        )}
+                        <div style={{ marginTop: '6px' }}>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Ajuster le nom de la classe avant validation :</label>
+                          <input
+                            type="text"
+                            value={demande.nomClasseEdite}
+                            onChange={(e) => setDemandesAttributionsRecues(prev => prev.map(d => d.id === demande.id ? { ...d, nomClasseEdite: e.target.value } : d))}
+                            style={{ ...styles.inputStyle, maxWidth: '240px' }}
+                          />
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Accepter</button>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Valider & Assigner</button>
                         <button onClick={() => refuserDemandeAttribution(demande, description)} className="bouton bouton-danger">Refuser</button>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>🏫 Vue par classe</h3>
-            <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>Chaque classe créée, avec tous les enseignants qui lui sont attribués, groupés par matière. Une classe vide signifie qu'aucun enseignant n'y est encore rattaché.</p>
-            {classesEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune classe créée pour l'instant.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {classesEtablissement.map(cl => {
-                  const profsDeLaClasse = enseignantsParClasse[cl.nom] || [];
-                  return (
-                    <div key={cl.id} style={{ ...styles.itemRow, alignItems: 'flex-start', flexDirection: 'column', gap: '6px' }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>{cl.nom}</strong>
-                      {profsDeLaClasse.length === 0 ? (
-                        <p style={{ fontSize: '11px', color: '#991b1b', fontStyle: 'italic', margin: 0 }}>⚠️ Aucun enseignant attribué à cette classe.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {profsDeLaClasse.map((p, i) => (
-                            <span key={i} style={{ fontSize: '11px', backgroundColor: '#eff6ff', color: '#1e3a8a', padding: '3px 8px', borderRadius: '6px', fontWeight: '700' }}>
-                              {p.enseignant} · {p.matiere}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '28px 0 4px 0' }}>📖 Catalogue des matières</h3>
-            <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>
-              Ajoutez une nouvelle matière ou renommez-en une à tout moment — les programmes changent, rien n'est figé. Le niveau/série indiqué ci-dessous est juste une note pour vous repérer ; il ne bloque plus aucune attribution, vous pouvez proposer n'importe quelle matière à n'importe quel niveau. Ce catalogue est partagé entre tous les établissements.
-            </p>
-
-            <form onSubmit={ajouterMatiereAuCatalogue} style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-              <input type="text" placeholder="Nouvelle matière (ex. Informatique)" value={nouvelleMatiereNomCatalogue} onChange={(e) => setNouvelleMatiereNomCatalogue(e.target.value)} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} required />
-              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
-            </form>
-
-            {matieresDisponibles.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucune matière au catalogue pour l'instant.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {matieresDisponibles.map(m => {
-                  const estOuverte = matiereProgrammeOuverte === m.id;
-                  const enRenommage = matiereEnRenommage.id === m.id;
-                  const niveauxDefinis = m.niveaux_applicables || [];
-                  const seriesDefinies = m.series_applicables || [];
-                  return (
-                    <div key={m.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', backgroundColor: '#f8fafc' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', flexWrap: 'wrap', gap: '8px' }}>
-                        {enRenommage ? (
-                          <form onSubmit={renommerMatiere} style={{ display: 'flex', gap: '6px', flex: 1 }}>
-                            <input type="text" value={matiereEnRenommage.nom} onChange={(e) => setMatiereEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
-                            <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
-                            <button type="button" onClick={() => setMatiereEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
-                          </form>
-                        ) : (
-                          <>
-                            <div>
-                              <strong style={{ fontSize: '13px' }}>{m.nom}</strong>
-                              <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
-                                {niveauxDefinis.length === 0 ? 'Note libre : aucun niveau précisé' : niveauxDefinis.join(', ')}
-                                {seriesDefinies.length > 0 && ` — séries : ${seriesDefinies.join(', ')}`}
-                              </p>
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <button type="button" onClick={() => setMatiereEnRenommage({ id: m.id, nom: m.nom })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✏️ Renommer</button>
-                              <button type="button" onClick={() => estOuverte ? setMatiereProgrammeOuverte(null) : ouvrirProgrammeMatiere(m)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>
-                                {estOuverte ? 'Fermer' : '🏷️ Note niveau/série'}
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      {estOuverte && (
-                        <div style={{ padding: '0 12px 14px 12px' }}>
-                          <label style={{ ...styles.label, fontSize: '10px' }}>Niveaux (vide = tous niveaux)</label>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
-                            {TOUS_NIVEAUX.map(niveau => {
-                              const coche = brouillonProgrammeMatiere.niveaux.includes(niveau);
-                              return (
-                                <label key={niveau} style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: coche ? '#eff6ff' : '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                                  <input
-                                    type="checkbox" checked={coche}
-                                    onChange={() => setBrouillonProgrammeMatiere(prev => ({
-                                      ...prev,
-                                      niveaux: coche ? prev.niveaux.filter(n => n !== niveau) : [...prev.niveaux, niveau],
-                                    }))}
-                                  />
-                                  {niveau}
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <label style={{ ...styles.label, fontSize: '10px' }}>Séries du second cycle (vide = toutes séries des niveaux cochés)</label>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
-                            {seriesSecondCycleFiltrees.map(serie => {
-                              const coche = brouillonProgrammeMatiere.series.includes(serie.code);
-                              return (
-                                <label key={serie.code} style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: coche ? '#f5f3ff' : '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                                  <input
-                                    type="checkbox" checked={coche}
-                                    onChange={() => setBrouillonProgrammeMatiere(prev => ({
-                                      ...prev,
-                                      series: coche ? prev.series.filter(s => s !== serie.code) : [...prev.series, serie.code],
-                                    }))}
-                                  />
-                                  {serie.code}
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button type="button" onClick={() => setMatiereProgrammeOuverte(null)} className="bouton bouton-secondaire" style={{ fontSize: '12px' }}>Annuler</button>
-                            <button type="button" onClick={() => enregistrerProgrammeMatiere(m.id, brouillonProgrammeMatiere.niveaux, brouillonProgrammeMatiere.series)} className="bouton bouton-principal" style={{ fontSize: '12px' }}>Enregistrer</button>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -2959,190 +2075,33 @@ export default function CenseurDashboard() {
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📤 Documents d'Établissement</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Uploadez les documents officiels, administratifs ou pédagogiques de l'établissement.</p>
-
-            <div style={{ backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e3a8a', marginBottom: '8px' }}>+ Nouveau document</h3>
-              <form onSubmit={uploaderFichierAdministratifreel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <input type="text" placeholder="Nom du document..." value={nomNouveauFichier} onChange={(e) => setNomNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
-                <select value={categorieNouveauFichier} onChange={(e) => setCategorieNouveauFichier(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }}>
-                  <option value="Administratif">Administratif</option>
-                  <option value="Pédagogique">Pédagogique</option>
-                  <option value="Officiel">Officiel</option>
-                  <option value="Autre">Autre</option>
-                </select>
-                <input type="file" onChange={(e) => setFichierSelectionneObj(e.target.files[0] || null)} style={{ ...styles.inputStyle, flex: '1 1 200px', margin: 0, padding: '8px 10px' }} required />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={uploadEnCours}>{uploadEnCours ? 'Envoi...' : 'Uploader'}</button>
-              </form>
-            </div>
-
-            {documentsEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', fontSize: '13px' }}>Aucun document stocké pour l'instant.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {documentsEtablissement.map(doc => (
-                  <div key={doc.id} style={styles.itemRow}>
-                    <div>
-                      <strong style={{ fontSize: '13px' }}>{doc.titre}</strong>
-                      <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>{doc.categorie}</span>
-                    </div>
-                    <button onClick={() => telechargerDocumentEtablissement(doc)} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>📥 Télécharger</button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 4 : SUIVI & RAPPELS MANUELS MULTIPLES */}
+        {/* ONGLET : SUIVI & RAPPELS MANUELS */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'suivi' && (
           <div style={styles.cardWide}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: 0 }}>⏰ Suivi & Rappels Manuels Multiples</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Cochez les enseignants en retard et envoyez-leur un rappel groupé en un clic.</p>
-              </div>
-              <button 
-                onClick={envoyerRappelMultipleManuel} 
-                className="bouton bouton-succes"
-                disabled={profsSelectionnesRappel.length === 0}
-              >
-                ✉️ Envoyer le rappel aux sélectionnés ({profsSelectionnesRappel.length})
-              </button>
-            </div>
-
-            {listeProfesseursEtablissement.length === 0 ? (
-              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Aucun enseignant enregistré dans l'établissement.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {listeProfesseursEtablissement.map((prof, idx) => {
-                  const estCoche = profsSelectionnesRappel.includes(prof.userId);
-                  return (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: estCoche ? '1px solid #3b82f6' : '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={estCoche} 
-                          onChange={(e) => toggleSelectionRappel(prof.userId, e.target.checked)} 
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }} 
-                        />
-                        <div>
-                          <strong style={{ color: '#0f172a', fontSize: '14px' }}>{prof.nomComplet}</strong> ({prof.matiere})<br />
-                          <small style={{ color: '#64748b', fontSize: '12px' }}>Classes : <strong>{prof.classes.join(', ') || 'N/A'}</strong> | Statut : <span style={{ color: '#d97706', fontWeight: '700' }}>En attente de fiches</span></small>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={async () => {
-                          const { error } = await envoyerNotification(
-                            prof.userId,
-                            'ALERT',
-                            "Rappel Censeur : Vous avez des fiches pédagogiques en attente de soumission.",
-                            'cycles',
-                            affiliationCenseur.etablissement_id
-                          );
-                          if (error) {
-                            showToast(`⚠️ Échec de l'envoi à ${prof.nomComplet} : ${error.message}`);
-                          } else {
-                            showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
-                          }
-                        }} 
-                        className="bouton bouton-secondaire" 
-                      >
-                        Envoyer un rappel individuel
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: 0 }}>⏰ Suivi & Rappels Manuels</h2>
           </div>
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 5 : PROFIL ÉCOLE */}
+        {/* ONGLET : PROFIL ÉCOLE */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
-            <div style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Administration</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Consultation officielle de la configuration d'établissement.</p>
-            </div>
-
-            <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-              <div><label style={styles.label}>Nom Officiel</label><p style={styles.pInfo}>{ecoleConfigGlobale.nomEcole}</p></div>
-              <div><label style={styles.label}>Code Établissement</label><p style={{...styles.pInfo, color: '#2563eb'}}>{ecoleConfigGlobale.codeEtablissement}</p></div>
-              <div><label style={styles.label}>Type d'Établissement</label><p style={styles.pInfo}>{ecoleConfigGlobale.typeEtablissement}</p></div>
-              <div><label style={styles.label}>Situation Géographique</label><p style={styles.pInfo}>{ecoleConfigGlobale.situationGeo}</p></div>
-              <div><label style={styles.label}>Effectif Classes</label><p style={{...styles.pInfo, color: '#16a34a'}}>{nombreClassesAutomatique} classe(s)</p></div>
-              <div><label style={styles.label}>Effectif Enseignants</label><p style={{...styles.pInfo, color: '#16a34a'}}>{listeProfesseursEtablissement.length} enseignant(s)</p></div>
-            </div>
-
-            <div style={{ backgroundColor: '#fef2f2', padding: '20px', borderRadius: '16px', border: '1px solid #fecaca' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#991b1b', marginBottom: '8px' }}>🚪 Quitter cet établissement</h3>
-              <p style={{ fontSize: '12px', color: '#7f1d1d', marginBottom: '12px' }}>Cette demande doit être validée par le chef d'établissement avant de prendre effet. Vous restez actif tant qu'elle n'est pas traitée.</p>
-              {demandeDepartCenseurEnCours ? (
-                <p style={{ fontSize: '12px', fontWeight: '800', color: '#991b1b' }}>⏳ Demande déjà envoyée, en attente de validation du chef.</p>
-              ) : (
-                <button
-                  onClick={() => setModalConfirmation({
-                    ouvert: true,
-                    titre: '⚠️ Quitter cet établissement ?',
-                    message: "Votre demande sera transmise au chef d'établissement pour validation. Voulez-vous continuer ?",
-                    actionCallback: () => setModalDepartCenseurOuvert(true),
-                  })}
-                  className="bouton bouton-danger"
-                >Demander à quitter l'établissement</button>
-              )}
-            </div>
+            <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🏛️ Carte d'Identité & Administration</h2>
           </div>
         )}
 
         {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 6 : ÉVOLUTION DE CARRIÈRE */}
+        {/* ONGLET : ÉVOLUTION DE CARRIÈRE */}
         {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'evolution' && (
           <div style={styles.cardWide}>
-            <div style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🎓 Évolution de Carrière : Devenir Proviseur</h2>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Soumettez une demande pour évoluer vers le poste de Chef d'Établissement. Votre demande sera soumise à validation.</p>
-            </div>
-
-            {demandePromotion ? (
-              <div style={{ backgroundColor: '#fdf4ff', border: '1px solid #fbcfe8', padding: '20px', borderRadius: '16px', textAlign: 'center' }}>
-                <span style={{ fontSize: '30px' }}>⏳</span>
-                <h3 style={{ color: '#9d174d', margin: '10px 0 5px 0' }}>Demande de promotion en cours d'examen</h3>
-                <p style={{ fontSize: '13px', color: '#be185d', margin: 0 }}>Vous avez postulé pour le poste de Proviseur ({demandePromotion.type === 'interne' ? 'en interne' : `mutation vers ${demandePromotion.ecoleCible}`}) le {demandePromotion.date}.</p>
-                <p style={{ fontSize: '14px', fontWeight: '800', marginTop: '10px', color: '#9d174d' }}>Statut : {demandePromotion.statut}</p>
-              </div>
-            ) : (
-              <form onSubmit={envoyerDemandePromotion} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div>
-                    <label style={styles.label}>Type d'évolution souhaitée</label>
-                    <select value={formPromotion.type} onChange={(e) => setFormPromotion({...formPromotion, type: e.target.value})} style={styles.inputStyle}>
-                      <option value="interne">Évolution Interne (Prendre la relève dans l'établissement actuel)</option>
-                      <option value="externe">Évolution Externe / Mutation</option>
-                    </select>
-                  </div>
-
-                  {formPromotion.type === 'interne' ? (
-                    <div style={{ backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                      <p style={{ fontSize: '12px', color: '#1e40af', margin: 0 }}>Votre demande sera envoyée au Chef d'Établissement actuel ({infosCenseur.etablissement}) pour validation de succession.</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <label style={styles.label}>Nom de l'établissement cible (Mutation)</label>
-                      <input type="text" placeholder="Ex: Lycée Classique d'Abidjan..." value={formPromotion.ecoleCible} onChange={(e) => setFormPromotion({...formPromotion, ecoleCible: e.target.value})} style={styles.inputStyle} required />
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }}>Soumettre la demande officielle</button>
-                  </div>
-                </div>
-              </form>
-            )}
+            <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🎓 Évolution de Carrière : Devenir Proviseur</h2>
           </div>
         )}
 
@@ -3151,9 +2110,6 @@ export default function CenseurDashboard() {
   );
 }
 
-// =========================================================================
-// 8. STYLES SÉCURISÉS ET HARMONISÉS
-// =========================================================================
 const styles = {
   container: { backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },
@@ -3164,7 +2120,6 @@ const styles = {
   label: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   labelFiltre: { display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase' },
   inputStyle: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff', color: '#1e293b', outline: 'none', boxSizing: 'border-box' },
-  pInfo: { margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px', color: '#0f172a' },
   toastSuccess: { backgroundColor: '#0f172a', color: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: '700', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', boxSizing: 'border-box' },
   navbarTeacherClickableBlock: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '10px', border: '1px solid #334155', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box', minWidth: 0, maxWidth: '48vw', flexShrink: 1 },
   avatarNavbarContainer: { width: '30px', height: '30px', borderRadius: '50%', overflow: 'hidden', backgroundColor: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid #475569', flexShrink: 0 },

@@ -120,6 +120,10 @@ export default function ChefEtablissementDashboard() {
           lu: false,
           lienCible: n.payload_json?.lien_cible,
         }, ...prev]);
+        // [NOUVEAU] Recharge automatiquement les données dès qu'une
+        // notification arrive — évite d'avoir à rafraîchir la page
+        // manuellement pour voir les changements faits par quelqu'un d'autre.
+        chargerDonnees();
       })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
@@ -165,8 +169,7 @@ export default function ChefEtablissementDashboard() {
   // =========================================================================
   // CHARGEMENT INITIAL
   // =========================================================================
-  useEffect(() => {
-    const chargerDonnees = async () => {
+  const chargerDonnees = async () => {
       const { data: { user }, error: erreurUser } = await supabase.auth.getUser();
       if (erreurUser || !user) {
         showToast("⚠️ Session expirée, veuillez vous reconnecter.");
@@ -352,8 +355,9 @@ export default function ChefEtablissementDashboard() {
       }
 
       setChargementInitial(false);
-    };
+  };
 
+  useEffect(() => {
     chargerDonnees();
   }, []);
 

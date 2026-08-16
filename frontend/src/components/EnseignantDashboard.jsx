@@ -213,6 +213,11 @@ export default function EnseignantDashboard() {
           lu: false,
           lienCible: n.payload_json?.lien_cible,
         }, ...prev]);
+        // [NOUVEAU] Recharge automatiquement les données dès qu'une
+        // notification arrive — évite d'avoir à rafraîchir la page
+        // manuellement pour voir les changements faits par quelqu'un d'autre
+        // (ex. le censeur qui attribue une classe).
+        chargerTout();
       })
       .subscribe();
     return () => { supabase.removeChannel(canal); };

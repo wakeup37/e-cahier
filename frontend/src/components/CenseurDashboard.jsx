@@ -120,6 +120,13 @@ export default function CenseurDashboard() {
           lu: false,
           lienCible: n.payload_json?.lien_cible,
         }, ...prev]);
+        // [NOUVEAU] Presque toute action importante (attribution, visa,
+        // demande traitée...) envoie déjà une notification — on en profite
+        // pour recharger automatiquement les données du dashboard dès
+        // qu'une notification arrive, au lieu d'obliger à rafraîchir la
+        // page manuellement pour voir les changements faits par quelqu'un
+        // d'autre.
+        chargerTout();
       })
       .subscribe();
     return () => { supabase.removeChannel(canal); };

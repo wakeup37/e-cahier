@@ -24,6 +24,7 @@ export default function AppRouter() {
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
+  const [afficherMdpConfirmation, setAfficherMdpConfirmation] = useState(false);
 
   const [etapeChoixEtablissement, setEtapeChoixEtablissement] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix');
@@ -46,8 +47,10 @@ export default function AppRouter() {
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
+  const [mdpConfirmationSaisi, setMdpConfirmationSaisi] = useState('');
 
   const [notification, setNotification] = useState('');
+  const [envoiAuthEnCours, setEnvoiAuthEnCours] = useState(false);
 
   const [demandesAffiliation, setDemandesAffiliation] = useState([]);
   const [seances, setSeances] = useState([]);
@@ -82,15 +85,12 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
-  // Déconnexion optimisée : vide complètement le stockage et force le rechargement
   const gererDeconnexionGlobale = async () => {
     try { 
       await supabase.auth.signOut(); 
     } catch (err) { 
       console.error("Erreur lors de la déconnexion Supabase", err); 
     }
-    localStorage.clear();
-    sessionStorage.clear();
     setUserRole('');
     setSessionUser(null);
     setProfilUtilisateur(null);
@@ -99,9 +99,6 @@ export default function AppRouter() {
     setEtablissementActifId(null);
     setChoixModeEcole('choix');
     afficherNotification("🔓 Déconnexion réussie.");
-    setTimeout(() => {
-      window.location.reload();
-    }, 400);
   };
 
   useEffect(() => {
@@ -148,7 +145,6 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      // Recherche unique et sécurisée par user_id avec upsert implicite de lecture
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -235,6 +231,10 @@ export default function AppRouter() {
     }
 
     if (modeAuth === 'inscription') {
+      if (mdpSaisi !== mdpConfirmationSaisi) {
+        afficherNotification("⚠️ Les mots de passe saisis ne correspondent pas.");
+        return;
+      }
       if (!nomSaisi || !prenomsSaisi || !dateNaissanceSaisie) {
         afficherNotification("⚠️ Veuillez renseigner toutes vos civilités personnelles.");
         return;
@@ -244,6 +244,9 @@ export default function AppRouter() {
         return;
       }
     }
+
+    if (envoiAuthEnCours) return;
+    setEnvoiAuthEnCours(true);
 
     const roleActuel = etapeAuth;
     const emailNettoye = emailSaisi.trim().toLowerCase();
@@ -269,21 +272,38 @@ export default function AppRouter() {
             .filter(m => matiereIdsSaisies.includes(m.id))
             .map(m => m.nom);
 
-          // Utilisation stricte de l'upsert par user_id pour éviter les doublons de profil
-          const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
-            {
-              user_id: data.user.id,
-              nom: nomSaisi.trim(),
-              prenom: prenomsSaisi.trim(),
-              preferences_json: {
-                genre: genreSaisi,
-                date_naissance: dateFormatee,
-                matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
-                role_signup: roleActuel,
-              },
-            }
-          ], { onConflict: 'user_id' });
-          if (profileError) throw profileError;
+          // [CORRIGÉ] Utilisation d'un insert direct avec contrôle d'existence préalable
+          // pour éviter tout plantage lié à la contrainte d'unicité de l'upsert.
+          const { data: profilExistant } = await supabase
+            .from('utilisateurs_profils')
+            .select('user_id')
+            .eq('user_id', data.user.id)
+            .maybeSingle();
+
+          const payloadProfil = {
+            user_id: data.user.id,
+            nom: nomSaisi.trim(),
+            prenom: prenomsSaisi.trim(),
+            preferences_json: {
+              genre: genreSaisi,
+              date_naissance: dateFormatee,
+              matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
+              role_signup: roleActuel,
+            },
+          };
+
+          if (profilExistant) {
+            const { error: updateErr } = await supabase
+              .from('utilisateurs_profils')
+              .update(payloadProfil)
+              .eq('user_id', data.user.id);
+            if (updateErr) throw updateErr;
+          } else {
+            const { error: insertErr } = await supabase
+              .from('utilisateurs_profils')
+              .insert([payloadProfil]);
+            if (insertErr) throw insertErr;
+          }
         }
 
         const { error: loginError } = await supabase.auth.signInWithPassword({
@@ -315,9 +335,11 @@ export default function AppRouter() {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré.";
+        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, connectez-vous directement.";
       }
       afficherNotification("❌ " + messageErreur);
+    } finally {
+      setEnvoiAuthEnCours(false);
     }
   };
 
@@ -541,6 +563,16 @@ export default function AppRouter() {
                   <span onClick={() => setAfficherMdp(!afficherMdp)} style={styles.boutonOeil}>{afficherMdp ? '👁️‍🗨️' : '👁️'}</span>
                 </div>
 
+                {modeAuth === 'inscription' && (
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={styles.libelle}>Confirmer le mot de passe</label>
+                    <div style={styles.conteneurMotDePasse}>
+                      <input type={afficherMdpConfirmation ? "text" : "password"} placeholder="••••••••" value={mdpConfirmationSaisi} onChange={e => setMdpConfirmationSaisi(e.target.value)} style={styles.champMdpInterne} required />
+                      <span onClick={() => setAfficherMdpConfirmation(!afficherMdpConfirmation)} style={styles.boutonOeil}>{afficherMdpConfirmation ? '👁️‍🗨️' : '👁️'}</span>
+                    </div>
+                  </div>
+                )}
+
                 {modeAuth === 'connexion' && (
                   <div style={{ textAlign: 'right', marginTop: '6px' }}>
                     <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
@@ -551,9 +583,9 @@ export default function AppRouter() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); }}>⬅️ Retour</button>
-                <button type="submit" style={{ ...(modeAuth === 'connexion' ? styles.boutonPrincipal : styles.boutonInscription), flex: 2 }}>
-                  {modeAuth === 'connexion' ? 'Se connecter' : "S'inscrire"}
+                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); setMdpConfirmationSaisi(''); }}>⬅️ Retour</button>
+                <button type="submit" style={{ ...(modeAuth === 'connexion' ? styles.boutonPrincipal : styles.boutonInscription), flex: 2 }} disabled={envoiAuthEnCours}>
+                  {envoiAuthEnCours ? 'Patientez...' : (modeAuth === 'connexion' ? 'Se connecter' : "S'inscrire")}
                 </button>
               </div>
             </form>

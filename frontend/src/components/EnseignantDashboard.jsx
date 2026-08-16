@@ -449,17 +449,38 @@ export default function EnseignantDashboard() {
     setUserId(user.id);
     chargerBibliotheque(user.id);
 
-    const { data: profil } = await supabase
-      .from('utilisateurs_profils').select('*').eq('user_id', user.id).single();
-
-    const { data: catalogueMatieres } = await supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true });
+    // [OPTIMISÉ] Ces 7 requêtes ne dépendent QUE de user.id (ou de rien du
+    // tout pour le catalogue de matières) — aucune raison qu'elles
+    // s'attendent l'une l'autre. Avant : 7 allers-retours réseau à la
+    // queue leu leu. Maintenant : un seul temps d'attente, celui de la
+    // plus lente d'entre elles.
+    const [
+      { data: profil },
+      { data: catalogueMatieres },
+      { data: affiliationsData },
+      { data: attributions },
+      { data: mesMatieres },
+      { data: demandesDepartData },
+      { data: notifs },
+    ] = await Promise.all([
+      supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
+      supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
+      supabase.from('affiliations_etablissement').select('id, statut, etablissement_id, etablissements(nom)').eq('user_id', user.id).eq('role', 'ENSEIGNANT'),
+      // [MODIFIÉ] on récupère désormais aussi la matière de chaque attribution
+      // (matiere_id + matieres(nom)) — nécessaire pour afficher la matière sur
+      // chaque classe dans la nouvelle vue "Mes classes".
+      supabase.from('attributions_classes').select('etablissement_id, matiere_id, matieres(nom), classes(nom, annee_scolaire_id)').eq('enseignant_id', user.id),
+      // Matières déclarées, rattachées à CHAQUE établissement précisément —
+      // un enseignant affilié à plusieurs écoles peut y enseigner des
+      // matières différentes ; tout se charge école par école.
+      supabase.from('matieres_enseignant').select('matiere_id, etablissement_id, matieres(nom)').eq('user_id', user.id),
+      // Demandes de départ déjà soumises (pour ne pas en permettre une
+      // deuxième pendant que la première est encore en attente)
+      supabase.from('demandes_depart').select('id, affiliation_id, motif, statut, created_at').eq('user_id', user.id).eq('statut', 'EN_ATTENTE'),
+      // Notifications non lues (cloche)
+      supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
+    ]);
     setMatieresCatalogue(catalogueMatieres || []);
-
-    const { data: affiliationsData } = await supabase
-      .from('affiliations_etablissement')
-      .select('id, statut, etablissement_id, etablissements(nom)')
-      .eq('user_id', user.id)
-      .eq('role', 'ENSEIGNANT');
 
     // Année active de chaque établissement affilié — une classe attribuée
     // n'apparaît que si elle appartient à l'année ACTUELLEMENT active de
@@ -475,14 +496,6 @@ export default function EnseignantDashboard() {
         .eq('est_active', true);
       (anneesActivesData || []).forEach(a => { anneeActiveParEtab[a.etablissement_id] = a.id; });
     }
-
-    // [MODIFIÉ] on récupère désormais aussi la matière de chaque attribution
-    // (matiere_id + matieres(nom)) — nécessaire pour afficher la matière sur
-    // chaque classe dans la nouvelle vue "Mes classes".
-    const { data: attributions } = await supabase
-      .from('attributions_classes')
-      .select('etablissement_id, matiere_id, matieres(nom), classes(nom, annee_scolaire_id)')
-      .eq('enseignant_id', user.id);
 
     const mapStatut = (s) => (s === 'ACTIVE' ? 'Validée' : (s === 'EN_ATTENTE' || s === 'INVITATION') ? 'En attente' : s);
 
@@ -515,12 +528,6 @@ export default function EnseignantDashboard() {
     });
     setClassesDetailParEtablissement(detailClasses);
 
-    // Matières déclarées, rattachées à CHAQUE établissement précisément —
-    // un enseignant affilié à plusieurs écoles peut y enseigner des matières
-    // différentes ; tout se charge et se modifie désormais école par école,
-    // jamais comme une liste globale mélangée.
-    const { data: mesMatieres } = await supabase
-      .from('matieres_enseignant').select('matiere_id, etablissement_id, matieres(nom)').eq('user_id', user.id);
     const matieresParEtablissement = {};
     (mesMatieres || []).forEach(m => {
       const cle = m.etablissement_id || 'SANS_ETABLISSEMENT';
@@ -536,25 +543,11 @@ export default function EnseignantDashboard() {
       .filter(Boolean)
       .join(' · ');
 
-    // Demandes de départ déjà soumises (pour ne pas en permettre une deuxième
-    // pendant que la première est encore en attente)
-    const { data: demandesDepartData } = await supabase
-      .from('demandes_depart')
-      .select('id, affiliation_id, motif, statut, created_at')
-      .eq('user_id', user.id)
-      .eq('statut', 'EN_ATTENTE');
     setDemandesDepart((demandesDepartData || []).map(d => ({
       id: d.id, ecoleId: d.affiliation_id, motif: d.motif,
       dateDemande: new Date(d.created_at).toLocaleDateString(), statut: 'En attente de validation',
     })));
 
-    // Notifications non lues (cloche)
-    const { data: notifs } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', user.id)
-      .is('lue_at', null)
-      .order('created_at', { ascending: false });
     setNotifications((notifs || []).map(n => ({
       id: n.id,
       texte: n.payload_json?.message || '',

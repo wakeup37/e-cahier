@@ -327,7 +327,7 @@ export default function CenseurDashboard() {
         statut_visa, envoyee_at, visee_at, observation_visa,
         classes ( nom ),
         lecons (
-          id, titre, contenu_json, statut_visa,
+          id, titre,
           cycles (
             id, titre, competence, plan_lecons, date_debut, date_fin,
             programmes_annuels ( titre, proprietaire_user_id, matieres(nom),
@@ -522,6 +522,32 @@ export default function CenseurDashboard() {
         exercices: sc.contenu_json?.exercices || '',
       });
     });
+
+    // [CORRIGÉ] statut_visa et contenu_json de la leçon retirés de la requête
+    // imbriquée ci-dessus ("lecons_1.statut_visa does not exist" — ambiguïté
+    // PostgREST) — récupérés ici via une requête séparée à plat, même remède
+    // que pour les autres ambiguïtés de relation déjà rencontrées sur ce projet.
+    const idsLeconsPourVisa = [...new Set((seances || []).map(sc => sc.lecons?.id).filter(Boolean))];
+    if (idsLeconsPourVisa.length > 0) {
+      const { data: leconsVisaData } = await supabase
+        .from('lecons')
+        .select('id, statut_visa, contenu_json')
+        .in('id', idsLeconsPourVisa);
+      const leconVisaParId = {};
+      (leconsVisaData || []).forEach(l => { leconVisaParId[l.id] = l; });
+      Object.values(groupe).forEach(prog => {
+        (prog.cycles || []).forEach(cy => {
+          (cy.lecons || []).forEach(lc => {
+            const infosVisa = leconVisaParId[lc.id];
+            if (infosVisa) {
+              lc.statutVisa = infosVisa.statut_visa || 'NON_ENVOYEE';
+              lc.contenuJson = infosVisa.contenu_json || {};
+            }
+          });
+        });
+      });
+    }
+
     setProgrammesClasses(groupe);
 
     setArchiveEcole((archive || []).map(a => ({
@@ -1157,21 +1183,52 @@ export default function CenseurDashboard() {
       }
     }
 
-    const { error } = await supabase
-      .from('demandes_attributions_classes')
-      .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId, classe_id: classeId })
-      .eq('id', demande.id);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    const finaliserApprobation = async () => {
+      const { error } = await supabase
+        .from('demandes_attributions_classes')
+        .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId, classe_id: classeId })
+        .eq('id', demande.id);
+      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
 
-    await envoyerNotification(
-      demande.enseignant_id, 'PROPOSITION_ACCEPTEE',
-      `✅ Votre proposition de classe "${nomFinal}" a été acceptée !`,
-      'cycles', demande.etablissement_id
-    );
+      await envoyerNotification(
+        demande.enseignant_id, 'PROPOSITION_ACCEPTEE',
+        `✅ Votre proposition de classe "${nomFinal}" a été acceptée !`,
+        'cycles', demande.etablissement_id
+      );
 
-    setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
-    showToast("✅ Proposition acceptée, la classe est attribuée !");
-    chargerTout();
+      setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
+      showToast("✅ Proposition acceptée, la classe est attribuée !");
+      chargerTout();
+    };
+
+    // [NOUVEAU] Vérifie qu'aucune attribution n'existe déjà pour cette
+    // classe + matière avant d'accepter — évite qu'une proposition
+    // enseignant vienne créer un doublon quand le censeur a déjà attribué
+    // cette classe/matière directement (ou via une autre proposition) entre
+    // temps. On avertit plutôt que de bloquer, au cas où deux enseignants
+    // sur la même classe/matière soit réellement voulu.
+    if (demande.matiere_id) {
+      const { data: attributionExistante } = await supabase
+        .from('attributions_classes')
+        .select('enseignant_id, utilisateurs_profils:enseignant_id(nom, prenom)')
+        .eq('classe_id', classeId)
+        .eq('matiere_id', demande.matiere_id)
+        .eq('annee_scolaire_id', demande.annee_scolaire_id)
+        .maybeSingle();
+
+      if (attributionExistante) {
+        const nomExistant = `${attributionExistante.utilisateurs_profils?.prenom || ''} ${attributionExistante.utilisateurs_profils?.nom || ''}`.trim() || 'un autre enseignant';
+        setModalConfirmation({
+          ouvert: true,
+          titre: '⚠️ Classe déjà attribuée pour cette matière',
+          message: `"${nomFinal}" a déjà un enseignant pour ${demande.matieres?.nom || 'cette matière'} : ${nomExistant}. Accepter quand même créera un deuxième enseignant sur la même classe/matière. Continuer ?`,
+          actionCallback: finaliserApprobation,
+        });
+        return;
+      }
+    }
+
+    await finaliserApprobation();
   };
 
   const refuserDemandeAttribution = (demande, description) => {

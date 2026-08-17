@@ -63,6 +63,13 @@ export default function CenseurDashboard() {
   // ÉTATS DE SESSION ET DE CHARGEMENT
   // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
+  // [NOUVEAU] Protection anti-double-clic générique — un seul état partagé
+  // (clé = nom de l'action) plutôt qu'une variable par bouton. Utilisation :
+  // if (actionsEnCours['xxx']) return; debuterAction('xxx'); ... finally { terminerAction('xxx'); }
+  // Sur le bouton : disabled={!!actionsEnCours['xxx']}
+  const [actionsEnCours, setActionsEnCours] = useState({});
+  const debuterAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: true }));
+  const terminerAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: false }));
   const [userId, setUserId] = useState(null);
   const [affiliationCenseur, setAffiliationCenseur] = useState(null);
   const [anneeActiveId, setAnneeActiveId] = useState(null);
@@ -626,13 +633,27 @@ export default function CenseurDashboard() {
   };
 
   useEffect(() => { chargerTout(); }, []);
-  // [NOUVEAU] Demande la permission d'affichage des notifications système
-  // une seule fois — si l'utilisateur a déjà répondu (accepté ou refusé),
-  // le navigateur ne redemande pas.
+  // [CORRIGÉ] Les navigateurs bloquent silencieusement la demande de
+  // permission (et le son) si elle n'est pas déclenchée par une vraie
+  // interaction de l'utilisateur — un useEffect au montage ne compte pas.
+  // On la déclenche donc au premier clic réel sur la page, qui débloque en
+  // même temps le son (AudioContext) pour le reste de la session.
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    const debloquerAuPremierClic = () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      try {
+        const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClasse) {
+          const ctx = new AudioContextClasse();
+          if (ctx.state === 'suspended') ctx.resume();
+        }
+      } catch (e) { /* pas grave, le son sera juste indisponible */ }
+      document.removeEventListener('click', debloquerAuPremierClic);
+    };
+    document.addEventListener('click', debloquerAuPremierClic);
+    return () => document.removeEventListener('click', debloquerAuPremierClic);
   }, []);
 
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
@@ -643,15 +664,17 @@ export default function CenseurDashboard() {
   // =========================================================================
   const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();
-    if (!userId) return;
+    if (!userId || actionsEnCours['enregistrerProfil']) return;
+    debuterAction('enregistrerProfil');
     const { error } = await supabase
       .from('utilisateurs_profils')
       .update({ nom: formProfilCenseur.nom, prenom: formProfilCenseur.prenoms, telephone: formProfilCenseur.telephone || null })
       .eq('user_id', userId);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('enregistrerProfil'); return; }
     setInfosCenseur({ ...formProfilCenseur });
     setModalProfilCenseurOuvert(false);
     showToast("✅ Profil mis à jour !");
+    terminerAction('enregistrerProfil');
   };
 
   const handleChangerPhotoProfil = (e) => {
@@ -674,7 +697,8 @@ export default function CenseurDashboard() {
 
   const envoyerInvitationEnseignant = async (e) => {
     e.preventDefault();
-    if (!nouvelleInvitationEnseignantEmail.trim() || !affiliationCenseur) return;
+    if (!nouvelleInvitationEnseignantEmail.trim() || !affiliationCenseur || actionsEnCours['inviterEnseignant']) return;
+    debuterAction('inviterEnseignant');
 
     const { error } = await supabase
       .from('invitations')
@@ -687,14 +711,16 @@ export default function CenseurDashboard() {
         expire_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
 
-    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); terminerAction('inviterEnseignant'); return; }
 
     setNouvelleInvitationEnseignantEmail('');
     showToast(`📨 Invitation envoyée !`);
+    terminerAction('inviterEnseignant');
   };
 
   const approuverDemandeAffiliationEnseignant = async (demande) => {
-    if (!affiliationCenseur) return;
+    if (!affiliationCenseur || actionsEnCours[`affAff_${demande.id}`]) return;
+    debuterAction(`affAff_${demande.id}`);
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
       user_id: demande.user_id,
       etablissement_id: affiliationCenseur.etablissement_id,
@@ -702,7 +728,7 @@ export default function CenseurDashboard() {
       statut: 'ACTIVE',
       date_debut: new Date().toISOString().slice(0, 10),
     });
-    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
+    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); terminerAction(`affAff_${demande.id}`); return; }
 
     // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
     // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
@@ -718,6 +744,7 @@ export default function CenseurDashboard() {
       .eq('statut', 'EN_ATTENTE');
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
+      terminerAction(`affAff_${demande.id}`);
       return;
     }
 
@@ -729,9 +756,12 @@ export default function CenseurDashboard() {
 
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("✅ Demande approuvée, l'enseignant a maintenant accès à l'établissement !");
+    terminerAction(`affAff_${demande.id}`);
   };
 
   const refuserDemandeAffiliationEnseignant = async (demande) => {
+    if (actionsEnCours[`refAff_${demande.id}`]) return;
+    debuterAction(`refAff_${demande.id}`);
     // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
     // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
@@ -741,7 +771,7 @@ export default function CenseurDashboard() {
       .eq('etablissement_id', affiliationCenseur.etablissement_id)
       .eq('role_demande', 'ENSEIGNANT')
       .eq('statut', 'EN_ATTENTE');
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`refAff_${demande.id}`); return; }
 
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_REFUSEE',
@@ -751,11 +781,13 @@ export default function CenseurDashboard() {
 
     setDemandesAffiliationEnseignants(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("❌ Demande refusée.");
+    terminerAction(`refAff_${demande.id}`);
   };
 
   const soumettreDemandeDepartCenseur = async (e) => {
     e.preventDefault();
-    if (!userId || !affiliationCenseur) return;
+    if (!userId || !affiliationCenseur || actionsEnCours['demandeDepart']) return;
+    debuterAction('demandeDepart');
 
     const { error } = await supabase
       .from('demandes_depart')
@@ -767,20 +799,23 @@ export default function CenseurDashboard() {
         motif: motifDepartCenseur.trim() || null,
       });
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('demandeDepart'); return; }
 
     setDemandeDepartCenseurEnCours(true);
     setModalDepartCenseurOuvert(false);
     setMotifDepartCenseur('');
     showToast("📤 Demande de départ transmise au chef d'établissement pour validation !");
+    terminerAction('demandeDepart');
   };
 
   const creerClasse = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['creerClasse']) return;
     if (!nouvelleClasseNom.trim() || !affiliationCenseur || !anneeActiveId) {
       showToast("⚠️ Aucune année scolaire active — impossible de créer une classe.");
       return;
     }
+    debuterAction('creerClasse');
     const { data: nouvelle, error } = await supabase
       .from('classes')
       .insert({
@@ -794,11 +829,13 @@ export default function CenseurDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Cette classe existe déjà pour cette année.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('creerClasse');
       return;
     }
     setClassesEtablissement(prev => [...prev, nouvelle].sort((a, b) => a.nom.localeCompare(b.nom)));
     setNouvelleClasseNom(''); setNouvelleClasseNiveau('');
     showToast(`✅ Classe "${nouvelle.nom}" créée !`);
+    terminerAction('creerClasse');
   };
 
   const [classeEnRenommage, setClasseEnRenommage] = useState({ id: null, nom: '' });
@@ -808,7 +845,8 @@ export default function CenseurDashboard() {
 
   const renommerClasse = async (e) => {
     e.preventDefault();
-    if (!classeEnRenommage.nom.trim()) return;
+    if (!classeEnRenommage.nom.trim() || actionsEnCours['renommerClasse']) return;
+    debuterAction('renommerClasse');
     const { data, error } = await supabase
       .from('classes')
       .update({ nom: classeEnRenommage.nom.trim() })
@@ -818,11 +856,13 @@ export default function CenseurDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Une classe porte déjà ce nom pour cette année.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('renommerClasse');
       return;
     }
     setClassesEtablissement(prev => prev.map(c => c.id === data.id ? data : c).sort((a, b) => a.nom.localeCompare(b.nom)));
     setClasseEnRenommage({ id: null, nom: '' });
     showToast("✅ Classe renommée !");
+    terminerAction('renommerClasse');
   };
 
   // Suppression douce (deleted_at) — la classe disparaît des formulaires
@@ -857,9 +897,11 @@ export default function CenseurDashboard() {
 
   const creerClassesEnLot = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['creerLot']) return;
     if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
     const noms = genererNomsLot();
     if (noms.length === 0) { showToast("⚠️ Merci de compléter le formulaire (niveau + nombre)."); return; }
+    debuterAction('creerLot');
 
     const lignes = noms.map(nom => ({
       etablissement_id: affiliationCenseur.etablissement_id,
@@ -872,7 +914,7 @@ export default function CenseurDashboard() {
       .from('classes')
       .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('creerLot'); return; }
 
     const { data: classesRafraichies } = await supabase
       .from('classes')
@@ -885,6 +927,7 @@ export default function CenseurDashboard() {
 
     setNouveauLotNiveau(''); setNouveauLotNombre('');
     showToast(`✅ ${noms.length} classe(s) prête(s) pour "${nouveauLotNiveau.trim()}" !`);
+    terminerAction('creerLot');
   };
 
   // --- Second cycle (Seconde/Première/Terminale) : niveau → séries → nombre par série ---
@@ -904,9 +947,11 @@ export default function CenseurDashboard() {
 
   const creerClassesSecondCycle = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['creerSecondCycle']) return;
     if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
     const items = genererNomsSecondCycle();
     if (items.length === 0) { showToast("⚠️ Choisissez au moins une série avec un nombre de classes."); return; }
+    debuterAction('creerSecondCycle');
 
     const lignes = items.map(({ nom, serie }) => ({
       etablissement_id: affiliationCenseur.etablissement_id,
@@ -920,7 +965,7 @@ export default function CenseurDashboard() {
       .from('classes')
       .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('creerSecondCycle'); return; }
 
     const { data: classesRafraichies } = await supabase
       .from('classes')
@@ -933,6 +978,7 @@ export default function CenseurDashboard() {
 
     setSeriesChoisiesSecondCycle({});
     showToast(`✅ ${items.length} classe(s) créée(s) pour ${niveauSecondCycle} !`);
+    terminerAction('creerSecondCycle');
   };
 
   const ajouterLigneLotNiveaux = () => {
@@ -963,9 +1009,11 @@ export default function CenseurDashboard() {
 
   const creerNiveauxEnLot = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['creerNiveaux']) return;
     if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
     const classesAGenerer = genererApercuLotNiveaux();
     if (classesAGenerer.length === 0) { showToast("⚠️ Merci de remplir au moins un niveau avec son nombre de classes."); return; }
+    debuterAction('creerNiveaux');
 
     const lignes = classesAGenerer.map(c => ({
       etablissement_id: affiliationCenseur.etablissement_id,
@@ -978,7 +1026,7 @@ export default function CenseurDashboard() {
       .from('classes')
       .upsert(lignes, { onConflict: 'etablissement_id,annee_scolaire_id,nom', ignoreDuplicates: true });
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('creerNiveaux'); return; }
 
     const { data: classesRafraichies } = await supabase
       .from('classes')
@@ -992,6 +1040,7 @@ export default function CenseurDashboard() {
     const nombreNiveaux = new Set(classesAGenerer.map(c => c.niveau)).size;
     setLotNiveauxMultiples([{ niveau: '', nombre: '', style: 'alphabetique' }]);
     showToast(`✅ ${classesAGenerer.length} classe(s) créée(s) pour ${nombreNiveaux} niveau(x) !`);
+    terminerAction('creerNiveaux');
   };
 
   const trouverOuCreerMatiere = async (nomMatiere) => {
@@ -1047,16 +1096,19 @@ export default function CenseurDashboard() {
   };
 
   const enregistrerProgrammeMatiere = async (matiereId, niveaux, series) => {
+    if (actionsEnCours[`progMatiere_${matiereId}`]) return;
+    debuterAction(`progMatiere_${matiereId}`);
     const { data, error } = await supabase
       .from('matieres')
       .update({ niveaux_applicables: niveaux, series_applicables: series })
       .eq('id', matiereId)
       .select('id, nom, niveaux_applicables, series_applicables')
       .single();
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`progMatiere_${matiereId}`); return; }
     setMatieresDisponibles(prev => prev.map(m => m.id === matiereId ? data : m));
     setMatiereProgrammeOuverte(null);
     showToast(`✅ Programme mis à jour pour "${data.nom}" !`);
+    terminerAction(`progMatiere_${matiereId}`);
   };
 
   const ouvrirProgrammeMatiere = (matiere) => {
@@ -1075,16 +1127,20 @@ export default function CenseurDashboard() {
 
   const ajouterMatiereAuCatalogue = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['ajouterMatiere']) return;
+    debuterAction('ajouterMatiere');
     const id = await trouverOuCreerMatiere(nouvelleMatiereNomCatalogue);
     if (id) {
       setNouvelleMatiereNomCatalogue('');
       showToast("✅ Matière ajoutée au catalogue !");
     }
+    terminerAction('ajouterMatiere');
   };
 
   const renommerMatiere = async (e) => {
     e.preventDefault();
-    if (!matiereEnRenommage.nom.trim()) return;
+    if (!matiereEnRenommage.nom.trim() || actionsEnCours['renommerMatiere']) return;
+    debuterAction('renommerMatiere');
     const { data, error } = await supabase
       .from('matieres')
       .update({ nom: matiereEnRenommage.nom.trim() })
@@ -1094,15 +1150,18 @@ export default function CenseurDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Une matière porte déjà ce nom.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('renommerMatiere');
       return;
     }
     setMatieresDisponibles(prev => prev.map(m => m.id === data.id ? data : m));
     setMatiereEnRenommage({ id: null, nom: '' });
     showToast("✅ Matière renommée !");
+    terminerAction('renommerMatiere');
   };
 
   const attribuerClasseDirectement = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['attribuerClasse']) return;
     if (!formAttribution.enseignantId || formAttribution.classesIds.length === 0 || !affiliationCenseur || !anneeActiveId) {
       showToast("⚠️ Merci de choisir l'enseignant et au moins une classe.");
       return;
@@ -1111,6 +1170,7 @@ export default function CenseurDashboard() {
       showToast("⚠️ Merci de cocher au moins une matière.");
       return;
     }
+    debuterAction('attribuerClasse');
     const matiereIds = formAttribution.matiereIdsChoisies;
 
     const lignes = [];
@@ -1130,6 +1190,7 @@ export default function CenseurDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Une ou plusieurs de ces attributions existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('attribuerClasse');
       return;
     }
     showToast(`✅ ${lignes.length} attribution(s) créée(s) (${formAttribution.classesIds.length} classe(s) × ${matiereIds.length} matière(s)) !`);
@@ -1141,6 +1202,7 @@ export default function CenseurDashboard() {
     );
 
     setFormAttribution({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
+    terminerAction('attribuerClasse');
     chargerTout();
   };
 
@@ -1175,6 +1237,7 @@ export default function CenseurDashboard() {
 
   const ajouterAttributionEnseignant = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['ajouterAttribution']) return;
     if (!formAjoutAttribution.classeId || !modalGererClasses.prof) {
       showToast("⚠️ Merci de choisir une classe.");
       return;
@@ -1183,6 +1246,7 @@ export default function CenseurDashboard() {
       showToast("⚠️ Merci de cocher au moins une matière.");
       return;
     }
+    debuterAction('ajouterAttribution');
     const matiereIds = formAjoutAttribution.matiereIdsChoisies;
 
     const lignes = matiereIds.map(matiereId => ({
@@ -1198,6 +1262,7 @@ export default function CenseurDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Une ou plusieurs de ces attributions existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('ajouterAttribution');
       return;
     }
     setModalGererClasses(prev => ({ ...prev, attributions: [...prev.attributions, ...(nouvelles || [])] }));
@@ -1213,14 +1278,17 @@ export default function CenseurDashboard() {
     setFormAjoutAttribution({ classeId: '', matiereNom: '', matiereIdsChoisies: [] });
     chargerTout();
     showToast(`✅ ${lignes.length} matière(s) ajoutée(s) !`);
+    terminerAction('ajouterAttribution');
   };
 
   const approuverDemandeAttribution = async (demande) => {
+    if (actionsEnCours[`approAttrib_${demande.id}`]) return;
+    debuterAction(`approAttrib_${demande.id}`);
     let classeId = demande.classe_id;
     const nomFinal = (demande.nomClasseEdite || demande.classe_nom_propose || '').trim();
 
     if (!classeId) {
-      if (!nomFinal) { showToast("⚠️ Merci d'indiquer le nom de la classe avant d'accepter."); return; }
+      if (!nomFinal) { showToast("⚠️ Merci d'indiquer le nom de la classe avant d'accepter."); terminerAction(`approAttrib_${demande.id}`); return; }
 
       const { data: classeExistante } = await supabase
         .from('classes')
@@ -1238,7 +1306,7 @@ export default function CenseurDashboard() {
           .insert({ etablissement_id: demande.etablissement_id, annee_scolaire_id: demande.annee_scolaire_id, nom: nomFinal })
           .select()
           .single();
-        if (erreurClasse) { showToast("⚠️ Erreur création classe : " + erreurClasse.message); return; }
+        if (erreurClasse) { showToast("⚠️ Erreur création classe : " + erreurClasse.message); terminerAction(`approAttrib_${demande.id}`); return; }
         classeId = nouvelleClasse.id;
         setClassesEtablissement(prev => [...prev, nouvelleClasse].sort((a, b) => a.nom.localeCompare(b.nom)));
       }
@@ -1249,7 +1317,7 @@ export default function CenseurDashboard() {
         .from('demandes_attributions_classes')
         .update({ statut: 'ACCEPTEE', traitee_par_user_id: userId, classe_id: classeId })
         .eq('id', demande.id);
-      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`approAttrib_${demande.id}`); return; }
 
       await envoyerNotification(
         demande.enseignant_id, 'PROPOSITION_ACCEPTEE',
@@ -1259,6 +1327,7 @@ export default function CenseurDashboard() {
 
       setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
       showToast("✅ Proposition acceptée, la classe est attribuée !");
+      terminerAction(`approAttrib_${demande.id}`);
       chargerTout();
     };
 
@@ -1285,6 +1354,7 @@ export default function CenseurDashboard() {
           message: `"${nomFinal}" a déjà un enseignant pour ${demande.matieres?.nom || 'cette matière'} : ${nomExistant}. Accepter quand même créera un deuxième enseignant sur la même classe/matière. Continuer ?`,
           actionCallback: finaliserApprobation,
         });
+        terminerAction(`approAttrib_${demande.id}`);
         return;
       }
     }
@@ -1298,11 +1368,13 @@ export default function CenseurDashboard() {
       titre: 'Refuser cette proposition ?',
       message: `Refuser la proposition de ${description} ?`,
       actionCallback: async () => {
+        if (actionsEnCours[`refuAttrib_${demande.id}`]) return;
+        debuterAction(`refuAttrib_${demande.id}`);
         const { error } = await supabase
           .from('demandes_attributions_classes')
           .update({ statut: 'REFUSEE', traitee_par_user_id: userId })
           .eq('id', demande.id);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`refuAttrib_${demande.id}`); return; }
 
         await envoyerNotification(
           demande.enseignant_id, 'PROPOSITION_REFUSEE',
@@ -1312,6 +1384,7 @@ export default function CenseurDashboard() {
 
         setDemandesAttributionsRecues(prev => prev.filter(d => d.id !== demande.id));
         showToast("❌ Proposition refusée.");
+        terminerAction(`refuAttrib_${demande.id}`);
       },
     });
   };
@@ -1421,7 +1494,8 @@ export default function CenseurDashboard() {
 
   const envoyerDemandePromotion = async (e) => {
     e.preventDefault();
-    if (!userId || !affiliationCenseur) return;
+    if (!userId || !affiliationCenseur || actionsEnCours['demandePromotion']) return;
+    debuterAction('demandePromotion');
 
     if (formPromotion.type === 'interne') {
       const { error } = await supabase
@@ -1432,9 +1506,10 @@ export default function CenseurDashboard() {
           role_actuel: 'CENSEUR',
           role_demande: 'CHEF',
         });
-      if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+      if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('demandePromotion'); return; }
       setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'interne', ecoleCible: infosCenseur.etablissement, statut: 'En attente de validation' });
       showToast("🚀 Demande d'évolution vers le poste de Proviseur envoyée !");
+      terminerAction('demandePromotion');
       return;
     }
 
@@ -1446,6 +1521,7 @@ export default function CenseurDashboard() {
 
     if (erreurRecherche || !etablissementCible) {
       showToast("⚠️ Établissement cible introuvable. Vérifiez le nom exact.");
+      terminerAction('demandePromotion');
       return;
     }
 
@@ -1453,9 +1529,10 @@ export default function CenseurDashboard() {
       .from('demandes_affiliation')
       .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CHEF' });
 
-    if (erreurDemande) { showToast("⚠️ Erreur : " + erreurDemande.message); return; }
+    if (erreurDemande) { showToast("⚠️ Erreur : " + erreurDemande.message); terminerAction('demandePromotion'); return; }
     setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'externe', ecoleCible: etablissementCible.nom, statut: 'En attente de validation' });
     showToast("🚀 Demande de mutation envoyée !");
+    terminerAction('demandePromotion');
   };
 
   const toggleSelectionRappel = (profUserId, isChecked) => {
@@ -1464,6 +1541,8 @@ export default function CenseurDashboard() {
 
   const envoyerRappelMultipleManuel = async () => {
     if (profsSelectionnesRappel.length === 0) return showToast("⚠️ Veuillez sélectionner au moins un enseignant.");
+    if (actionsEnCours['rappelMultiple']) return;
+    debuterAction('rappelMultiple');
 
     let echecs = 0;
     let dernierMessageErreur = '';
@@ -1484,6 +1563,7 @@ export default function CenseurDashboard() {
       showToast(`✉️ Notification de rappel envoyée avec succès à ${profsSelectionnesRappel.length} enseignant(s) !`);
     }
     setProfsSelectionnesRappel([]);
+    terminerAction('rappelMultiple');
   };
 
   // =========================================================================
@@ -1674,7 +1754,8 @@ export default function CenseurDashboard() {
 
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
-    if (!nouveauAdminNom.trim() || !affiliationCenseur) return;
+    if (!nouveauAdminNom.trim() || !affiliationCenseur || actionsEnCours['ajouterPersonnel']) return;
+    debuterAction('ajouterPersonnel');
 
     const [prenom, ...resteNom] = nouveauAdminNom.trim().split(' ');
     const nom = resteNom.join(' ') || prenom;
@@ -1690,7 +1771,7 @@ export default function CenseurDashboard() {
       .select()
       .single();
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('ajouterPersonnel'); return; }
 
     setPersonnelAdministratifManuel(prev => [...prev, {
       id: nouveau.id, nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole,
@@ -1698,25 +1779,30 @@ export default function CenseurDashboard() {
     }]);
     setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
     showToast("✅ Personnel ajouté !");
+    terminerAction('ajouterPersonnel');
   };
 
   const supprimerPersonnelAdministratif = async (id) => {
+    if (actionsEnCours[`suppPersonnel_${id}`]) return;
+    debuterAction(`suppPersonnel_${id}`);
     const { error } = await supabase.from('personnel').delete().eq('id', id);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`suppPersonnel_${id}`); return; }
     setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id));
     showToast("🗑️ Membre retiré.");
+    terminerAction(`suppPersonnel_${id}`);
   };
 
   const viserEtArchiverSeance = async (classeKey, cycleId, leconId, seanceAViser) => {
     const prog = programmesClasses[classeKey];
-    if (!prog || !affiliationCenseur) return;
+    if (!prog || !affiliationCenseur || actionsEnCours[`viserSeance_${seanceAViser.id}`]) return;
+    debuterAction(`viserSeance_${seanceAViser.id}`);
 
     const { error: erreurVisa } = await supabase
       .from('seances')
       .update({ statut: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
       .eq('id', seanceAViser.id);
 
-    if (erreurVisa) { showToast("⚠️ Erreur de visa : " + erreurVisa.message); return; }
+    if (erreurVisa) { showToast("⚠️ Erreur de visa : " + erreurVisa.message); terminerAction(`viserSeance_${seanceAViser.id}`); return; }
 
     const { error: erreurArchive } = await supabase
       .from('bibliotheque_etablissement')
@@ -1740,15 +1826,18 @@ export default function CenseurDashboard() {
     }
 
     showToast(`✅ Séance visée et archivée !`);
+    terminerAction(`viserSeance_${seanceAViser.id}`);
     chargerTout();
   };
 
   const viserLecon = async (leconId, enseignantUserId, leconTitre) => {
+    if (actionsEnCours[`viserLecon_${leconId}`]) return;
+    debuterAction(`viserLecon_${leconId}`);
     const { error } = await supabase
       .from('lecons')
       .update({ statut_visa: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
       .eq('id', leconId);
-    if (error) { showToast("⚠️ Erreur de visa : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur de visa : " + error.message); terminerAction(`viserLecon_${leconId}`); return; }
     
     await envoyerNotification(
       enseignantUserId,
@@ -1759,6 +1848,7 @@ export default function CenseurDashboard() {
     );
 
     showToast("✅ Fiche de leçon visée !");
+    terminerAction(`viserLecon_${leconId}`);
     chargerTout();
   };
 
@@ -1768,11 +1858,13 @@ export default function CenseurDashboard() {
       titre: 'Retourner cette fiche de leçon ?',
       message: "L'enseignant devra la corriger avant de pouvoir la renvoyer. Une notification lui sera envoyée.",
       actionCallback: async () => {
+        if (actionsEnCours[`retournerLecon_${leconId}`]) return;
+        debuterAction(`retournerLecon_${leconId}`);
         const { error } = await supabase
           .from('lecons')
           .update({ statut_visa: 'RETOURNEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
           .eq('id', leconId);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`retournerLecon_${leconId}`); return; }
         
         await envoyerNotification(
           enseignantUserId,
@@ -1783,6 +1875,7 @@ export default function CenseurDashboard() {
         );
 
         showToast("↩️ Fiche de leçon retournée à l'enseignant.");
+        terminerAction(`retournerLecon_${leconId}`);
         chargerTout();
       },
     });
@@ -2115,7 +2208,7 @@ export default function CenseurDashboard() {
                     </div>
                   );
                 })()}
-                <button type="submit" className="bouton bouton-principal" style={{ alignSelf: 'flex-start' }}>+ Ajouter</button>
+                <button type="submit" className="bouton bouton-principal" style={{ alignSelf: 'flex-start' }} disabled={actionsEnCours['ajouterAttribution']}>{actionsEnCours['ajouterAttribution'] ? '...' : '+ Ajouter'}</button>
               </form>
             </div>
           </div>
@@ -2154,7 +2247,7 @@ export default function CenseurDashboard() {
                 />
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                   <button type="button" onClick={() => { setModalDepartCenseurOuvert(false); setMotifDepartCenseur(''); }} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-danger">Envoyer la demande</button>
+                  <button type="submit" className="bouton bouton-danger" disabled={actionsEnCours['demandeDepart']}>{actionsEnCours['demandeDepart'] ? 'Envoi...' : 'Envoyer la demande'}</button>
                 </div>
               </form>
             </div>
@@ -2280,7 +2373,7 @@ export default function CenseurDashboard() {
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalProfilCenseurOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={actionsEnCours['enregistrerProfil']}>{actionsEnCours['enregistrerProfil'] ? 'Enregistrement...' : 'Enregistrer'}</button>
                 </div>
               </form>
             </div>
@@ -2373,8 +2466,8 @@ export default function CenseurDashboard() {
                                         )}
                                       </div>
                                       <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => retournerLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>↩️ Retourner</button>
-                                        <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser la leçon</button>
+                                        <button onClick={() => retournerLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-danger" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`retournerLecon_${lc.id}`]}>↩️ {actionsEnCours[`retournerLecon_${lc.id}`] ? '...' : 'Retourner'}</button>
+                                        <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`viserLecon_${lc.id}`]}>✍️ {actionsEnCours[`viserLecon_${lc.id}`] ? '...' : 'Viser la leçon'}</button>
                                       </div>
                                     </div>
                                     {/* [NOUVEAU] Contenu réel de la fiche de leçon — libellés récupérés
@@ -2410,7 +2503,7 @@ export default function CenseurDashboard() {
                                       </div>
                                       <div style={{ display: 'flex', gap: '8px' }}>
                                         <button onClick={() => setModalConsultation({ ouvert: true, element: sc })} className="bouton bouton-secondaire" style={{ padding: '6px 12px', fontSize: '12px' }}>👁️ Consulter</button>
-                                        <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }}>✍️ Viser & Archiver</button>
+                                        <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`viserSeance_${sc.id}`]}>✍️ {actionsEnCours[`viserSeance_${sc.id}`] ? '...' : 'Viser & Archiver'}</button>
                                       </div>
                                     </div>
                                   ))}
@@ -2674,7 +2767,7 @@ export default function CenseurDashboard() {
                         <br /><small>Souhaite rejoindre en tant qu'enseignant</small>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => approuverDemandeAffiliationEnseignant(demande)} className="bouton bouton-succes">Approuver</button>
+                        <button onClick={() => approuverDemandeAffiliationEnseignant(demande)} className="bouton bouton-succes" disabled={!!actionsEnCours[`affAff_${demande.id}`]}>{actionsEnCours[`affAff_${demande.id}`] ? '...' : 'Approuver'}</button>
                         <button
                           onClick={() => setModalConfirmation({
                             ouvert: true,
@@ -2683,7 +2776,8 @@ export default function CenseurDashboard() {
                             actionCallback: () => refuserDemandeAffiliationEnseignant(demande),
                           })}
                           className="bouton bouton-danger"
-                        >Refuser</button>
+                          disabled={!!actionsEnCours[`refAff_${demande.id}`]}
+                        >{actionsEnCours[`refAff_${demande.id}`] ? '...' : 'Refuser'}</button>
                       </div>
                     </div>
                   ))}
@@ -2700,7 +2794,7 @@ export default function CenseurDashboard() {
                 </select>
                 <input type="text" placeholder="Matricule" value={nouveauAdminMatricule} onChange={(e) => setNouveauAdminMatricule(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} required />
                 <input type="text" placeholder="Contact" value={nouveauAdminContact} onChange={(e) => setNouveauAdminContact(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 120px', margin: 0 }} />
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0, backgroundColor: '#0f172a', padding: '0 16px' }}>Ajouter</button>
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0, backgroundColor: '#0f172a', padding: '0 16px' }} disabled={actionsEnCours['ajouterPersonnel']}>{actionsEnCours['ajouterPersonnel'] ? '...' : 'Ajouter'}</button>
               </form>
 
               {personnelAdministratifManuel.length > 0 && (
@@ -2718,8 +2812,9 @@ export default function CenseurDashboard() {
                         })} 
                         className="bouton bouton-danger" 
                         style={{ padding: '4px 8px', fontSize: '11px' }}
+                        disabled={!!actionsEnCours[`suppPersonnel_${p.id}`]}
                       >
-                        Retirer
+                        {actionsEnCours[`suppPersonnel_${p.id}`] ? '...' : 'Retirer'}
                       </button>
                     </div>
                   ))}
@@ -2805,7 +2900,7 @@ export default function CenseurDashboard() {
                     <option value=" - ">Tiret (6ème - A)</option>
                   </select>
                 </div>
-                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer les classes</button>
+                <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={!anneeActiveId || actionsEnCours['creerLot']}>{actionsEnCours['creerLot'] ? 'Création...' : 'Créer les classes'}</button>
               </form>
 
               {nouveauLotNiveau.trim() && apercuLotClasses.length > 0 && (
@@ -2878,7 +2973,7 @@ export default function CenseurDashboard() {
                   })}
                 </div>
 
-                <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#7c3aed' }} disabled={!anneeActiveId}>3. Générer les classes</button>
+                <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#7c3aed' }} disabled={!anneeActiveId || actionsEnCours['creerSecondCycle']}>{actionsEnCours['creerSecondCycle'] ? 'Création...' : '3. Générer les classes'}</button>
               </form>
 
               {apercuSecondCycle.length > 0 && (
@@ -2920,7 +3015,7 @@ export default function CenseurDashboard() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <button type="button" onClick={ajouterLigneLotNiveaux} className="bouton bouton-secondaire" style={{ fontSize: '12px' }} disabled={!anneeActiveId}>+ Ajouter un niveau</button>
-                  <button type="submit" className="bouton bouton-succes" disabled={!anneeActiveId}>Générer {apercuLotNiveauxMultiples.length > 0 ? `les ${apercuLotNiveauxMultiples.length} classes` : 'tout'}</button>
+                  <button type="submit" className="bouton bouton-succes" disabled={!anneeActiveId || actionsEnCours['creerNiveaux']}>{actionsEnCours['creerNiveaux'] ? 'Génération...' : `Générer ${apercuLotNiveauxMultiples.length > 0 ? `les ${apercuLotNiveauxMultiples.length} classes` : 'tout'}`}</button>
                 </div>
               </form>
 
@@ -2936,7 +3031,7 @@ export default function CenseurDashboard() {
               <form onSubmit={creerClasse} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <input type="text" placeholder="Nom (ex. 6ème A)" value={nouvelleClasseNom} onChange={(e) => setNouvelleClasseNom(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!anneeActiveId} />
                 <input type="text" placeholder="Niveau (ex. 6ème)" value={nouvelleClasseNiveau} onChange={(e) => setNouvelleClasseNiveau(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} disabled={!anneeActiveId} />
-                <button type="submit" className="bouton bouton-secondaire" style={{ flexShrink: 0 }} disabled={!anneeActiveId}>Créer</button>
+                <button type="submit" className="bouton bouton-secondaire" style={{ flexShrink: 0 }} disabled={!anneeActiveId || actionsEnCours['creerClasse']}>{actionsEnCours['creerClasse'] ? '...' : 'Créer'}</button>
               </form>
 
               {classesEtablissement.length > 0 && (
@@ -2963,7 +3058,7 @@ export default function CenseurDashboard() {
                           {enRenommage ? (
                             <form onSubmit={renommerClasse} style={{ display: 'flex', gap: '6px', flex: 1 }}>
                               <input type="text" value={classeEnRenommage.nom} onChange={(e) => setClasseEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
-                              <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
+                              <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }} disabled={actionsEnCours['renommerClasse']}>✓</button>
                               <button type="button" onClick={() => setClasseEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
                             </form>
                           ) : (
@@ -3080,7 +3175,7 @@ export default function CenseurDashboard() {
                   );
                 })()}
 
-                <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId}>Attribuer</button>
+                <button type="submit" className="bouton bouton-principal" disabled={!anneeActiveId || actionsEnCours['attribuerClasse']}>{actionsEnCours['attribuerClasse'] ? 'Attribution en cours...' : 'Attribuer'}</button>
               </form>
             </div>
 
@@ -3118,8 +3213,8 @@ export default function CenseurDashboard() {
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes">Accepter</button>
-                        <button onClick={() => refuserDemandeAttribution(demande, description)} className="bouton bouton-danger">Refuser</button>
+                        <button onClick={() => approuverDemandeAttribution(demande)} className="bouton bouton-succes" disabled={!!actionsEnCours[`approAttrib_${demande.id}`]}>{actionsEnCours[`approAttrib_${demande.id}`] ? '...' : 'Accepter'}</button>
+                        <button onClick={() => refuserDemandeAttribution(demande, description)} className="bouton bouton-danger" disabled={!!actionsEnCours[`refuAttrib_${demande.id}`]}>{actionsEnCours[`refuAttrib_${demande.id}`] ? '...' : 'Refuser'}</button>
                       </div>
                     </div>
                   );
@@ -3174,7 +3269,7 @@ export default function CenseurDashboard() {
 
             <form onSubmit={ajouterMatiereAuCatalogue} style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
               <input type="text" placeholder="Nouvelle matière (ex. Informatique)" value={nouvelleMatiereNomCatalogue} onChange={(e) => setNouvelleMatiereNomCatalogue(e.target.value)} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} required />
-              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>+ Ajouter</button>
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['ajouterMatiere']}>{actionsEnCours['ajouterMatiere'] ? '...' : '+ Ajouter'}</button>
             </form>
 
             {matieresDisponibles.length === 0 ? (
@@ -3192,7 +3287,7 @@ export default function CenseurDashboard() {
                         {enRenommage ? (
                           <form onSubmit={renommerMatiere} style={{ display: 'flex', gap: '6px', flex: 1 }}>
                             <input type="text" value={matiereEnRenommage.nom} onChange={(e) => setMatiereEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
-                            <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }}>✓</button>
+                            <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }} disabled={actionsEnCours['renommerMatiere']}>✓</button>
                             <button type="button" onClick={() => setMatiereEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
                           </form>
                         ) : (
@@ -3253,7 +3348,7 @@ export default function CenseurDashboard() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button type="button" onClick={() => setMatiereProgrammeOuverte(null)} className="bouton bouton-secondaire" style={{ fontSize: '12px' }}>Annuler</button>
-                            <button type="button" onClick={() => enregistrerProgrammeMatiere(m.id, brouillonProgrammeMatiere.niveaux, brouillonProgrammeMatiere.series)} className="bouton bouton-principal" style={{ fontSize: '12px' }}>Enregistrer</button>
+                            <button type="button" onClick={() => enregistrerProgrammeMatiere(m.id, brouillonProgrammeMatiere.niveaux, brouillonProgrammeMatiere.series)} className="bouton bouton-principal" style={{ fontSize: '12px' }} disabled={!!actionsEnCours[`progMatiere_${m.id}`]}>{actionsEnCours[`progMatiere_${m.id}`] ? '...' : 'Enregistrer'}</button>
                           </div>
                         </div>
                       )}
@@ -3319,9 +3414,9 @@ export default function CenseurDashboard() {
               <button 
                 onClick={envoyerRappelMultipleManuel} 
                 className="bouton bouton-succes"
-                disabled={profsSelectionnesRappel.length === 0}
+                disabled={profsSelectionnesRappel.length === 0 || actionsEnCours['rappelMultiple']}
               >
-                ✉️ Envoyer le rappel aux sélectionnés ({profsSelectionnesRappel.length})
+                ✉️ {actionsEnCours['rappelMultiple'] ? 'Envoi en cours...' : `Envoyer le rappel aux sélectionnés (${profsSelectionnesRappel.length})`}
               </button>
             </div>
 
@@ -3451,7 +3546,7 @@ export default function CenseurDashboard() {
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }}>Soumettre la demande officielle</button>
+                    <button type="submit" className="bouton bouton-principal" style={{ backgroundColor: '#0f172a' }} disabled={actionsEnCours['demandePromotion']}>{actionsEnCours['demandePromotion'] ? 'Envoi...' : 'Soumettre la demande officielle'}</button>
                   </div>
                 </div>
               </form>

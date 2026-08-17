@@ -53,6 +53,11 @@ export default function EnseignantDashboard() {
   // SESSION
   // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
+  // [NOUVEAU] Protection anti-double-clic générique — un seul état partagé
+  // (clé = nom de l'action) plutôt qu'une variable par bouton.
+  const [actionsEnCours, setActionsEnCours] = useState({});
+  const debuterAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: true }));
+  const terminerAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: false }));
   const [userId, setUserId] = useState(null);
   // Cache : etablissement_id (ou 'SANS_AFFILIATION') -> programme_annuel_id
   const programmesAnnuelsCache = useRef({});
@@ -318,13 +323,15 @@ export default function EnseignantDashboard() {
   };
 
   const enregistrerDansBibliotheque = async (seanceId, titre) => {
-    if (!userId) return;
+    if (!userId || actionsEnCours[`biblio_${seanceId}`]) return;
+    debuterAction(`biblio_${seanceId}`);
     const { error } = await supabase.from('bibliotheque_personnelle').insert({
       user_id: userId, type_item: 'SEANCE', reference_id: seanceId, titre: titre || 'Fiche',
     });
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`biblio_${seanceId}`); return; }
     showToast("💾 Fiche enregistrée dans votre bibliothèque !");
     chargerBibliotheque(userId);
+    terminerAction(`biblio_${seanceId}`);
   };
 
   const [modalChoixBibliotheque, setModalChoixBibliotheque] = useState({ ouvert: false, cycleId: null, leconId: null });
@@ -680,6 +687,30 @@ export default function EnseignantDashboard() {
   };
 
   useEffect(() => { chargerTout(); }, []);
+  // [CORRIGÉ] Les navigateurs bloquent silencieusement la demande de
+  // permission (et le son) si elle n'est pas déclenchée par une vraie
+  // interaction de l'utilisateur — un useEffect au montage ne compte pas.
+  // On la déclenche donc au premier clic réel sur la page, qui débloque en
+  // même temps le son (AudioContext) pour le reste de la session.
+  useEffect(() => {
+    const debloquerAuPremierClic = () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      try {
+        const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClasse) {
+          const ctx = new AudioContextClasse();
+          if (ctx.state === 'suspended') ctx.resume();
+        }
+      } catch (e) { /* pas grave, le son sera juste indisponible */ }
+      document.removeEventListener('click', debloquerAuPremierClic);
+    };
+    document.addEventListener('click', debloquerAuPremierClic);
+    return () => document.removeEventListener('click', debloquerAuPremierClic);
+  }, []);
+
+
 
   // =========================================================================
   // HELPERS DE RÉSOLUTION DE CONTEXTE (établissement / année / classe réelle)
@@ -774,10 +805,11 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const handleEnregistrerProfil = async (e) => {
     e.preventDefault();
-    if (!userId) return;
+    if (!userId || actionsEnCours['enregistrerProfil']) return;
+    debuterAction('enregistrerProfil');
     const { error } = await supabase
       .from('utilisateurs_profils').update({ nom: formProfil.nom, prenom: formProfil.prenoms, telephone: formProfil.telephone || null }).eq('user_id', userId);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('enregistrerProfil'); return; }
 
     // Synchronise les matières déclarées ÉCOLE PAR ÉCOLE — jamais un
     // effacement global, sinon les matières d'une école seraient perdues
@@ -785,12 +817,12 @@ export default function EnseignantDashboard() {
     for (const [etablissementId, matiereIds] of Object.entries(formProfil.matieresParEtablissement || {})) {
       const { error: erreurSuppression } = await supabase
         .from('matieres_enseignant').delete().eq('user_id', userId).eq('etablissement_id', etablissementId);
-      if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); return; }
+      if (erreurSuppression) { showToast("⚠️ Erreur matières : " + erreurSuppression.message); terminerAction('enregistrerProfil'); return; }
       if (matiereIds.length > 0) {
         const { error: erreurInsertion } = await supabase
           .from('matieres_enseignant')
           .insert(matiereIds.map(matiere_id => ({ user_id: userId, matiere_id, etablissement_id: etablissementId })));
-        if (erreurInsertion) { showToast("⚠️ Erreur matières : " + erreurInsertion.message); return; }
+        if (erreurInsertion) { showToast("⚠️ Erreur matières : " + erreurInsertion.message); terminerAction('enregistrerProfil'); return; }
       }
     }
 
@@ -807,6 +839,7 @@ export default function EnseignantDashboard() {
     setInfosEnseignant({ ...formProfil, matiere: matiereDisplayParEcole });
     setModalProfilOuvert(false);
     showToast("✅ Profil mis à jour avec succès !");
+    terminerAction('enregistrerProfil');
   };
 
   // Photo : reste locale (pas de colonne dédiée dans utilisateurs_profils pour l'instant)
@@ -833,7 +866,8 @@ export default function EnseignantDashboard() {
 
   const soumettreDemandeDepart = async (e) => {
     e.preventDefault();
-    if (!modalDepart.ecoleId || !userId) return;
+    if (!modalDepart.ecoleId || !userId || actionsEnCours['demandeDepart']) return;
+    debuterAction('demandeDepart');
 
     // On retrouve l'établissement réel de cette affiliation (le formatage
     // local ne garde que le nom de l'école, pas son id).
@@ -843,7 +877,7 @@ export default function EnseignantDashboard() {
       .eq('id', modalDepart.ecoleId)
       .single();
 
-    if (!aff) { showToast("⚠️ Affiliation introuvable."); return; }
+    if (!aff) { showToast("⚠️ Affiliation introuvable."); terminerAction('demandeDepart'); return; }
 
     const { error } = await supabase
       .from('demandes_depart')
@@ -857,6 +891,7 @@ export default function EnseignantDashboard() {
 
     if (error) {
       showToast("⚠️ Erreur : " + error.message);
+      terminerAction('demandeDepart');
       return;
     }
 
@@ -873,6 +908,7 @@ export default function EnseignantDashboard() {
     setDemandesDepart(prev => [nouvelleDemande, ...prev]);
     setModalDepart({ ouvert: false, ecoleId: null, ecoleNom: '', motif: '' });
     showToast("📤 Demande de départ transmise pour validation !");
+    terminerAction('demandeDepart');
   };
 
   // --- Proposer une classe (de l'année en cours) au censeur de cet établissement ---
@@ -914,6 +950,8 @@ export default function EnseignantDashboard() {
       showToast("⚠️ Merci de choisir au moins une classe (ou en proposer une nouvelle) et au moins une matière.");
       return;
     }
+    if (actionsEnCours['proposerClasse']) return;
+    debuterAction('proposerClasse');
 
     // Une ligne par combinaison classe × matière — un enseignant polyvalent
     // peut ainsi proposer plusieurs matières d'un coup, y compris pour des
@@ -941,6 +979,7 @@ export default function EnseignantDashboard() {
     if (error) {
       if (error.code === '23505') showToast("⚠️ Une ou plusieurs propositions identiques existent déjà.");
       else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('proposerClasse');
       return;
     }
 
@@ -956,6 +995,7 @@ export default function EnseignantDashboard() {
 
     setModalProposerClasse({ ouvert: false, affiliation: null, classesDisponibles: [], matieresDisponibles: [], classesIdsChoisies: [], nouvelleClasseNom: '', matiereIdsChoisies: [] });
     showToast(`📤 ${lignes.length} proposition(s) envoyée(s) au censeur/chef pour validation !`);
+    terminerAction('proposerClasse');
   };
 
   const supprimerClasseLibre = (classeNom) => {
@@ -1047,6 +1087,9 @@ export default function EnseignantDashboard() {
   // =========================================================================
   const gererValidationAssistant = async (e) => {
     e.preventDefault();
+    if (actionsEnCours['validationAssistant']) return;
+    debuterAction('validationAssistant');
+    try {
     const { niveauCible, cycleIdCible, leconIdCible, titreCycle, competenceCycle, dateDebutCycle, dateFinCycle, nombreLeconsPrevu, titreLecon, nombreSeancesLecon,
       titreSeance, dateSeance, lieuSeance, valeursChamps, classesCiblesCycle, datesParClasseCycle, cyclesProgramme, titreProgramme } = modalAssistant;
 
@@ -1285,6 +1328,9 @@ export default function EnseignantDashboard() {
       valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, referenceLeconValeurs: {}, planLecons: [], planSeances: [],
       titreProgramme: '', cyclesProgramme: [{ id: Date.now(), titre: 'Cycle 1', duree: '3 semaines', nbLecons: 2 }]
     });
+    } finally {
+      terminerAction('validationAssistant');
+    }
   };
 
   // --- Envoi au censeur : vraie mise à jour Supabase pour une séance, local sinon ---
@@ -1382,6 +1428,10 @@ export default function EnseignantDashboard() {
   const soumettreAuCenseur = async (type, cycleId, leconId = null, seanceId = null) => {
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) return;
+    const cleAction = `soumettre_${type}_${seanceId || leconId || cycleId}`;
+    if (actionsEnCours[cleAction]) return;
+    debuterAction(cleAction);
+    try {
 
     if (type === 'seance' && seanceId) {
       // Retrouve la date prévue de cette séance dans le mirroir local, pour
@@ -1488,6 +1538,9 @@ export default function EnseignantDashboard() {
     });
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     showToast("🚀 Élément envoyé au censeur !");
+    } finally {
+      terminerAction(cleAction);
+    }
   };
 
   // --- Reporter une séance : statut réel REPORTEE + motif, tracé en base ---
@@ -1497,12 +1550,14 @@ export default function EnseignantDashboard() {
     e.preventDefault();
     const { cycleId, leconId, seance, motif, nouvelleDate } = modalReportSeance;
     if (!motif.trim()) { showToast("⚠️ Merci d'indiquer le motif du report."); return; }
+    if (actionsEnCours['reporterSeance']) return;
+    debuterAction('reporterSeance');
 
     const { error } = await supabase
       .from('seances')
       .update({ statut: 'REPORTEE', motif_report: motif.trim(), date_report_demandee: nouvelleDate || null })
       .eq('id', seance.id);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('reporterSeance'); return; }
 
     await supabase.from('historique_statuts_seance').insert({
       seance_id: seance.id, type_evenement: 'REPORTEE', motif: motif.trim(), cree_par_user_id: userId,
@@ -1524,26 +1579,33 @@ export default function EnseignantDashboard() {
 
     setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' });
     showToast("↩️ Séance marquée comme reportée.");
+    terminerAction('reporterSeance');
   };
 
   const marquerLeconTerminee = async (cycleId, leconId) => {
+    if (actionsEnCours[`leconTerminee_${leconId}`]) return;
+    debuterAction(`leconTerminee_${leconId}`);
     const { error } = await supabase.from('lecons').update({ statut: 'TERMINEE' }).eq('id', leconId);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`leconTerminee_${leconId}`); return; }
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !Array.isArray(prog.cycles)) return;
+    if (!prog || !Array.isArray(prog.cycles)) { terminerAction(`leconTerminee_${leconId}`); return; }
     const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? { ...c, lecons: Array.isArray(c.lecons) ? c.lecons.map(l => l.id === leconId ? { ...l, statut: 'Terminée' } : l) : [] } : c);
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     showToast("🏁 Leçon terminée !");
+    terminerAction(`leconTerminee_${leconId}`);
   };
 
   const marquerCycleTermine = async (cycleId) => {
+    if (actionsEnCours[`cycleTermine_${cycleId}`]) return;
+    debuterAction(`cycleTermine_${cycleId}`);
     const { error } = await supabase.from('cycles').update({ statut: 'TERMINEE' }).eq('id', cycleId);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`cycleTermine_${cycleId}`); return; }
     const prog = programmesClasses[classeSelectionneeVue];
-    if (!prog || !Array.isArray(prog.cycles)) return;
+    if (!prog || !Array.isArray(prog.cycles)) { terminerAction(`cycleTermine_${cycleId}`); return; }
     const cyclesMaj = prog.cycles.map(c => c.id === cycleId ? { ...c, statut: 'Terminé' } : c);
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     showToast("🏆 Cycle terminé !");
+    terminerAction(`cycleTermine_${cycleId}`);
   };
 
   const ouvrirModalEdition = (type, cycleId, leconId = null, seanceId = null) => {
@@ -3205,7 +3267,7 @@ export default function EnseignantDashboard() {
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalAssistant({ ...modalAssistant, ouvert: false })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Valider & Enregistrer</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={actionsEnCours['validationAssistant']}>{actionsEnCours['validationAssistant'] ? 'Enregistrement...' : 'Valider & Enregistrer'}</button>
                 </div>
               </form>
             </div>
@@ -3366,7 +3428,7 @@ export default function EnseignantDashboard() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
                   <button type="button" onClick={() => setModalReportSeance({ ouvert: false, cycleId: null, leconId: null, seance: null, motif: '', nouvelleDate: '' })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton" style={{ backgroundColor: '#d97706', color: '#fff', fontWeight: '800' }}>Confirmer le report</button>
+                  <button type="submit" className="bouton" style={{ backgroundColor: '#d97706', color: '#fff', fontWeight: '800' }} disabled={actionsEnCours['reporterSeance']}>{actionsEnCours['reporterSeance'] ? 'Envoi...' : 'Confirmer le report'}</button>
                 </div>
               </form>
             </div>
@@ -3621,7 +3683,7 @@ export default function EnseignantDashboard() {
                             <button onClick={() => ouvrirModalEdition('cycle', cycle.id)} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px' }}>✏️ Modifier</button>
                             <button onClick={() => setModalDuplicationIntelligente({ ouvert: true, itemSource: cycle, typeSource: 'cycle', classesCibles: [], datesParClasse: {} })} className="bouton bouton-secondaire" style={{ padding: '6px 10px', fontSize: '11px', color: '#2563eb' }}>⚡ Dupliquer</button>
                             {cycle.statut !== 'Terminé' && (
-                              <button onClick={() => marquerCycleTermine(cycle.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }}>🏆 Terminer</button>
+                              <button onClick={() => marquerCycleTermine(cycle.id)} className="bouton bouton-succes" style={{ padding: '6px 10px', fontSize: '11px' }} disabled={!!actionsEnCours[`cycleTermine_${cycle.id}`]}>🏆 {actionsEnCours[`cycleTermine_${cycle.id}`] ? '...' : 'Terminer'}</button>
                             )}
                             <span style={{ padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', backgroundColor: cycle.statut === 'Terminé' ? '#dcfce7' : '#e0f2fe', color: cycle.statut === 'Terminé' ? '#166534' : '#0369a1' }}>{cycle.statut}</span>
                           </div>
@@ -3655,10 +3717,10 @@ export default function EnseignantDashboard() {
                                       <button onClick={() => telechargerLeconPDF(lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Leçon PDF</button>
                                       <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
                                       {!lecon.soumisAuCenseur && (
-                                        <button onClick={() => soumettreAuCenseur('lecon', cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🚀 Envoyer la fiche de leçon</button>
+                                        <button onClick={() => soumettreAuCenseur('lecon', cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`soumettre_lecon_${lecon.id}`]}>🚀 {actionsEnCours[`soumettre_lecon_${lecon.id}`] ? '...' : 'Envoyer la fiche de leçon'}</button>
                                       )}
                                       {lecon.statut !== 'Terminée' && (
-                                        <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>🏁 Terminer</button>
+                                        <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`leconTerminee_${lecon.id}`]}>🏁 {actionsEnCours[`leconTerminee_${lecon.id}`] ? '...' : 'Terminer'}</button>
                                       )}
                                       <span style={{ fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px', backgroundColor: lecon.statut === 'Terminée' ? '#dcfce7' : '#fef3c7', color: lecon.statut === 'Terminée' ? '#166534' : '#92400e' }}>{lecon.statut}</span>
                                     </div>
@@ -3691,8 +3753,8 @@ export default function EnseignantDashboard() {
                                             )}
 
                                             {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && seance.statutReel !== 'REPORTEE' && (
-                                              <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }}>
-                                                🚀 Envoyé
+                                              <button onClick={() => soumettreAuCenseur('seance', cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`soumettre_seance_${seance.id}`]}>
+                                                🚀 {actionsEnCours[`soumettre_seance_${seance.id}`] ? '...' : 'Envoyé'}
                                               </button>
                                             )}
                                           </div>

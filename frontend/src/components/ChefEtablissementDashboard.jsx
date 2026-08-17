@@ -14,6 +14,11 @@ export default function ChefEtablissementDashboard() {
 
   // --- ÉTATS GLOBAUX ---
   const [chargementInitial, setChargementInitial] = useState(true);
+  // [NOUVEAU] Protection anti-double-clic générique — un seul état partagé
+  // (clé = nom de l'action) plutôt qu'une variable par bouton.
+  const [actionsEnCours, setActionsEnCours] = useState({});
+  const debuterAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: true }));
+  const terminerAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: false }));
   const [userId, setUserId] = useState(null);
   const [affiliationChef, setAffiliationChef] = useState(null);
   const [ecoleConfig, setEcoleConfig] = useState(null);
@@ -402,13 +407,27 @@ export default function ChefEtablissementDashboard() {
   useEffect(() => {
     chargerDonnees();
   }, []);
-  // [NOUVEAU] Demande la permission d'affichage des notifications système
-  // une seule fois — si l'utilisateur a déjà répondu, le navigateur ne
-  // redemande pas.
+  // [CORRIGÉ] Les navigateurs bloquent silencieusement la demande de
+  // permission (et le son) si elle n'est pas déclenchée par une vraie
+  // interaction de l'utilisateur — un useEffect au montage ne compte pas.
+  // On la déclenche donc au premier clic réel sur la page, qui débloque en
+  // même temps le son (AudioContext) pour le reste de la session.
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    const debloquerAuPremierClic = () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      try {
+        const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClasse) {
+          const ctx = new AudioContextClasse();
+          if (ctx.state === 'suspended') ctx.resume();
+        }
+      } catch (e) { /* pas grave, le son sera juste indisponible */ }
+      document.removeEventListener('click', debloquerAuPremierClic);
+    };
+    document.addEventListener('click', debloquerAuPremierClic);
+    return () => document.removeEventListener('click', debloquerAuPremierClic);
   }, []);
 
   // =========================================================================
@@ -418,6 +437,8 @@ export default function ChefEtablissementDashboard() {
     e.preventDefault();
     if (!inputNomEcole.trim()) { showToast("⚠️ Veuillez entrer un nom valide."); return; }
     if (!userId) { showToast("⚠️ Session invalide, reconnectez-vous."); return; }
+    if (actionsEnCours['creerEcole']) return;
+    debuterAction('creerEcole');
 
     const nouvelEtablissementId = crypto.randomUUID();
 
@@ -442,6 +463,7 @@ export default function ChefEtablissementDashboard() {
       } else {
         showToast("⚠️ Erreur création établissement : " + erreurEtab.message);
       }
+      terminerAction('creerEcole');
       return;
     }
 
@@ -473,6 +495,7 @@ export default function ChefEtablissementDashboard() {
       } else {
         showToast("⚠️ Erreur d'affiliation : " + erreurAffiliation.message);
       }
+      terminerAction('creerEcole');
       return;
     }
 
@@ -484,6 +507,7 @@ export default function ChefEtablissementDashboard() {
     setFormEcoleEdition(etabRelu);
     setInfosChef(prev => ({ ...prev, etablissement: etabRelu?.nom }));
     showToast("🏫 Établissement créé !");
+    terminerAction('creerEcole');
   };
 
   const handleConnecterEcole = async (e) => {
@@ -549,7 +573,8 @@ export default function ChefEtablissementDashboard() {
 
   const handleEnregistrerCarteEcole = async (e) => {
     e.preventDefault();
-    if (!ecoleConfig?.id) return;
+    if (!ecoleConfig?.id || actionsEnCours['enregistrerCarte']) return;
+    debuterAction('enregistrerCarte');
 
     const { data: etablissementMaj, error } = await supabase
       .from('etablissements')
@@ -575,17 +600,20 @@ export default function ChefEtablissementDashboard() {
 
     if (error) {
       showToast("⚠️ Erreur de mise à jour : " + error.message);
+      terminerAction('enregistrerCarte');
       return;
     }
 
     setEcoleConfig(etablissementMaj);
     setModeEditionEcole(false);
     showToast("✅ Carte d'identité de l'établissement mise à jour !");
+    terminerAction('enregistrerCarte');
   };
 
   const handleEnregistrerProfilChef = async (e) => {
     e.preventDefault();
-    if (!userId) return;
+    if (!userId || actionsEnCours['enregistrerProfilChef']) return;
+    debuterAction('enregistrerProfilChef');
 
     const { error } = await supabase
       .from('utilisateurs_profils')
@@ -598,12 +626,14 @@ export default function ChefEtablissementDashboard() {
 
     if (error) {
       showToast("⚠️ Erreur de mise à jour du profil : " + error.message);
+      terminerAction('enregistrerProfilChef');
       return;
     }
 
     setInfosChef({ ...formProfilChef });
     setModalProfilChefOuvert(false);
     showToast("✅ Profil mis à jour avec succès !");
+    terminerAction('enregistrerProfilChef');
   };
 
   // =========================================================================
@@ -749,12 +779,14 @@ export default function ChefEtablissementDashboard() {
 
   const executerActionAnneeScolaire = async () => {
     const { actionType } = modalConfirmationActionAnnee;
-    if (!affiliationChef?.etablissement_id) return;
+    if (!affiliationChef?.etablissement_id || actionsEnCours['actionAnnee']) return;
+    debuterAction('actionAnnee');
     const etablissementId = affiliationChef.etablissement_id;
 
     if (actionType === 'ouvrir') {
       if (!inputNouvelleAnneeIntitule.trim()) {
         showToast("⚠️ Merci d'indiquer l'intitulé de la nouvelle année (ex. 2026-2027).");
+        terminerAction('actionAnnee');
         return;
       }
       if (anneeActive?.id) {
@@ -764,6 +796,7 @@ export default function ChefEtablissementDashboard() {
           .eq('id', anneeActive.id);
         if (erreurFermeture) {
           showToast("⚠️ Erreur lors de la clôture de l'année précédente : " + erreurFermeture.message);
+          terminerAction('actionAnnee');
           return;
         }
       }
@@ -776,6 +809,7 @@ export default function ChefEtablissementDashboard() {
 
       if (erreurOuverture) {
         showToast("⚠️ Erreur à l'ouverture : " + erreurOuverture.message);
+        terminerAction('actionAnnee');
         return;
       }
 
@@ -790,7 +824,7 @@ export default function ChefEtablissementDashboard() {
       );
 
     } else if (actionType === 'fermer') {
-      if (!anneeActive?.id) return;
+      if (!anneeActive?.id) { terminerAction('actionAnnee'); return; }
       const intituleFerme = anneeActive.intitule;
       const { error } = await supabase
         .from('annees_scolaires')
@@ -799,6 +833,7 @@ export default function ChefEtablissementDashboard() {
 
       if (error) {
         showToast("⚠️ Erreur lors de la clôture : " + error.message);
+        terminerAction('actionAnnee');
         return;
       }
       setAnneeActive(null);
@@ -811,12 +846,14 @@ export default function ChefEtablissementDashboard() {
       );
     }
     setModalConfirmationActionAnnee({ ouvert: false, actionType: null });
+    terminerAction('actionAnnee');
   };
 
 
   const ajouterPersonnelAdministratif = async (e) => {
     e.preventDefault();
-    if (!nouveauAdminNom.trim() || !affiliationChef?.etablissement_id) return;
+    if (!nouveauAdminNom.trim() || !affiliationChef?.etablissement_id || actionsEnCours['ajouterPersonnelChef']) return;
+    debuterAction('ajouterPersonnelChef');
 
     const [prenom, ...resteNom] = nouveauAdminNom.trim().split(' ');
     const nom = resteNom.join(' ') || prenom;
@@ -832,7 +869,7 @@ export default function ChefEtablissementDashboard() {
       .select()
       .single();
 
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('ajouterPersonnelChef'); return; }
 
     setPersonnelAdministratifManuel(prev => [...prev, {
       id: nouveau.id, nomComplet: nouveauAdminNom.trim(), role: nouveauAdminRole,
@@ -840,6 +877,7 @@ export default function ChefEtablissementDashboard() {
     }]);
     setNouveauAdminNom(''); setNouveauAdminMatricule(''); setNouveauAdminContact(''); setNouveauAdminEmail('');
     showToast("✅ Personnel administratif ajouté !");
+    terminerAction('ajouterPersonnelChef');
   };
 
   const supprimerPersonnelAdministratif = (id, nomComplet) => {
@@ -848,10 +886,13 @@ export default function ChefEtablissementDashboard() {
       message: `Êtes-vous sûr de vouloir retirer ${nomComplet} du personnel administratif ?`,
       necessiteMotif: false,
       onConfirmer: async () => {
+        if (actionsEnCours[`suppPersonnelChef_${id}`]) return;
+        debuterAction(`suppPersonnelChef_${id}`);
         const { error } = await supabase.from('personnel').delete().eq('id', id);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`suppPersonnelChef_${id}`); return; }
         setPersonnelAdministratifManuel(prev => prev.filter(p => p.id !== id));
         showToast("🗑️ Membre retiré.");
+        terminerAction(`suppPersonnelChef_${id}`);
       },
     });
   };
@@ -863,12 +904,14 @@ export default function ChefEtablissementDashboard() {
       necessiteMotif: true,
       onConfirmer: async (motif) => {
         if (!motif || !motif.trim()) { showToast("⚠️ Le motif est obligatoire pour un retrait."); return; }
+        if (actionsEnCours[`retirerEns_${affiliationId}`]) return;
+        debuterAction(`retirerEns_${affiliationId}`);
         const prof = listeProfesseursEtablissementBrute.find(p => p.affiliationId === affiliationId);
         const { error } = await supabase
           .from('affiliations_etablissement')
           .update({ statut: 'TERMINEE', date_fin: new Date().toISOString().slice(0, 10), permissions_override_json: { motif_retrait: motif.trim() } })
           .eq('id', affiliationId);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`retirerEns_${affiliationId}`); return; }
 
         if (prof?.userId) {
           await envoyerNotification(
@@ -880,6 +923,7 @@ export default function ChefEtablissementDashboard() {
 
         setListeProfesseursEtablissementBrute(prev => prev.filter(p => p.affiliationId !== affiliationId));
         showToast(`🗑️ ${nomComplet} a été retiré(e) de l'établissement. Notification envoyée.`);
+        terminerAction(`retirerEns_${affiliationId}`);
       },
     });
   };
@@ -890,6 +934,8 @@ export default function ChefEtablissementDashboard() {
       message: "L'ancien code ne fonctionnera plus pour rejoindre l'établissement. Toute personne avec l'ancien code devra recevoir le nouveau.",
       necessiteMotif: false,
       onConfirmer: async () => {
+        if (actionsEnCours['regenererCode']) return;
+        debuterAction('regenererCode');
         const nouveauCode = 'ECH-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
         const { data: etabMaj, error } = await supabase
           .from('etablissements')
@@ -897,21 +943,24 @@ export default function ChefEtablissementDashboard() {
           .eq('id', ecoleConfig.id)
           .select()
           .single();
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('regenererCode'); return; }
         setEcoleConfig(etabMaj);
         setFormEcoleEdition(prev => ({ ...prev, code: nouveauCode }));
         showToast(`✅ Nouveau code établissement : ${nouveauCode}`);
+        terminerAction('regenererCode');
       },
     });
   };
 
   const handleChangerEmailConnexion = async (e) => {
     e.preventDefault();
-    if (!emailSaisiChangement.trim()) return;
+    if (!emailSaisiChangement.trim() || actionsEnCours['changerEmail']) return;
+    debuterAction('changerEmail');
     const { error } = await supabase.auth.updateUser({ email: emailSaisiChangement.trim() });
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('changerEmail'); return; }
     showToast("📧 Vérifiez votre boîte mail : un lien de confirmation a été envoyé au nouvel email.");
     setEmailSaisiChangement('');
+    terminerAction('changerEmail');
   };
 
   const uploaderFichierAdministratifreel = async (e) => {
@@ -966,7 +1015,8 @@ export default function ChefEtablissementDashboard() {
   };
 
   const approuverDemande = async (demande) => {
-    if (!affiliationChef) return;
+    if (!affiliationChef || actionsEnCours[`appro_${demande.id}`]) return;
+    debuterAction(`appro_${demande.id}`);
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
       user_id: demande.user_id,
       etablissement_id: affiliationChef.etablissement_id,
@@ -974,7 +1024,7 @@ export default function ChefEtablissementDashboard() {
       statut: 'ACTIVE',
       date_debut: new Date().toISOString().slice(0, 10),
     });
-    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); return; }
+    if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); terminerAction(`appro_${demande.id}`); return; }
 
     // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
     // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
@@ -990,6 +1040,7 @@ export default function ChefEtablissementDashboard() {
       .eq('statut', 'EN_ATTENTE');
     if (erreurMaj) {
       showToast("⚠️ Affiliation créée, mais la demande n'a pas pu être clôturée : " + erreurMaj.message);
+      terminerAction(`appro_${demande.id}`);
       return;
     }
 
@@ -1001,9 +1052,12 @@ export default function ChefEtablissementDashboard() {
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("✅ Demande approuvée, la personne a maintenant accès à l'établissement !");
+    terminerAction(`appro_${demande.id}`);
   };
 
   const refuserDemande = async (demande) => {
+    if (actionsEnCours[`refus_${demande.id}`]) return;
+    debuterAction(`refus_${demande.id}`);
     // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
     // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
@@ -1013,7 +1067,7 @@ export default function ChefEtablissementDashboard() {
       .eq('etablissement_id', affiliationChef.etablissement_id)
       .eq('role_demande', demande.role_demande)
       .eq('statut', 'EN_ATTENTE');
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`refus_${demande.id}`); return; }
 
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_REFUSEE',
@@ -1023,14 +1077,17 @@ export default function ChefEtablissementDashboard() {
 
     setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("❌ Demande refusée.");
+    terminerAction(`refus_${demande.id}`);
   };
 
   const approuverDemandeDepart = async (demande) => {
+    if (actionsEnCours[`approDep_${demande.id}`]) return;
+    debuterAction(`approDep_${demande.id}`);
     const { error } = await supabase
       .from('demandes_depart')
       .update({ statut: 'APPROUVEE', traite_par_user_id: userId })
       .eq('id', demande.id);
-    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`approDep_${demande.id}`); return; }
 
     await envoyerNotification(
       demande.user_id, 'DEPART_APPROUVE',
@@ -1041,6 +1098,7 @@ export default function ChefEtablissementDashboard() {
     setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));
     setListeProfesseursEtablissementBrute(prev => prev.filter(p => p.userId !== demande.user_id));
     showToast("✅ Départ approuvé. La personne a été notifiée.");
+    terminerAction(`approDep_${demande.id}`);
   };
 
   const refuserDemandeDepart = (demande, nomComplet) => {
@@ -1049,11 +1107,13 @@ export default function ChefEtablissementDashboard() {
       message: `${nomComplet} restera affilié(e) à l'établissement.`,
       necessiteMotif: false,
       onConfirmer: async () => {
+        if (actionsEnCours[`refusDep_${demande.id}`]) return;
+        debuterAction(`refusDep_${demande.id}`);
         const { error } = await supabase
           .from('demandes_depart')
           .update({ statut: 'REFUSEE', traite_par_user_id: userId })
           .eq('id', demande.id);
-        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`refusDep_${demande.id}`); return; }
 
         await envoyerNotification(
           demande.user_id, 'DEPART_REFUSE',
@@ -1063,6 +1123,7 @@ export default function ChefEtablissementDashboard() {
 
         setDemandesDepartRecues(prev => prev.filter(d => d.id !== demande.id));
         showToast("❌ Demande de départ refusée.");
+        terminerAction(`refusDep_${demande.id}`);
       },
     });
   };
@@ -1071,7 +1132,8 @@ export default function ChefEtablissementDashboard() {
 
   const envoyerInvitation = async (e) => {
     e.preventDefault();
-    if (!nouvelleInvitationEmail.trim() || !affiliationChef) return;
+    if (!nouvelleInvitationEmail.trim() || !affiliationChef || actionsEnCours['envoyerInvitation']) return;
+    debuterAction('envoyerInvitation');
 
     const { data: nouvelleInvitation, error } = await supabase
       .from('invitations')
@@ -1085,11 +1147,12 @@ export default function ChefEtablissementDashboard() {
       })
       .select().single();
 
-    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); return; }
+    if (error) { showToast("⚠️ Erreur d'envoi de l'invitation : " + error.message); terminerAction('envoyerInvitation'); return; }
 
     setInvitationsEnvoyees(prev => [nouvelleInvitation, ...prev]);
     setNouvelleInvitationEmail('');
     showToast(`📨 Invitation envoyée à ${nouvelleInvitation.email} (rôle : ${nouvelleInvitationRole}) !`);
+    terminerAction('envoyerInvitation');
   };
 
   const handleChangerPhotoProfilChef = (e) => {
@@ -1288,7 +1351,7 @@ export default function ChefEtablissementDashboard() {
                 <p style={{ fontSize: '11px', color: '#64748b', margin: '-6px 0 4px 0' }}>Actuel : {infosChef.emailSecurite || '—'}</p>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input type="email" placeholder="nouvel-email@exemple.com" value={emailSaisiChangement} onChange={e => setEmailSaisiChangement(e.target.value)} style={{ ...styles.inputStyle, flex: 1 }} required />
-                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Changer</button>
+                  <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['changerEmail']}>{actionsEnCours['changerEmail'] ? 'Envoi...' : 'Changer'}</button>
                 </div>
               </form>
 
@@ -1362,7 +1425,7 @@ export default function ChefEtablissementDashboard() {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
                   <button type="button" onClick={() => setModalProfilChefOuvert(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={actionsEnCours['enregistrerProfilChef']}>{actionsEnCours['enregistrerProfilChef'] ? 'Enregistrement...' : 'Enregistrer'}</button>
                 </div>
               </form>
             </div>
@@ -1496,7 +1559,7 @@ export default function ChefEtablissementDashboard() {
                 <div>
                   <label style={styles.label}>Code</label>
                   <p style={{ margin: '4px 0 4px 0', fontWeight: '800', fontSize: '15px', color: '#2563eb' }}>{ecoleConfig.code}</p>
-                  <button onClick={regenererCodeEtablissement} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '4px 8px' }}>🔄 Régénérer le code</button>
+                  <button onClick={regenererCodeEtablissement} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '4px 8px' }} disabled={actionsEnCours['regenererCode']}>🔄 {actionsEnCours['regenererCode'] ? '...' : 'Régénérer le code'}</button>
                 </div>
                 <div><label style={styles.label}>Type</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{ecoleConfig.visibilite === 'PRIVE' ? 'Privé' : 'Public'}</p></div>
                 <div><label style={styles.label}>Enseignement</label><p style={{ margin: '4px 0 0 0', fontWeight: '800', fontSize: '15px' }}>{{ GENERAL: 'Général', TECHNIQUE: 'Technique', MIXTE: 'Général et Technique' }[ecoleConfig.parametres_json?.typeEnseignement] || 'Général'}</p></div>
@@ -1570,7 +1633,7 @@ export default function ChefEtablissementDashboard() {
                 </div>
                 <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
                   <button type="button" onClick={() => setModeEditionEcole(false)} className="bouton bouton-secondaire" style={{ marginRight: '10px' }}>Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Enregistrer</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={actionsEnCours['enregistrerCarte']}>{actionsEnCours['enregistrerCarte'] ? 'Enregistrement...' : 'Enregistrer'}</button>
                 </div>
               </form>
             )}
@@ -1616,7 +1679,7 @@ export default function ChefEtablissementDashboard() {
                 <option value="CENSEUR">Censeur</option>
                 <option value="ENSEIGNANT">Enseignant</option>
               </select>
-              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Envoyer l'invitation</button>
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['envoyerInvitation']}>{actionsEnCours['envoyerInvitation'] ? 'Envoi...' : "Envoyer l'invitation"}</button>
             </form>
 
             {invitationsEnvoyees.length > 0 && (
@@ -1647,7 +1710,7 @@ export default function ChefEtablissementDashboard() {
                       <br /><small>Souhaite rejoindre en tant que : <strong>{demande.role_demande}</strong></small>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={() => approuverDemande(demande)} className="bouton bouton-succes">Approuver</button>
+                      <button onClick={() => approuverDemande(demande)} className="bouton bouton-succes" disabled={!!actionsEnCours[`appro_${demande.id}`]}>{actionsEnCours[`appro_${demande.id}`] ? '...' : 'Approuver'}</button>
                       <button
                         onClick={() => demanderConfirmation({
                           titre: 'Refuser cette demande ?',
@@ -1656,7 +1719,8 @@ export default function ChefEtablissementDashboard() {
                           onConfirmer: () => refuserDemande(demande),
                         })}
                         className="bouton bouton-danger"
-                      >Refuser</button>
+                        disabled={!!actionsEnCours[`refus_${demande.id}`]}
+                      >{actionsEnCours[`refus_${demande.id}`] ? '...' : 'Refuser'}</button>
                     </div>
                   </div>
                 ))}
@@ -1678,8 +1742,8 @@ export default function ChefEtablissementDashboard() {
                         {demande.motif && <p style={{ fontSize: '12px', color: '#475569', margin: '4px 0 0 0', fontStyle: 'italic' }}>« {demande.motif} »</p>}
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => approuverDemandeDepart(demande)} className="bouton bouton-succes">Approuver</button>
-                        <button onClick={() => refuserDemandeDepart(demande, nomComplet)} className="bouton bouton-danger">Refuser</button>
+                        <button onClick={() => approuverDemandeDepart(demande)} className="bouton bouton-succes" disabled={!!actionsEnCours[`approDep_${demande.id}`]}>{actionsEnCours[`approDep_${demande.id}`] ? '...' : 'Approuver'}</button>
+                        <button onClick={() => refuserDemandeDepart(demande, nomComplet)} className="bouton bouton-danger" disabled={!!actionsEnCours[`refusDep_${demande.id}`]}>{actionsEnCours[`refusDep_${demande.id}`] ? '...' : 'Refuser'}</button>
                       </div>
                     </div>
                   );
@@ -1708,7 +1772,8 @@ export default function ChefEtablissementDashboard() {
                     onClick={() => retirerEnseignant(prof.affiliationId, prof.nomComplet)}
                     className="bouton bouton-danger"
                     style={{ flexShrink: 0 }}
-                  >🗑️ Retirer</button>
+                    disabled={!!actionsEnCours[`retirerEns_${prof.affiliationId}`]}
+                  >🗑️ {actionsEnCours[`retirerEns_${prof.affiliationId}`] ? '...' : 'Retirer'}</button>
                 </div>
               ))}
             </div>
@@ -1719,7 +1784,7 @@ export default function ChefEtablissementDashboard() {
               <input type="text" placeholder="Fonction" value={nouveauAdminRole} onChange={(e) => setNouveauAdminRole(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
               <input type="text" placeholder="Contact" value={nouveauAdminContact} onChange={(e) => setNouveauAdminContact(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
               <input type="email" placeholder="Email" value={nouveauAdminEmail} onChange={(e) => setNouveauAdminEmail(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} />
-              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }}>Ajouter</button>
+              <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['ajouterPersonnelChef']}>{actionsEnCours['ajouterPersonnelChef'] ? '...' : 'Ajouter'}</button>
             </form>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {personnelAdministratifManuel.length === 0 ? (
@@ -1729,7 +1794,7 @@ export default function ChefEtablissementDashboard() {
                   <div>
                     <strong style={{ fontSize: '13px' }}>{p.nomComplet}</strong> — <span style={{ fontSize: '12px', color: '#475569' }}>{p.role}</span>
                   </div>
-                  <button onClick={() => supprimerPersonnelAdministratif(p.id, p.nomComplet)} className="bouton bouton-danger" style={{ flexShrink: 0 }}>🗑️</button>
+                  <button onClick={() => supprimerPersonnelAdministratif(p.id, p.nomComplet)} className="bouton bouton-danger" style={{ flexShrink: 0 }} disabled={!!actionsEnCours[`suppPersonnelChef_${p.id}`]}>🗑️</button>
                 </div>
               ))}
             </div>

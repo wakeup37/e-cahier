@@ -24,7 +24,6 @@ export default function AppRouter() {
   const [invitationsRecues, setInvitationsRecues] = useState([]);
 
   const [afficherMdp, setAfficherMdp] = useState(false);
-  const [afficherMdpConfirmation, setAfficherMdpConfirmation] = useState(false);
 
   const [etapeChoixEtablissement, setEtapeChoixEtablissement] = useState(false);
   const [choixModeEcole, setChoixModeEcole] = useState('choix');
@@ -36,6 +35,13 @@ export default function AppRouter() {
   const [etapeAuth, setEtapeAuth] = useState(null);
   const [modeAuth, setModeAuth] = useState('connexion');
   const [modeMdpOublieAuth, setModeMdpOublieAuth] = useState(false);
+  // [NOUVEAU] Détecte le retour depuis le lien "mot de passe oublié" reçu
+  // par email — avant, ce cas n'était jamais géré : la personne cliquait
+  // le lien et retombait sur l'écran de connexion normal, sans aucun moyen
+  // de définir son nouveau mot de passe.
+  const [modeRecuperationMdp, setModeRecuperationMdp] = useState(false);
+  const [nouveauMdpSaisi, setNouveauMdpSaisi] = useState('');
+  const [confirmationNouveauMdpSaisi, setConfirmationNouveauMdpSaisi] = useState('');
 
   const [genreSaisi, setGenreSaisi] = useState('M.');
   const [nomSaisi, setNomSaisi] = useState('');
@@ -47,10 +53,8 @@ export default function AppRouter() {
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
-  const [mdpConfirmationSaisi, setMdpConfirmationSaisi] = useState('');
 
   const [notification, setNotification] = useState('');
-  const [envoiAuthEnCours, setEnvoiAuthEnCours] = useState(false);
 
   const [demandesAffiliation, setDemandesAffiliation] = useState([]);
   const [seances, setSeances] = useState([]);
@@ -85,12 +89,15 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
+  // Déconnexion optimisée : vide complètement le stockage et force le rechargement
   const gererDeconnexionGlobale = async () => {
     try { 
       await supabase.auth.signOut(); 
     } catch (err) { 
       console.error("Erreur lors de la déconnexion Supabase", err); 
     }
+    localStorage.clear();
+    sessionStorage.clear();
     setUserRole('');
     setSessionUser(null);
     setProfilUtilisateur(null);
@@ -99,6 +106,9 @@ export default function AppRouter() {
     setEtablissementActifId(null);
     setChoixModeEcole('choix');
     afficherNotification("🔓 Déconnexion réussie.");
+    setTimeout(() => {
+      window.location.reload();
+    }, 400);
   };
 
   useEffect(() => {
@@ -116,10 +126,34 @@ export default function AppRouter() {
         setProfilUtilisateur(null);
         setEtapeChoixEtablissement(false);
       }
+      // [NOUVEAU] Supabase envoie cet événement précis quand la personne
+      // arrive via le lien de réinitialisation — on bascule alors sur
+      // l'écran dédié "Nouveau mot de passe" plutôt que de la laisser sur
+      // l'écran de connexion normal sans rien pouvoir faire.
+      if (_event === 'PASSWORD_RECOVERY') {
+        setModeRecuperationMdp(true);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // [NOUVEAU] Sans ça, une promotion approuvée pendant que la personne est
+  // déjà connectée ne changeait rien à son interface tant qu'elle ne
+  // rechargeait pas la page manuellement — chargerProfilEtDonnees() (qui
+  // détecte le rôle) n'était sinon appelée qu'au tout premier chargement.
+  // On la relance ici automatiquement dès qu'une notification arrive
+  // (une promotion approuvée en envoie toujours une).
+  useEffect(() => {
+    if (!sessionUser?.id) return;
+    const canal = supabase
+      .channel(`role-watch-${sessionUser.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${sessionUser.id}` }, () => {
+        chargerProfilEtDonnees(sessionUser.id);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(canal); };
+  }, [sessionUser?.id]);
 
   useEffect(() => {
     if (!sessionUser?.id || !etablissementActifId) return;
@@ -145,6 +179,7 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
+      // Recherche unique et sécurisée par user_id avec upsert implicite de lecture
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -223,6 +258,36 @@ export default function AppRouter() {
     }
   };
 
+  // [NOUVEAU] Valide le nouveau mot de passe après un clic sur le lien de
+  // réinitialisation — la session temporaire ouverte par Supabase à cette
+  // occasion permet d'appeler updateUser() directement, sans redemander
+  // l'ancien mot de passe (la personne l'a justement oublié).
+  const [validationMdpEnCours, setValidationMdpEnCours] = useState(false);
+  const validerNouveauMotDePasse = async (e) => {
+    e.preventDefault();
+    if (validationMdpEnCours) return;
+    if (!nouveauMdpSaisi || nouveauMdpSaisi.length < 6) {
+      afficherNotification("⚠️ Le mot de passe doit contenir au moins 6 caractères.");
+      return;
+    }
+    if (nouveauMdpSaisi !== confirmationNouveauMdpSaisi) {
+      afficherNotification("⚠️ Les deux mots de passe ne correspondent pas.");
+      return;
+    }
+    setValidationMdpEnCours(true);
+    const { error } = await supabase.auth.updateUser({ password: nouveauMdpSaisi });
+    if (error) {
+      afficherNotification("❌ Erreur : " + error.message);
+      setValidationMdpEnCours(false);
+      return;
+    }
+    afficherNotification("✅ Mot de passe mis à jour ! Vous êtes connecté(e).");
+    setModeRecuperationMdp(false);
+    setNouveauMdpSaisi('');
+    setConfirmationNouveauMdpSaisi('');
+    setValidationMdpEnCours(false);
+  };
+
   const validerAuthUtilisateur = async (e) => {
     e.preventDefault();
     if (!emailSaisi || !mdpSaisi) {
@@ -231,10 +296,6 @@ export default function AppRouter() {
     }
 
     if (modeAuth === 'inscription') {
-      if (mdpSaisi !== mdpConfirmationSaisi) {
-        afficherNotification("⚠️ Les mots de passe saisis ne correspondent pas.");
-        return;
-      }
       if (!nomSaisi || !prenomsSaisi || !dateNaissanceSaisie) {
         afficherNotification("⚠️ Veuillez renseigner toutes vos civilités personnelles.");
         return;
@@ -244,9 +305,6 @@ export default function AppRouter() {
         return;
       }
     }
-
-    if (envoiAuthEnCours) return;
-    setEnvoiAuthEnCours(true);
 
     const roleActuel = etapeAuth;
     const emailNettoye = emailSaisi.trim().toLowerCase();
@@ -272,36 +330,21 @@ export default function AppRouter() {
             .filter(m => matiereIdsSaisies.includes(m.id))
             .map(m => m.nom);
 
-          const { data: profilExistant } = await supabase
-            .from('utilisateurs_profils')
-            .select('user_id')
-            .eq('user_id', data.user.id)
-            .maybeSingle();
-
-          const payloadProfil = {
-            user_id: data.user.id,
-            nom: nomSaisi.trim(),
-            prenom: prenomsSaisi.trim(),
-            preferences_json: {
-              genre: genreSaisi,
-              date_naissance: dateFormatee,
-              matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
-              role_signup: roleActuel,
-            },
-          };
-
-          if (profilExistant) {
-            const { error: updateErr } = await supabase
-              .from('utilisateurs_profils')
-              .update(payloadProfil)
-              .eq('user_id', data.user.id);
-            if (updateErr) throw updateErr;
-          } else {
-            const { error: insertErr } = await supabase
-              .from('utilisateurs_profils')
-              .insert([payloadProfil]);
-            if (insertErr) throw insertErr;
-          }
+          // Utilisation stricte de l'upsert par user_id pour éviter les doublons de profil
+          const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
+            {
+              user_id: data.user.id,
+              nom: nomSaisi.trim(),
+              prenom: prenomsSaisi.trim(),
+              preferences_json: {
+                genre: genreSaisi,
+                date_naissance: dateFormatee,
+                matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
+                role_signup: roleActuel,
+              },
+            }
+          ], { onConflict: 'user_id' });
+          if (profileError) throw profileError;
         }
 
         const { error: loginError } = await supabase.auth.signInWithPassword({
@@ -333,11 +376,9 @@ export default function AppRouter() {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
       if (messageErreur.includes("User already registered")) {
-        messageErreur = "Cet e-mail est déjà enregistré. Si l'inscription précédente a échoué, connectez-vous directement.";
+        messageErreur = "Cet e-mail est déjà enregistré.";
       }
       afficherNotification("❌ " + messageErreur);
-    } finally {
-      setEnvoiAuthEnCours(false);
     }
   };
 
@@ -418,6 +459,55 @@ export default function AppRouter() {
       setEtapeChoixEtablissement(false);
     }
   };
+
+  // [NOUVEAU] Écran prioritaire : tant que la personne vient de cliquer
+  // sur le lien de réinitialisation, on ne la laisse nulle part ailleurs
+  // dans l'app avant qu'elle ait défini son nouveau mot de passe.
+  if (modeRecuperationMdp) {
+    return (
+      <div style={styles.ecranAuth}>
+        <div style={styles.carteAuth}>
+          <div style={styles.enteteLogo}>
+            <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>🔑</span></div>
+            <h1 style={styles.titreLogo}>Nouveau mot de passe</h1>
+          </div>
+
+          <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>
+            Choisissez un nouveau mot de passe pour votre compte E-cahier.
+          </p>
+
+          <form onSubmit={validerNouveauMotDePasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
+            <div>
+              <label style={styles.libelle}>Nouveau mot de passe</label>
+              <input
+                type="password"
+                value={nouveauMdpSaisi}
+                onChange={(e) => setNouveauMdpSaisi(e.target.value)}
+                style={styles.champSaisie}
+                placeholder="Au moins 6 caractères"
+                autoFocus
+                required
+              />
+            </div>
+            <div>
+              <label style={styles.libelle}>Confirmer le mot de passe</label>
+              <input
+                type="password"
+                value={confirmationNouveauMdpSaisi}
+                onChange={(e) => setConfirmationNouveauMdpSaisi(e.target.value)}
+                style={styles.champSaisie}
+                placeholder="Retapez le même mot de passe"
+                required
+              />
+            </div>
+            <button type="submit" style={{ ...styles.boutonPrincipal }} disabled={validationMdpEnCours}>
+              {validationMdpEnCours ? 'Enregistrement...' : 'Valider le nouveau mot de passe'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   if (!userRole && !etapeAuth) {
     return (
@@ -561,16 +651,6 @@ export default function AppRouter() {
                   <span onClick={() => setAfficherMdp(!afficherMdp)} style={styles.boutonOeil}>{afficherMdp ? '👁️‍🗨️' : '👁️'}</span>
                 </div>
 
-                {modeAuth === 'inscription' && (
-                  <div style={{ marginTop: '10px' }}>
-                    <label style={styles.libelle}>Confirmer le mot de passe</label>
-                    <div style={styles.conteneurMotDePasse}>
-                      <input type={afficherMdpConfirmation ? "text" : "password"} placeholder="••••••••" value={mdpConfirmationSaisi} onChange={e => setMdpConfirmationSaisi(e.target.value)} style={styles.champMdpInterne} required />
-                      <span onClick={() => setAfficherMdpConfirmation(!afficherMdpConfirmation)} style={styles.boutonOeil}>{afficherMdpConfirmation ? '👁️‍🗨️' : '👁️'}</span>
-                    </div>
-                  </div>
-                )}
-
                 {modeAuth === 'connexion' && (
                   <div style={{ textAlign: 'right', marginTop: '6px' }}>
                     <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
@@ -581,9 +661,9 @@ export default function AppRouter() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); setMdpConfirmationSaisi(''); }}>⬅️ Retour</button>
-                <button type="submit" style={{ ...(modeAuth === 'connexion' ? styles.boutonPrincipal : styles.boutonInscription), flex: 2 }} disabled={envoiAuthEnCours}>
-                  {envoiAuthEnCours ? 'Patientez...' : (modeAuth === 'connexion' ? 'Se connecter' : "S'inscrire")}
+                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); }}>⬅️ Retour</button>
+                <button type="submit" style={{ ...(modeAuth === 'connexion' ? styles.boutonPrincipal : styles.boutonInscription), flex: 2 }}>
+                  {modeAuth === 'connexion' ? 'Se connecter' : "S'inscrire"}
                 </button>
               </div>
             </form>
@@ -728,9 +808,8 @@ export default function AppRouter() {
 
 const styles = {
   boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
-  // [CORRIGÉ] overflowY: 'auto' et align-items flex-start avec padding pour permettre un scroll fluide et complet sur mobile et bureau
-  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', minHeight: '100vh', padding: '40px 20px', backgroundColor: '#f8fafc', boxSizing: 'border-box', overflowY: 'auto', width: '100%' },
-  carteAuth: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center', boxSizing: 'border-box', margin: 'auto' },
+  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '20px', backgroundColor: '#f8fafc', boxSizing: 'border-box' },
+  carteAuth: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center', boxSizing: 'border-box' },
   enteteLogo: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' },
   iconeCahier: { backgroundColor: '#2563eb', borderRadius: '10px', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' },
   titreLogo: { fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '0' },

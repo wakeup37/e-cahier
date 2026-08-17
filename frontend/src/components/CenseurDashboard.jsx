@@ -366,7 +366,7 @@ export default function CenseurDashboard() {
       { data: matieresData },
       { data: documentsData },
       { data: personnel },
-      { data: demande },
+      { data: demandePromotionExistante },
       { data: seances, error: erreurSeances },
       { data: archive },
       { data: notifs },
@@ -381,7 +381,11 @@ export default function CenseurDashboard() {
       supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
       supabase.from('documents_etablissement').select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))').eq('etablissement_id', etablissementId).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('personnel').select('*').eq('etablissement_id', etablissementId),
-      supabase.from('demandes_changement_role').select('*').eq('user_id', user.id).eq('etablissement_id', etablissementId).eq('role_demande', 'CHEF').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      // [CORRIGÉ] demandes_changement_role (jamais consultée côté Chef, donc
+      // toujours invisible) remplacée par demandes_affiliation — une seule
+      // requête couvre maintenant à la fois la promotion "interne" et la
+      // mutation "externe", distinguées ensuite par l'établissement ciblé.
+      supabase.from('demandes_affiliation').select('id, etablissement_id, created_at, etablissements(nom)').eq('user_id', user.id).eq('role_demande', 'CHEF').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('seances').select(`
         id, date_prevue, statut, contenu_json,
         statut_visa, envoyee_at, visee_at, observation_visa,
@@ -523,13 +527,20 @@ export default function CenseurDashboard() {
       matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
     })));
 
-    if (demande) {
+    // [CORRIGÉ] Une seule requête couvre maintenant interne et externe
+    // (toutes deux dans demandes_affiliation) — on les distingue en
+    // comparant l'établissement ciblé à l'établissement actuel du censeur.
+    if (demandePromotionExistante) {
+      const estInterne = demandePromotionExistante.etablissement_id === etablissementId;
       setDemandePromotion({
-        date: new Date(demande.created_at).toLocaleDateString(),
-        type: 'interne',
-        ecoleCible: etab?.nom || '',
-        statut: demande.statut === 'EN_ATTENTE' ? 'En attente de validation' : demande.statut,
+        id: demandePromotionExistante.id,
+        type: estInterne ? 'interne' : 'externe',
+        date: new Date(demandePromotionExistante.created_at).toLocaleDateString(),
+        ecoleCible: estInterne ? (etab?.nom || '') : (demandePromotionExistante.etablissements?.nom || ''),
+        statut: 'En attente de validation',
       });
+    } else {
+      setDemandePromotion(null);
     }
 
     if (erreurSeances) {
@@ -1492,22 +1503,47 @@ export default function CenseurDashboard() {
     setEnvoiDemandeRejoindreEnCours(false);
   };
 
-  const envoyerDemandePromotion = async (e) => {
+  const envoyerDemandePromotion = (e) => {
     e.preventDefault();
+    // [NOUVEAU] Bloque si une demande est déjà en attente — avant, rien
+    // n'empêchait d'en envoyer plusieurs à la suite.
+    if (demandePromotion) {
+      showToast("⚠️ Vous avez déjà une demande de promotion en attente. Annulez-la d'abord si vous voulez en envoyer une autre.");
+      return;
+    }
+    // [NOUVEAU] Demande confirmation avant l'envoi réel.
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Confirmer l\'envoi de la demande ?',
+      message: formPromotion.type === 'interne'
+        ? "Vous demandez à évoluer vers le poste de Chef d'établissement, dans votre établissement actuel."
+        : `Vous demandez à devenir chef de l'établissement "${formPromotion.ecoleCible.trim()}".`,
+      actionCallback: finaliserEnvoiPromotion,
+    });
+  };
+
+  const finaliserEnvoiPromotion = async () => {
     if (!userId || !affiliationCenseur || actionsEnCours['demandePromotion']) return;
     debuterAction('demandePromotion');
 
     if (formPromotion.type === 'interne') {
-      const { error } = await supabase
-        .from('demandes_changement_role')
-        .insert({
-          user_id: userId,
-          etablissement_id: affiliationCenseur.etablissement_id,
-          role_actuel: 'CENSEUR',
-          role_demande: 'CHEF',
-        });
-      if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('demandePromotion'); return; }
-      setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'interne', ecoleCible: infosCenseur.etablissement, statut: 'En attente de validation' });
+      // [CORRIGÉ] demandes_changement_role n'est consultée nulle part dans
+      // le dashboard Chef — les demandes y restaient invisibles pour
+      // toujours. On passe par demandes_affiliation, la même table déjà
+      // utilisée et fonctionnelle pour toutes les autres demandes que le
+      // chef consulte réellement.
+      const { data: nouvelle, error } = await supabase
+        .from('demandes_affiliation')
+        .insert({ user_id: userId, etablissement_id: affiliationCenseur.etablissement_id, role_demande: 'CHEF' })
+        .select()
+        .single();
+      if (error) {
+        if (error.code === '23505') showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+        else showToast("⚠️ Erreur : " + error.message);
+        terminerAction('demandePromotion');
+        return;
+      }
+      setDemandePromotion({ id: nouvelle.id, date: new Date().toLocaleDateString(), type: 'interne', ecoleCible: infosCenseur.etablissement, statut: 'En attente de validation' });
       showToast("🚀 Demande d'évolution vers le poste de Proviseur envoyée !");
       terminerAction('demandePromotion');
       return;
@@ -1525,14 +1561,44 @@ export default function CenseurDashboard() {
       return;
     }
 
-    const { error: erreurDemande } = await supabase
+    const { data: nouvelleDemande, error: erreurDemande } = await supabase
       .from('demandes_affiliation')
-      .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CHEF' });
+      .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CHEF' })
+      .select()
+      .single();
 
-    if (erreurDemande) { showToast("⚠️ Erreur : " + erreurDemande.message); terminerAction('demandePromotion'); return; }
-    setDemandePromotion({ date: new Date().toLocaleDateString(), type: 'externe', ecoleCible: etablissementCible.nom, statut: 'En attente de validation' });
+    if (erreurDemande) {
+      if (erreurDemande.code === '23505') showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      else showToast("⚠️ Erreur : " + erreurDemande.message);
+      terminerAction('demandePromotion');
+      return;
+    }
+    setDemandePromotion({ id: nouvelleDemande.id, date: new Date().toLocaleDateString(), type: 'externe', ecoleCible: etablissementCible.nom, statut: 'En attente de validation' });
     showToast("🚀 Demande de mutation envoyée !");
     terminerAction('demandePromotion');
+  };
+
+  // [NOUVEAU] Permet d'annuler une demande de promotion en attente —
+  // n'existait pas du tout auparavant, la demande restait bloquée
+  // indéfiniment tant que le chef ne la traitait pas.
+  const annulerDemandePromotion = () => {
+    if (!demandePromotion) return;
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Annuler cette demande de promotion ?',
+      message: "Vous pourrez en soumettre une nouvelle plus tard si vous changez d'avis.",
+      actionCallback: async () => {
+        if (actionsEnCours['annulerPromotion']) return;
+        debuterAction('annulerPromotion');
+        // [CORRIGÉ] Les deux types (interne/externe) passent maintenant
+        // par demandes_affiliation.
+        const { error } = await supabase.from('demandes_affiliation').update({ statut: 'ANNULEE' }).eq('id', demandePromotion.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('annulerPromotion'); return; }
+        setDemandePromotion(null);
+        showToast("✅ Demande annulée.");
+        terminerAction('annulerPromotion');
+      },
+    });
   };
 
   const toggleSelectionRappel = (profUserId, isChecked) => {
@@ -3522,6 +3588,14 @@ export default function CenseurDashboard() {
                 <h3 style={{ color: '#9d174d', margin: '10px 0 5px 0' }}>Demande de promotion en cours d'examen</h3>
                 <p style={{ fontSize: '13px', color: '#be185d', margin: 0 }}>Vous avez postulé pour le poste de Proviseur ({demandePromotion.type === 'interne' ? 'en interne' : `mutation vers ${demandePromotion.ecoleCible}`}) le {demandePromotion.date}.</p>
                 <p style={{ fontSize: '14px', fontWeight: '800', marginTop: '10px', color: '#9d174d' }}>Statut : {demandePromotion.statut}</p>
+                <button
+                  onClick={annulerDemandePromotion}
+                  className="bouton bouton-danger"
+                  style={{ marginTop: '16px' }}
+                  disabled={actionsEnCours['annulerPromotion']}
+                >
+                  {actionsEnCours['annulerPromotion'] ? 'Annulation...' : '✕ Annuler ma demande'}
+                </button>
               </div>
             ) : (
               <form onSubmit={envoyerDemandePromotion} style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>

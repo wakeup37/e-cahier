@@ -1014,7 +1014,27 @@ export default function ChefEtablissementDashboard() {
     window.open(data.signedUrl, '_blank');
   };
 
-  const approuverDemande = async (demande) => {
+  const approuverDemande = (demande) => {
+    if (!affiliationChef || actionsEnCours[`appro_${demande.id}`]) return;
+
+    // [NOUVEAU] Un établissement n'a qu'un seul chef actif à la fois —
+    // approuver une demande de CHEF signifie donc être remplacé(e)
+    // immédiatement. Confirmation explicite obligatoire avant de continuer,
+    // avec un message clair sur ce que ça implique.
+    if (demande.role_demande === 'CHEF') {
+      demanderConfirmation({
+        titre: '⚠️ Vous allez être remplacé(e)',
+        message: `En approuvant, ${demande.utilisateurs_profils?.prenom || ''} ${demande.utilisateurs_profils?.nom || ''} deviendra chef(fe) de cet établissement à votre place. Vous perdrez immédiatement votre accès ici en tant que chef, et devrez créer ou rejoindre un autre établissement. Continuer ?`,
+        necessiteMotif: false,
+        onConfirmer: () => finaliserApprobationDemande(demande),
+      });
+      return;
+    }
+
+    finaliserApprobationDemande(demande);
+  };
+
+  const finaliserApprobationDemande = async (demande) => {
     if (!affiliationChef || actionsEnCours[`appro_${demande.id}`]) return;
     debuterAction(`appro_${demande.id}`);
     const { error: erreurAff } = await supabase.from('affiliations_etablissement').insert({
@@ -1044,6 +1064,29 @@ export default function ChefEtablissementDashboard() {
       return;
     }
 
+    // [NOUVEAU] Une promotion en CENSEUR ne doit laisser à la personne
+    // qu'un seul établissement actif — on ferme toutes ses autres
+    // affiliations ENSEIGNANT, où qu'elles soient, pour ne garder que la
+    // nouvelle affiliation censeur qu'on vient de créer.
+    if (demande.role_demande === 'CENSEUR') {
+      await supabase
+        .from('affiliations_etablissement')
+        .update({ statut: 'TERMINEE', date_fin: new Date().toISOString().slice(0, 10) })
+        .eq('user_id', demande.user_id)
+        .eq('role', 'ENSEIGNANT')
+        .eq('statut', 'ACTIVE');
+    }
+
+    // [NOUVEAU] Une promotion en CHEF remplace l'ancien chef — on ferme SA
+    // PROPRE affiliation de chef sur cet établissement (la confirmation
+    // pour ce remplacement a déjà été obtenue dans approuverDemande).
+    if (demande.role_demande === 'CHEF' && affiliationChef.id) {
+      await supabase
+        .from('affiliations_etablissement')
+        .update({ statut: 'TERMINEE', date_fin: new Date().toISOString().slice(0, 10) })
+        .eq('id', affiliationChef.id);
+    }
+
     await envoyerNotification(
       demande.user_id, 'DEMANDE_AFFILIATION_ACCEPTEE',
       `✅ Votre demande pour rejoindre l'établissement en tant que ${demande.role_demande.toLowerCase()} a été acceptée !`,
@@ -1053,6 +1096,16 @@ export default function ChefEtablissementDashboard() {
     setDemandesAffiliationRecues(prev => prev.filter(d => d.user_id !== demande.user_id));
     showToast("✅ Demande approuvée, la personne a maintenant accès à l'établissement !");
     terminerAction(`appro_${demande.id}`);
+
+    // [NOUVEAU] Si c'était une demande de CHEF, l'utilisateur courant vient
+    // de perdre son propre accès à cet établissement — on le fait ressortir
+    // vers l'écran de choix d'établissement en rechargeant la page (même
+    // mécanisme que la déconnexion), plutôt que de le laisser sur un
+    // dashboard auquel il n'a plus droit.
+    if (demande.role_demande === 'CHEF') {
+      showToast("🚪 Vous avez été remplacé(e) comme chef de cet établissement.");
+      setTimeout(() => { window.location.reload(); }, 1500);
+    }
   };
 
   const refuserDemande = async (demande) => {

@@ -255,11 +255,9 @@ export default function EnseignantDashboard() {
   const [profilOuvert, setProfilOuvert] = useState(false);
   const profilRef = useRef(null);
 
-  const [demandePromotionCenseur, setDemandePromotionCenseur] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_demande_promotion')) || null; }
-    catch { return null; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_demande_promotion', JSON.stringify(demandePromotionCenseur)); }, [demandePromotionCenseur]);
+  // [CORRIGÉ] Ne dépend plus du localStorage (qui pouvait afficher un état
+  // périmé ou mensonger) — rechargé depuis la vraie base dans chargerTout().
+  const [demandePromotionCenseur, setDemandePromotionCenseur] = useState(null);
 
   const [modalPromotion, setModalPromotion] = useState(false);
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
@@ -476,6 +474,7 @@ export default function EnseignantDashboard() {
       { data: mesMatieres },
       { data: demandesDepartData },
       { data: notifs },
+      { data: demandePromotionCenseurExistante },
     ] = await Promise.all([
       supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
       supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
@@ -493,6 +492,7 @@ export default function EnseignantDashboard() {
       supabase.from('demandes_depart').select('id, affiliation_id, motif, statut, created_at').eq('user_id', user.id).eq('statut', 'EN_ATTENTE'),
       // Notifications non lues (cloche)
       supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
+      supabase.from('demandes_affiliation').select('id, etablissement_id, created_at, etablissements(nom)').eq('user_id', user.id).eq('role_demande', 'CENSEUR').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     setMatieresCatalogue(catalogueMatieres || []);
 
@@ -530,6 +530,22 @@ export default function EnseignantDashboard() {
       )],
     }));
     setAffiliations(affiliationsFormatees);
+
+    // [NOUVEAU] Recharge la vraie demande de promotion vers Censeur depuis
+    // la base — "interne" si l'établissement cible est l'un de ceux où
+    // l'enseignant est déjà affilié, "externe" sinon.
+    if (demandePromotionCenseurExistante) {
+      const estInterne = affiliationsFormatees.some(a => a.etablissementId === demandePromotionCenseurExistante.etablissement_id);
+      setDemandePromotionCenseur({
+        id: demandePromotionCenseurExistante.id,
+        date: new Date(demandePromotionCenseurExistante.created_at).toLocaleDateString(),
+        type: estInterne ? 'interne' : 'externe',
+        ecoleCible: demandePromotionCenseurExistante.etablissements?.nom || '',
+        statut: 'En attente de validation',
+      });
+    } else {
+      setDemandePromotionCenseur(null);
+    }
 
     // [NOUVEAU] Construit, pour chaque établissement, la liste des matières
     // enseignées sur chaque classe (une classe peut en avoir plusieurs si
@@ -855,13 +871,91 @@ export default function EnseignantDashboard() {
   // distincte de demandes_changement_role — à unifier avec le dashboard censeur ensuite)
   const envoyerDemandePromotionCenseur = (e) => {
     e.preventDefault();
+    // [CORRIGÉ] Avant, cette fonction n'écrivait que dans le localStorage
+    // du navigateur — rien n'était réellement envoyé au chef d'établissement,
+    // malgré le message de succès qui l'affirmait. On passe maintenant par
+    // demandes_affiliation, la même table déjà utilisée et fonctionnelle
+    // pour toutes les autres demandes que le chef consulte réellement.
+    if (demandePromotionCenseur) {
+      showToast("⚠️ Vous avez déjà une demande de promotion en attente. Annulez-la d'abord si vous voulez en envoyer une autre.");
+      return;
+    }
+    setModalConfirmation({
+      ouvert: true,
+      titre: "Confirmer l'envoi de la demande ?",
+      message: formPromotion.type === 'interne'
+        ? "Vous demandez à évoluer vers le poste de Censeur, dans votre établissement actuel."
+        : `Vous demandez à devenir censeur de l'établissement "${formPromotion.ecoleCible.trim()}".`,
+      actionCallback: finaliserEnvoiPromotionCenseur,
+    });
+  };
+
+  const finaliserEnvoiPromotionCenseur = async () => {
+    if (!userId || actionsEnCours['demandePromotionCenseur']) return;
+    debuterAction('demandePromotionCenseur');
+
+    let etablissementCible;
+    if (formPromotion.type === 'interne') {
+      // L'établissement "interne" est celui de l'affiliation enseignant
+      // active choisie dans le formulaire (infosEnseignant.etablissementSaisi
+      // ne donne qu'un nom affiché, pas un id exploitable ici) — on
+      // retrouve l'id réel via les affiliations déjà chargées.
+      const affValidee = affiliations.find(a => a.statut === 'Validée');
+      if (!affValidee) { showToast("⚠️ Aucune affiliation validée trouvée."); terminerAction('demandePromotionCenseur'); return; }
+      etablissementCible = { id: affValidee.etablissementId, nom: affValidee.ecole };
+    } else {
+      const { data, error: erreurRecherche } = await supabase
+        .from('etablissements')
+        .select('id, nom')
+        .ilike('nom', formPromotion.ecoleCible.trim())
+        .maybeSingle();
+      if (erreurRecherche || !data) {
+        showToast("⚠️ Établissement cible introuvable. Vérifiez le nom exact.");
+        terminerAction('demandePromotionCenseur');
+        return;
+      }
+      etablissementCible = data;
+    }
+
+    const { data: nouvelleDemande, error } = await supabase
+      .from('demandes_affiliation')
+      .insert({ user_id: userId, etablissement_id: etablissementCible.id, role_demande: 'CENSEUR' })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Une demande est déjà en attente pour cet établissement.");
+      else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('demandePromotionCenseur');
+      return;
+    }
+
     setDemandePromotionCenseur({
-      date: new Date().toLocaleDateString(), type: formPromotion.type,
-      ecoleCible: formPromotion.type === 'interne' ? infosEnseignant.etablissementSaisi : formPromotion.ecoleCible,
-      statut: 'En attente de validation'
+      id: nouvelleDemande.id, date: new Date().toLocaleDateString(), type: formPromotion.type,
+      ecoleCible: etablissementCible.nom, statut: 'En attente de validation'
     });
     setModalPromotion(false);
     showToast("🚀 Demande d'évolution vers le poste de Censeur envoyée au chef d'établissement !");
+    terminerAction('demandePromotionCenseur');
+  };
+
+  // [NOUVEAU] Permet d'annuler une demande de promotion en attente.
+  const annulerDemandePromotionCenseur = () => {
+    if (!demandePromotionCenseur) return;
+    setModalConfirmation({
+      ouvert: true,
+      titre: 'Annuler cette demande de promotion ?',
+      message: "Vous pourrez en soumettre une nouvelle plus tard si vous changez d'avis.",
+      actionCallback: async () => {
+        if (actionsEnCours['annulerPromotionCenseur']) return;
+        debuterAction('annulerPromotionCenseur');
+        const { error } = await supabase.from('demandes_affiliation').update({ statut: 'ANNULEE' }).eq('id', demandePromotionCenseur.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('annulerPromotionCenseur'); return; }
+        setDemandePromotionCenseur(null);
+        showToast("✅ Demande annulée.");
+        terminerAction('annulerPromotionCenseur');
+      },
+    });
   };
 
   const soumettreDemandeDepart = async (e) => {
@@ -2413,6 +2507,24 @@ export default function EnseignantDashboard() {
                 <button onClick={() => setModalPromotion(false)} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
               </div>
 
+              {demandePromotionCenseur ? (
+                <div style={{ backgroundColor: '#fdf4ff', border: '1px solid #fbcfe8', padding: '20px', borderRadius: '16px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '30px' }}>⏳</span>
+                  <h4 style={{ color: '#9d174d', margin: '10px 0 5px 0' }}>Demande en cours d'examen</h4>
+                  <p style={{ fontSize: '13px', color: '#be185d', margin: 0 }}>
+                    Vous avez postulé pour le poste de Censeur ({demandePromotionCenseur.type === 'interne' ? 'en interne' : `mutation vers ${demandePromotionCenseur.ecoleCible}`}) le {demandePromotionCenseur.date}.
+                  </p>
+                  <p style={{ fontSize: '14px', fontWeight: '800', marginTop: '10px', color: '#9d174d' }}>Statut : {demandePromotionCenseur.statut}</p>
+                  <button
+                    onClick={annulerDemandePromotionCenseur}
+                    className="bouton bouton-danger"
+                    style={{ marginTop: '16px' }}
+                    disabled={actionsEnCours['annulerPromotionCenseur']}
+                  >
+                    {actionsEnCours['annulerPromotionCenseur'] ? 'Annulation...' : '✕ Annuler ma demande'}
+                  </button>
+                </div>
+              ) : (
               <form onSubmit={envoyerDemandePromotionCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
                   <label style={styles.label}>Type d'évolution souhaitée</label>
@@ -2435,9 +2547,10 @@ export default function EnseignantDashboard() {
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
                   <button type="button" onClick={() => setModalPromotion(false)} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton bouton-principal">Soumettre la demande officielle</button>
+                  <button type="submit" className="bouton bouton-principal" disabled={actionsEnCours['demandePromotionCenseur']}>{actionsEnCours['demandePromotionCenseur'] ? 'Envoi...' : 'Soumettre la demande officielle'}</button>
                 </div>
               </form>
+              )}
             </div>
           </div>
         )}

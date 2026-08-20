@@ -9,13 +9,10 @@ import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 Sentry.init({
   dsn: "https://4d9a8453ed9e09ce79603032a9d1d8b4@o4511943155187712.ingest.de.sentry.io/4511943162921040",
   integrations: [
-    Sentry.browserTracingIntegration(),
-    Sentry.replayIntegration()
+    Sentry.browserTracingIntegration()
   ],
   tracesSampleRate: 1.0,
   tracePropagationTargets: ["localhost", /^https:\/\/okepdydyxgsfywoknhqq\.supabase\.co/],
-  replaysSessionSampleRate: 0.1,
-  replaysOnErrorSampleRate: 1.0,
   enableLogs: true
 });
 
@@ -64,6 +61,7 @@ export default function AppRouter() {
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
+  const [consentementSaisi, setConsentementSaisi] = useState(false);
 
   const [notification, setNotification] = useState('');
 
@@ -299,6 +297,10 @@ export default function AppRouter() {
         afficherNotification("⚠️ Veuillez choisir au moins une matière enseignée.");
         return;
       }
+      if (!consentementSaisi) {
+        afficherNotification("⚠️ Vous devez accepter la politique de confidentialité pour vous inscrire.");
+        return;
+      }
     }
 
     const roleActuel = etapeAuth;
@@ -335,6 +337,8 @@ export default function AppRouter() {
                 date_naissance: dateFormatee,
                 matieres_predilection: roleActuel === 'enseignant' ? nomsMatieresChoisies : null,
                 role_signup: roleActuel,
+                consentement_donne: true,
+                date_consentement: new Date().toISOString()
               },
             }
           ], { onConflict: 'user_id' });
@@ -723,6 +727,28 @@ export default function AppRouter() {
                   </div>
                 )}
               </div>
+
+              {modeAuth === 'inscription' && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '4px', backgroundColor: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <input
+                    type="checkbox"
+                    id="consentement"
+                    checked={consentementSaisi}
+                    onChange={(e) => setConsentementSaisi(e.target.checked)}
+                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                    required
+                  />
+                  <label htmlFor="consentement" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer', margin: 0 }}>
+                    J'accepte que mes données personnelles et pédagogiques soient traitées dans le cadre de la plateforme E-cahier, conformément à la{' '}
+                    <span
+                      onClick={(e) => { e.preventDefault(); setModePolitiqueConfidentialite(true); }}
+                      style={{ color: '#2563eb', textDecoration: 'underline', fontWeight: '600' }}
+                    >
+                      politique de confidentialité
+                    </span>.
+                  </label>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => { setEtapeAuth(null); setEmailSaisi(''); setMdpSaisi(''); }}>⬅️ Retour</button>

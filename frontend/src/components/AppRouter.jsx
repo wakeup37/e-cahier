@@ -40,6 +40,9 @@ export default function AppRouter() {
   // le lien et retombait sur l'écran de connexion normal, sans aucun moyen
   // de définir son nouveau mot de passe.
   const [modeRecuperationMdp, setModeRecuperationMdp] = useState(false);
+  // [NOUVEAU] Page de politique de confidentialité — accessible depuis
+  // l'écran d'accueil, sans avoir besoin d'être connecté.
+  const [modePolitiqueConfidentialite, setModePolitiqueConfidentialite] = useState(false);
   const [nouveauMdpSaisi, setNouveauMdpSaisi] = useState('');
   const [confirmationNouveauMdpSaisi, setConfirmationNouveauMdpSaisi] = useState('');
 
@@ -463,6 +466,58 @@ export default function AppRouter() {
   // [NOUVEAU] Écran prioritaire : tant que la personne vient de cliquer
   // sur le lien de réinitialisation, on ne la laisse nulle part ailleurs
   // dans l'app avant qu'elle ait défini son nouveau mot de passe.
+  // [NOUVEAU] Politique de confidentialité et cookies — accessible sans
+  // connexion, prioritaire sur le reste du routage tant qu'elle est ouverte.
+  if (modePolitiqueConfidentialite) {
+    return (
+      <div style={styles.ecranAuth}>
+        <div style={{ ...styles.carteAuth, maxWidth: '640px', textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div style={styles.enteteLogo}>
+              <div style={styles.iconeCahier}><span style={{ fontSize: '20px' }}>🔒</span></div>
+              <h1 style={{ ...styles.titreLogo, fontSize: '18px' }}>Politique de confidentialité</h1>
+            </div>
+            <button onClick={() => setModePolitiqueConfidentialite(false)} style={{ ...styles.boutonBase, width: 'auto', padding: '8px 14px', backgroundColor: '#64748b' }}>✕ Fermer</button>
+          </div>
+
+          <div style={{ maxHeight: '65vh', overflowY: 'auto', fontSize: '13px', color: '#334155', lineHeight: '1.6', paddingRight: '8px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px' }}>Dernière mise à jour : {new Date().toLocaleDateString()}</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>1. Qui sommes-nous</h3>
+            <p>E-cahier est une plateforme numérique de suivi pédagogique destinée aux établissements scolaires, à leurs enseignants, censeurs et chefs d'établissement.</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>2. Données que nous collectons</h3>
+            <p>Nous collectons uniquement les données nécessaires au fonctionnement du service :</p>
+            <ul style={{ paddingLeft: '18px' }}>
+              <li>Identité : nom, prénom, adresse e-mail, numéro de téléphone</li>
+              <li>Données professionnelles : établissement(s), rôle (enseignant, censeur, chef), matières enseignées, classes attribuées</li>
+              <li>Contenu pédagogique que vous créez : programmes annuels, cycles, leçons, séances, fiches</li>
+              <li>Données techniques minimales liées à la connexion (session de connexion sécurisée)</li>
+            </ul>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>3. Pourquoi nous les collectons</h3>
+            <p>Ces données servent exclusivement à faire fonctionner E-cahier : gérer votre compte, vous rattacher au bon établissement, assurer le suivi et la validation des séances pédagogiques, et vous notifier des événements qui vous concernent.</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>4. Partage des données</h3>
+            <p>Vos données ne sont <strong>jamais vendues</strong> à des tiers. Elles sont visibles uniquement par les personnes de votre établissement habilitées par leur rôle (ex. votre censeur voit vos séances, votre chef d'établissement voit les membres de son établissement).</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>5. Hébergement et sécurité</h3>
+            <p>Les données sont hébergées chez Supabase, avec un accès protégé par mot de passe et des règles de sécurité limitant chaque personne aux seules données pertinentes pour son rôle.</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>6. Cookies et stockage local</h3>
+            <p>E-cahier utilise uniquement un cookie/jeton technique indispensable pour garder votre session de connexion active. Nous n'utilisons aucun cookie publicitaire ni traceur tiers à des fins commerciales.</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>7. Vos droits</h3>
+            <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données en contactant l'administrateur de votre établissement, ou l'équipe E-cahier.</p>
+
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>8. Contact</h3>
+            <p>Pour toute question relative à vos données personnelles, contactez-nous à : <strong>contact@e-cahier.app</strong></p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (modeRecuperationMdp) {
     return (
       <div style={styles.ecranAuth}>
@@ -533,6 +588,14 @@ export default function AppRouter() {
               🏫 Espace Chef d'Établissement
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setModePolitiqueConfidentialite(true)}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '12px', marginTop: '20px', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            🔒 Politique de confidentialité et cookies
+          </button>
         </div>
       </div>
     );

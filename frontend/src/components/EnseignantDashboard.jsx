@@ -434,6 +434,11 @@ export default function EnseignantDashboard() {
     dateDebutCycle: new Date().toISOString().split('T')[0], dateFinCycle: new Date().toISOString().split('T')[0], nombreLeconsPrevu: '',
     titreLecon: '', nombreSeancesLecon: '3', valeursChampsLecon: {}, titreSeance: '',
     dateSeance: new Date().toISOString().split('T')[0], lieuSeance: '',
+    // [NOUVEAU] Permet de déclarer une séance directement comme reportée à
+    // la création, sans avoir à la remplir d'abord — pour le cas où
+    // l'enseignant sait déjà, avant même que la date arrive, qu'elle
+    // n'aura pas lieu (terrain impraticable, jour férié, etc.).
+    creeeCommeReport: false, motifReportCreation: '',
     valeursChamps: {}, fichiersMultimedias: [], ecolesCiblesCycle: [], classesCiblesCycle: [], datesParClasseCycle: {}, periodesParClasseCycle: {}, referenceLeconValeurs: {}, planLecons: [], planSeances: []
   });
 
@@ -1366,6 +1371,14 @@ export default function EnseignantDashboard() {
         ? classesCiblesCycle : (classeSelectionneeVue ? [classeSelectionneeVue] : []);
       if (ciblesSeance.length === 0 || !classeSelectionneeVue) return;
 
+      // [NOUVEAU] Si l'enseignant a coché "cette séance n'a pas encore eu
+      // lieu", on exige juste un motif — pas besoin de remplir le contenu
+      // pédagogique complet, puisque la séance n'a pas encore été tenue.
+      if (modalAssistant.creeeCommeReport && !modalAssistant.motifReportCreation.trim()) {
+        showToast("⚠️ Merci d'indiquer le motif du report.");
+        return;
+      }
+
       const cycleReference = (programmesClasses[classeSelectionneeVue]?.cycles || []).find(c => c.id === cycleIdCible);
       const leconReference = cycleReference?.lecons?.find(l => l.id === leconIdCible);
       if (!cycleReference || !leconReference) { showToast("⚠️ Leçon introuvable."); return; }
@@ -1389,11 +1402,18 @@ export default function EnseignantDashboard() {
             classe_id: classeId,
             annee_scolaire_id: anneeScolaireId,
             date_prevue: dateCiblee,
-            contenu_json: { titre: titreSeance || 'Séance pédagogique', lieu: lieuSeance || '', ...(valeursChamps || {}) },
-            statut: 'BROUILLON',
+            contenu_json: { titre: titreSeance || (modalAssistant.creeeCommeReport ? 'Séance reportée' : 'Séance pédagogique'), lieu: lieuSeance || '', ...(valeursChamps || {}) },
+            statut: modalAssistant.creeeCommeReport ? 'REPORTEE' : 'BROUILLON',
+            motif_report: modalAssistant.creeeCommeReport ? modalAssistant.motifReportCreation.trim() : null,
           })
           .select().single();
         if (error) { showToast(`⚠️ Erreur pour ${classeCible} : ` + error.message); continue; }
+
+        if (modalAssistant.creeeCommeReport) {
+          await supabase.from('historique_statuts_seance').insert({
+            seance_id: nouvelleSeance.id, type_evenement: 'REPORTEE', motif: modalAssistant.motifReportCreation.trim(), cree_par_user_id: userId,
+          });
+        }
 
         compteurCreees++;
         setProgrammesClasses(prev => {
@@ -1403,15 +1423,19 @@ export default function EnseignantDashboard() {
             lecons: (c.lecons || []).map(l => l.id !== leconCorrespondante.id ? l : {
               ...l,
               seances: [...(l.seances || []), {
-                id: nouvelleSeance.id, numero: (l.seances || []).length + 1, titre: titreSeance || 'Séance pédagogique',
+                id: nouvelleSeance.id, numero: (l.seances || []).length + 1, titre: titreSeance || (modalAssistant.creeeCommeReport ? 'Séance reportée' : 'Séance pédagogique'),
                 date: dateCiblee, lieu: lieuSeance, valeursChamps: valeursChamps || {}, fichiersMultimedias: [], statut: 'En cours', soumisAuCenseur: false,
+                statutReel: modalAssistant.creeeCommeReport ? 'REPORTEE' : 'BROUILLON',
+                motifReport: modalAssistant.creeeCommeReport ? modalAssistant.motifReportCreation.trim() : '',
               }]
             })
           });
           return { ...prev, [classeCible]: { ...progClasse, cycles: cyclesMaj } };
         });
       }
-      showToast(`✨ Séance créée pour ${compteurCreees} classe(s), chacune avec sa propre date !`);
+      showToast(modalAssistant.creeeCommeReport
+        ? `↩️ Report enregistré pour ${compteurCreees} classe(s) — remplissez-la normalement le jour où elle aura lieu.`
+        : `✨ Séance créée pour ${compteurCreees} classe(s), chacune avec sa propre date !`);
     }
 
     setModalAssistant({
@@ -1687,6 +1711,39 @@ export default function EnseignantDashboard() {
     setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
     showToast("🏁 Leçon terminée !");
     terminerAction(`leconTerminee_${leconId}`);
+  };
+
+  // [NOUVEAU] Réactive une séance reportée le jour où elle a finalement
+  // lieu — la ramène à son état normal (BROUILLON) pour qu'elle puisse à
+  // nouveau être modifiée et envoyée au censeur comme une séance classique.
+  // Avant, une fois reportée, aucune séance ne pouvait plus jamais être
+  // "récupérée" : ni le bouton Reporter ni le bouton Envoyer ne
+  // réapparaissaient.
+  const reactiverSeanceReportee = async (cycleId, leconId, seanceId) => {
+    if (actionsEnCours[`reactiver_${seanceId}`]) return;
+    debuterAction(`reactiver_${seanceId}`);
+    const { error } = await supabase
+      .from('seances')
+      .update({ statut: 'BROUILLON', motif_report: null, date_report_demandee: null })
+      .eq('id', seanceId);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`reactiver_${seanceId}`); return; }
+
+    await supabase.from('historique_statuts_seance').insert({
+      seance_id: seanceId, type_evenement: 'REACTIVEE', motif: 'Séance finalement tenue', cree_par_user_id: userId,
+    });
+
+    const prog = programmesClasses[classeSelectionneeVue];
+    if (prog && Array.isArray(prog.cycles)) {
+      const cyclesMaj = prog.cycles.map(c => c.id !== cycleId ? c : {
+        ...c, lecons: (c.lecons || []).map(l => l.id !== leconId ? l : {
+          ...l, seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, statutReel: 'BROUILLON', motifReport: '', dateReportDemandee: '', soumisAuCenseur: false } : s)
+        })
+      });
+      setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
+    }
+
+    showToast("✅ Séance réactivée — vous pouvez la remplir et l'envoyer normalement.");
+    terminerAction(`reactiver_${seanceId}`);
   };
 
   const marquerCycleTermine = async (cycleId) => {
@@ -2943,6 +3000,33 @@ export default function EnseignantDashboard() {
               </div>
 
               {modalAssistant.niveauCible === 'seance' && (
+              <div style={{ marginBottom: '20px', backgroundColor: modalAssistant.creeeCommeReport ? '#fff7ed' : '#f8fafc', padding: '16px', borderRadius: '16px', border: modalAssistant.creeeCommeReport ? '1px solid #fdba74' : '1px solid #cbd5e1' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={modalAssistant.creeeCommeReport}
+                    onChange={(e) => setModalAssistant({ ...modalAssistant, creeeCommeReport: e.target.checked })}
+                  />
+                  <span style={{ fontSize: '13px', fontWeight: '800', color: '#9a3412' }}>↩️ Cette séance n'a pas encore eu lieu — la déclarer directement comme reportée</span>
+                </label>
+                {modalAssistant.creeeCommeReport && (
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={styles.label}>Motif du report</label>
+                    <textarea
+                      value={modalAssistant.motifReportCreation}
+                      onChange={(e) => setModalAssistant({ ...modalAssistant, motifReportCreation: e.target.value })}
+                      style={{ ...styles.inputStyle, minHeight: '70px', resize: 'vertical' }}
+                      placeholder="Ex : terrain impraticable, jour férié, salle indisponible..."
+                    />
+                    <p style={{ fontSize: '11px', color: '#9a3412', marginTop: '8px' }}>
+                      Pas besoin de remplir le contenu pédagogique maintenant — le censeur verra "Reportée" à la place. Le jour où elle aura lieu, ouvrez-la et cliquez sur "🔄 La séance a eu lieu" pour la remplir et l'envoyer normalement.
+                    </p>
+                  </div>
+                )}
+              </div>
+              )}
+
+              {modalAssistant.niveauCible === 'seance' && !modalAssistant.creeeCommeReport && (
               <div style={{ marginBottom: '20px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <label style={{ ...styles.label, color: '#2563eb', fontSize: '13px', margin: 0 }}>⚙️ Structure & Champs de la fiche :</label>
@@ -3341,8 +3425,8 @@ export default function EnseignantDashboard() {
                 {modalAssistant.niveauCible === 'seance' && (
                   <>
                     <div>
-                      <label style={styles.label}>Titre de la séance</label>
-                      <input type="text" value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required />
+                      <label style={styles.label}>Titre de la séance{modalAssistant.creeeCommeReport ? ' (facultatif)' : ''}</label>
+                      <input type="text" value={modalAssistant.titreSeance} onChange={(e) => setModalAssistant({...modalAssistant, titreSeance: e.target.value})} style={styles.inputStyle} required={!modalAssistant.creeeCommeReport} placeholder={modalAssistant.creeeCommeReport ? 'Optionnel — "Séance reportée" par défaut' : ''} />
                     </div>
                     <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
                       <label style={{ ...styles.label, marginBottom: '8px', color: '#0f172a' }}>📅 Classes cibles et date propre à chacune :</label>
@@ -3863,6 +3947,11 @@ export default function EnseignantDashboard() {
                                             <button onClick={() => enregistrerDansBibliotheque(seance.id, seance.titre)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>💾 Enregistrer</button>
                                             {seance.statutReel !== 'REPORTEE' && (
                                               <button onClick={() => setModalReportSeance({ ouvert: true, cycleId: cycle.id, leconId: lecon.id, seance, motif: '', nouvelleDate: '' })} className="bouton" style={{ padding: '4px 8px', fontSize: '10px', backgroundColor: '#fed7aa', color: '#9a3412' }}>↩️ Reporter</button>
+                                            )}
+                                            {seance.statutReel === 'REPORTEE' && (
+                                              <button onClick={() => reactiverSeanceReportee(cycle.id, lecon.id, seance.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`reactiver_${seance.id}`]}>
+                                                🔄 {actionsEnCours[`reactiver_${seance.id}`] ? '...' : 'La séance a eu lieu'}
+                                              </button>
                                             )}
 
                                             {!(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && !seance.soumisAuCenseur && seance.statutReel !== 'REPORTEE' && (

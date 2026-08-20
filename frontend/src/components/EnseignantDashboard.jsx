@@ -1413,6 +1413,11 @@ export default function EnseignantDashboard() {
           await supabase.from('historique_statuts_seance').insert({
             seance_id: nouvelleSeance.id, type_evenement: 'REPORTEE', motif: modalAssistant.motifReportCreation.trim(), cree_par_user_id: userId,
           });
+          // [NOUVEAU] Le censeur doit voir un report en temps réel, comme
+          // un imprévu du jour — pas seulement à sa prochaine connexion.
+          // Le canal temps réel déjà en place côté Censeur rafraîchit
+          // automatiquement son écran dès que cette notification arrive.
+          await notifierCenseurNouvelleFiche(classeCible, `↩️ Séance reportée (${classeCible}) — motif : ${modalAssistant.motifReportCreation.trim()}`);
         }
 
         compteurCreees++;
@@ -1552,26 +1557,28 @@ export default function EnseignantDashboard() {
     try {
 
     if (type === 'seance' && seanceId) {
-      // [CORRIGÉ] L'ancien statut "PROGRAMMEE" (utilisé quand la date de la
-      // séance était dans le futur) n'était jamais transformé en "ENVOYEE"
-      // nulle part dans le code — aucun mécanisme automatique ne le faisait
-      // quand la date arrivait. Résultat : ces séances restaient invisibles
-      // pour toujours chez le censeur (sa requête ne regarde que
-      // ENVOYEE/RECUE). C'était surtout visible sur les séances reportées,
-      // souvent envoyées avec une date future. Une séance envoyée arrive
-      // maintenant toujours immédiatement chez le censeur, peu importe sa date.
+      // [CORRIGÉ] Un job pg_cron (voir le fichier SQL fourni) fait
+      // maintenant automatiquement passer une séance "PROGRAMMEE" en
+      // "ENVOYEE" dès que sa date arrive — ce mécanisme, absent avant,
+      // laissait ces séances invisibles pour toujours chez le censeur.
+      let dateSeance = null;
       let leconCible = null;
       (prog.cycles || []).forEach(c => (c.lecons || []).forEach(l => {
         if (l.id === leconId) leconCible = l;
+        (l.seances || []).forEach(s => { if (s.id === seanceId) dateSeance = s.date; });
       }));
 
       const estPremiereSeanceDeLaLecon = !!leconCible && !leconCible.soumisAuCenseur;
 
+      const aujourdHui = new Date().toISOString().slice(0, 10);
+      const arriveMaintenant = !dateSeance || dateSeance <= aujourdHui;
+      const statutCible = arriveMaintenant ? 'ENVOYEE' : 'PROGRAMMEE';
+
       const { error } = await supabase
         .from('seances')
         .update({
-          statut: 'ENVOYEE',
-          envoyee_at: new Date().toISOString(),
+          statut: statutCible,
+          envoyee_at: arriveMaintenant ? new Date().toISOString() : null,
           statut_visa: 'SOUMISE'
         })
         .eq('id', seanceId);
@@ -1582,7 +1589,7 @@ export default function EnseignantDashboard() {
       // fiche de leçon en même temps (le censeur reçoit cycle + leçon +
       // première séance groupés, sans clic supplémentaire).
       let erreurLecon = null;
-      if (estPremiereSeanceDeLaLecon) {
+      if (estPremiereSeanceDeLaLecon && arriveMaintenant) {
         const { error: erreurMajLecon } = await supabase
           .from('lecons')
           .update({ statut_visa: 'ENVOYEE', envoyee_at: new Date().toISOString() })
@@ -1595,13 +1602,15 @@ export default function EnseignantDashboard() {
         soumisAuCenseur: true,
         lecons: (c.lecons || []).map(l => l.id !== leconId ? l : {
           ...l,
-          soumisAuCenseur: (estPremiereSeanceDeLaLecon && !erreurLecon) ? true : l.soumisAuCenseur,
-          seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true, statutReel: 'ENVOYEE' } : s)
+          soumisAuCenseur: (estPremiereSeanceDeLaLecon && arriveMaintenant && !erreurLecon) ? true : l.soumisAuCenseur,
+          seances: (l.seances || []).map(s => s.id === seanceId ? { ...s, soumisAuCenseur: true, statutReel: statutCible } : s)
         })
       });
       setProgrammesClasses({ ...(programmesClasses || {}), [classeSelectionneeVue]: { ...prog, cycles: cyclesMaj } });
 
-      if (estPremiereSeanceDeLaLecon && !erreurLecon) {
+      if (!arriveMaintenant) {
+        showToast(`📅 Fiche programmée — elle arrivera automatiquement chez le censeur le ${dateSeance}, pas avant.`);
+      } else if (estPremiereSeanceDeLaLecon && !erreurLecon) {
         await notifierCenseurNouvelleFiche(classeSelectionneeVue, `📥 Nouvelle fiche reçue : cycle + leçon + 1ère séance (${classeSelectionneeVue})`);
         showToast("🚀 Séance envoyée avec la fiche de cycle et la fiche de leçon (première séance de cette leçon) !");
       } else if (estPremiereSeanceDeLaLecon && erreurLecon) {

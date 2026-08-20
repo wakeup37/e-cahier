@@ -340,6 +340,18 @@ export default function CenseurDashboard() {
     const etablissementId = affiliation.etablissement_id;
     const etab = affiliation.etablissements;
 
+    // [NOUVEAU] Filet de sécurité — un job pg_cron fait normalement ce
+    // travail toutes les 15 minutes, mais si le projet Supabase venait à
+    // être en pause (plan gratuit inactif 7 jours) au moment où le job
+    // aurait dû tourner, on rattrape ici les séances en retard dès qu'un
+    // censeur se connecte. N'affecte que les séances de son établissement.
+    supabase
+      .from('seances')
+      .update({ statut: 'ENVOYEE', envoyee_at: new Date().toISOString(), statut_visa: 'SOUMISE' })
+      .eq('statut', 'PROGRAMMEE')
+      .lte('date_prevue', new Date().toISOString().slice(0, 10))
+      .then(() => {});
+
     if (profil) {
       setInfosCenseur(prev => ({
         ...prev,
@@ -398,7 +410,7 @@ export default function CenseurDashboard() {
               utilisateurs_profils:proprietaire_user_id (nom, prenom) )
           )
         )
-      `).in('statut', ['ENVOYEE', 'RECUE']),
+      `).in('statut', ['ENVOYEE', 'RECUE', 'REPORTEE']),
       supabase.from('bibliotheque_etablissement').select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule), utilisateurs_profils:auteur_user_id (nom, prenom)').eq('etablissement_id', etablissementId).order('created_at', { ascending: false }),
       supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
     ]);

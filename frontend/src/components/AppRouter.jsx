@@ -35,13 +35,7 @@ export default function AppRouter() {
   const [etapeAuth, setEtapeAuth] = useState(null);
   const [modeAuth, setModeAuth] = useState('connexion');
   const [modeMdpOublieAuth, setModeMdpOublieAuth] = useState(false);
-  // [NOUVEAU] Détecte le retour depuis le lien "mot de passe oublié" reçu
-  // par email — avant, ce cas n'était jamais géré : la personne cliquait
-  // le lien et retombait sur l'écran de connexion normal, sans aucun moyen
-  // de définir son nouveau mot de passe.
   const [modeRecuperationMdp, setModeRecuperationMdp] = useState(false);
-  // [NOUVEAU] Page de politique de confidentialité — accessible depuis
-  // l'écran d'accueil, sans avoir besoin d'être connecté.
   const [modePolitiqueConfidentialite, setModePolitiqueConfidentialite] = useState(false);
   const [nouveauMdpSaisi, setNouveauMdpSaisi] = useState('');
   const [confirmationNouveauMdpSaisi, setConfirmationNouveauMdpSaisi] = useState('');
@@ -92,7 +86,6 @@ export default function AppRouter() {
     }
   }, [etapeAuth, modeAuth]);
 
-  // Déconnexion optimisée : vide complètement le stockage et force le rechargement
   const gererDeconnexionGlobale = async () => {
     try { 
       await supabase.auth.signOut(); 
@@ -129,10 +122,6 @@ export default function AppRouter() {
         setProfilUtilisateur(null);
         setEtapeChoixEtablissement(false);
       }
-      // [NOUVEAU] Supabase envoie cet événement précis quand la personne
-      // arrive via le lien de réinitialisation — on bascule alors sur
-      // l'écran dédié "Nouveau mot de passe" plutôt que de la laisser sur
-      // l'écran de connexion normal sans rien pouvoir faire.
       if (_event === 'PASSWORD_RECOVERY') {
         setModeRecuperationMdp(true);
       }
@@ -141,12 +130,6 @@ export default function AppRouter() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // [NOUVEAU] Sans ça, une promotion approuvée pendant que la personne est
-  // déjà connectée ne changeait rien à son interface tant qu'elle ne
-  // rechargeait pas la page manuellement — chargerProfilEtDonnees() (qui
-  // détecte le rôle) n'était sinon appelée qu'au tout premier chargement.
-  // On la relance ici automatiquement dès qu'une notification arrive
-  // (une promotion approuvée en envoie toujours une).
   useEffect(() => {
     if (!sessionUser?.id) return;
     const canal = supabase
@@ -182,7 +165,6 @@ export default function AppRouter() {
 
   const chargerProfilEtDonnees = async (userId) => {
     try {
-      // Recherche unique et sécurisée par user_id avec upsert implicite de lecture
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
         .select('*')
@@ -261,10 +243,6 @@ export default function AppRouter() {
     }
   };
 
-  // [NOUVEAU] Valide le nouveau mot de passe après un clic sur le lien de
-  // réinitialisation — la session temporaire ouverte par Supabase à cette
-  // occasion permet d'appeler updateUser() directement, sans redemander
-  // l'ancien mot de passe (la personne l'a justement oublié).
   const [validationMdpEnCours, setValidationMdpEnCours] = useState(false);
   const validerNouveauMotDePasse = async (e) => {
     e.preventDefault();
@@ -333,7 +311,6 @@ export default function AppRouter() {
             .filter(m => matiereIdsSaisies.includes(m.id))
             .map(m => m.nom);
 
-          // Utilisation stricte de l'upsert par user_id pour éviter les doublons de profil
           const { error: profileError } = await supabase.from('utilisateurs_profils').upsert([
             {
               user_id: data.user.id,
@@ -463,27 +440,37 @@ export default function AppRouter() {
     }
   };
 
-  // [NOUVEAU] Écran prioritaire : tant que la personne vient de cliquer
-  // sur le lien de réinitialisation, on ne la laisse nulle part ailleurs
-  // dans l'app avant qu'elle ait défini son nouveau mot de passe.
-  // [NOUVEAU] Politique de confidentialité et cookies — accessible sans
-  // connexion, prioritaire sur le reste du routage tant qu'elle est ouverte.
   if (modePolitiqueConfidentialite) {
+    const pointsCles = [
+      { icone: '🔒', titre: 'Vos données sont protégées', texte: "Chacun ne voit que ce qui concerne son rôle et son établissement." },
+      { icone: '🚫', titre: 'Rien n\'est vendu aujourd\'hui', texte: "À ce jour, aucune donnée n'est vendue ni partagée à des fins publicitaires." },
+      { icone: '🍪', titre: 'Pas de cookie publicitaire', texte: "Seul un cookie technique garde votre session de connexion active." },
+      { icone: '✏️', titre: 'Vos droits', texte: "Vous pouvez consulter, corriger ou supprimer vos données à tout moment." },
+    ];
     return (
       <div style={styles.ecranAuth}>
         <div style={{ ...styles.carteAuth, maxWidth: '640px', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={styles.enteteLogo}>
               <div style={styles.iconeCahier}><span style={{ fontSize: '20px' }}>🔒</span></div>
-              <h1 style={{ ...styles.titreLogo, fontSize: '18px' }}>Politique de confidentialité</h1>
+              <h1 style={{ ...styles.titreLogo, fontSize: '18px' }}>Confidentialité & Cookies</h1>
             </div>
             <button onClick={() => setModePolitiqueConfidentialite(false)} style={{ ...styles.boutonBase, width: 'auto', padding: '8px 14px', backgroundColor: '#64748b' }}>✕ Fermer</button>
           </div>
+          <p style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '18px' }}>Dernière mise à jour : {new Date().toLocaleDateString()}</p>
 
-          <div style={{ maxHeight: '65vh', overflowY: 'auto', fontSize: '13px', color: '#334155', lineHeight: '1.6', paddingRight: '8px' }}>
-            <p style={{ color: '#94a3b8', fontSize: '11px' }}>Dernière mise à jour : {new Date().toLocaleDateString()}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+            {pointsCles.map((pt, i) => (
+              <div key={i} style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '14px' }}>
+                <span style={{ fontSize: '20px' }}>{pt.icone}</span>
+                <p style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', margin: '8px 0 4px 0' }}>{pt.titre}</p>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: 0, lineHeight: '1.4' }}>{pt.texte}</p>
+              </div>
+            ))}
+          </div>
 
-            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>1. Qui sommes-nous</h3>
+          <div style={{ maxHeight: '55vh', overflowY: 'auto', fontSize: '13px', color: '#334155', lineHeight: '1.6', paddingRight: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+            <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '0' }}>1. Qui sommes-nous</h3>
             <p>E-cahier est une plateforme numérique de suivi pédagogique destinée aux établissements scolaires, à leurs enseignants, censeurs et chefs d'établissement.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>2. Données que nous collectons</h3>
@@ -499,19 +486,19 @@ export default function AppRouter() {
             <p>Ces données servent exclusivement à faire fonctionner E-cahier : gérer votre compte, vous rattacher au bon établissement, assurer le suivi et la validation des séances pédagogiques, et vous notifier des événements qui vous concernent.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>4. Partage des données</h3>
-            <p>Vos données ne sont <strong>jamais vendues</strong> à des tiers. Elles sont visibles uniquement par les personnes de votre établissement habilitées par leur rôle (ex. votre censeur voit vos séances, votre chef d'établissement voit les membres de son établissement).</p>
+            <p>Vos données ne sont <strong>jamais vendues</strong> à des tiers à ce jour. Elles sont visibles uniquement par les personnes de votre établissement habilitées par leur rôle.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>5. Hébergement et sécurité</h3>
             <p>Les données sont hébergées chez Supabase, avec un accès protégé par mot de passe et des règles de sécurité limitant chaque personne aux seules données pertinentes pour son rôle.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>6. Cookies et stockage local</h3>
-            <p>E-cahier utilise uniquement un cookie/jeton technique indispensable pour garder votre session de connexion active. Nous n'utilisons aucun cookie publicitaire ni traceur tiers à des fins commerciales.</p>
+            <p>E-cahier utilise uniquement un cookie/jeton technique indispensable pour garder votre session de connexion active.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>7. Vos droits</h3>
-            <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données en contactant l'administrateur de votre établissement, ou l'équipe E-cahier.</p>
+            <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>8. Contact</h3>
-            <p>Pour toute question relative à vos données personnelles, contactez-nous à : <strong>contact@e-cahier.app</strong></p>
+            <p>Pour toute question : <strong>contact@e-cahier.app</strong></p>
           </div>
         </div>
       </div>
@@ -871,8 +858,31 @@ export default function AppRouter() {
 
 const styles = {
   boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
-  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '20px', backgroundColor: '#f8fafc', boxSizing: 'border-box' },
-  carteAuth: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center', boxSizing: 'border-box' },
+  // [OPTIMISÉ & CORRIGÉ] Permet d'activer le défilement vertical et d'éviter que le formulaire ne soit bloqué sur mobile/petits écrans
+  ecranAuth: { 
+    display: 'flex', 
+    flexDirection: 'column', 
+    justifyContent: 'flex-start', 
+    alignItems: 'center', 
+    minHeight: '100vh', 
+    padding: '30px 20px', 
+    backgroundColor: '#f8fafc', 
+    boxSizing: 'border-box',
+    overflowY: 'auto' 
+  },
+  // [OPTIMISÉ & CORRIGÉ] Centre la carte verticalement si l'écran est grand, mais autorise le scroll naturel si le contenu dépasse
+  carteAuth: { 
+    background: '#ffffff', 
+    padding: '32px', 
+    borderRadius: '16px', 
+    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', 
+    border: '1px solid #e2e8f0', 
+    width: '100%', 
+    maxWidth: '450px', 
+    textAlign: 'center', 
+    boxSizing: 'border-box',
+    margin: 'auto 0' 
+  },
   enteteLogo: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' },
   iconeCahier: { backgroundColor: '#2563eb', borderRadius: '10px', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' },
   titreLogo: { fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '0' },

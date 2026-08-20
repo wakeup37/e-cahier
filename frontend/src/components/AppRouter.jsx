@@ -498,7 +498,7 @@ export default function AppRouter() {
             <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>8. Contact</h3>
-            <p>Pour toute question : <strong>contact@e-cahier.app</strong></p>
+            <p>Pour toute question : <strong>Ecahierci@gmail.com</strong></p>
           </div>
         </div>
       </div>
@@ -858,7 +858,6 @@ export default function AppRouter() {
 
 const styles = {
   boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
-  // [OPTIMISÉ & CORRIGÉ] Permet d'activer le défilement vertical et d'éviter que le formulaire ne soit bloqué sur mobile/petits écrans
   ecranAuth: { 
     display: 'flex', 
     flexDirection: 'column', 
@@ -870,7 +869,6 @@ const styles = {
     boxSizing: 'border-box',
     overflowY: 'auto' 
   },
-  // [OPTIMISÉ & CORRIGÉ] Centre la carte verticalement si l'écran est grand, mais autorise le scroll naturel si le contenu dépasse
   carteAuth: { 
     background: '#ffffff', 
     padding: '32px', 

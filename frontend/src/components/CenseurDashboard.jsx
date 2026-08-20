@@ -399,7 +399,7 @@ export default function CenseurDashboard() {
       // mutation "externe", distinguées ensuite par l'établissement ciblé.
       supabase.from('demandes_affiliation').select('id, etablissement_id, created_at, etablissements(nom)').eq('user_id', user.id).eq('role_demande', 'CHEF').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('seances').select(`
-        id, date_prevue, statut, contenu_json,
+        id, date_prevue, statut, contenu_json, motif_report,
         statut_visa, envoyee_at, visee_at, observation_visa,
         classes ( nom ),
         lecons (
@@ -600,6 +600,8 @@ export default function CenseurDashboard() {
         titre: sc.contenu_json?.titre || 'Séance',
         date: sc.date_prevue,
         viseParCenseur: sc.statut === 'VISEE',
+        statutReel: sc.statut,
+        motifReport: sc.motif_report || '',
         habilites: sc.contenu_json?.habilites || '',
         contenus: sc.contenu_json?.contenus || '',
         exercices: sc.contenu_json?.exercices || '',
@@ -1908,6 +1910,35 @@ export default function CenseurDashboard() {
     chargerTout();
   };
 
+  // [NOUVEAU] Pour une séance reportée : le censeur en accuse simplement
+  // réception, sans archivage — contrairement à viserEtArchiverSeance, ça
+  // ne crée aucune fausse fiche pédagogique dans la bibliothèque (il n'y a
+  // aucun contenu réel à archiver, juste un motif de report).
+  const accuserReceptionReport = async (classeKey, seanceReportee) => {
+    const prog = programmesClasses[classeKey];
+    if (!prog || actionsEnCours[`accuserReport_${seanceReportee.id}`]) return;
+    debuterAction(`accuserReport_${seanceReportee.id}`);
+
+    const { error } = await supabase
+      .from('seances')
+      .update({ statut_visa: 'SOUMISE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
+      .eq('id', seanceReportee.id);
+
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`accuserReport_${seanceReportee.id}`); return; }
+
+    if (prog.enseignantUserId) {
+      await envoyerNotification(
+        prog.enseignantUserId, 'SUCCESS',
+        `👁️ Le censeur a pris connaissance du report de la séance "${seanceReportee.titre}" (${classeKey})`,
+        'cycles', affiliationCenseur.etablissement_id
+      );
+    }
+
+    showToast("✅ Report pris en compte.");
+    terminerAction(`accuserReport_${seanceReportee.id}`);
+    chargerTout();
+  };
+
   const viserLecon = async (leconId, enseignantUserId, leconTitre) => {
     if (actionsEnCours[`viserLecon_${leconId}`]) return;
     debuterAction(`viserLecon_${leconId}`);
@@ -2581,7 +2612,11 @@ export default function CenseurDashboard() {
                                       </div>
                                       <div style={{ display: 'flex', gap: '8px' }}>
                                         <button onClick={() => setModalConsultation({ ouvert: true, element: sc })} className="bouton bouton-secondaire" style={{ padding: '6px 12px', fontSize: '12px' }}>👁️ Consulter</button>
-                                        <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`viserSeance_${sc.id}`]}>✍️ {actionsEnCours[`viserSeance_${sc.id}`] ? '...' : 'Viser & Archiver'}</button>
+                                        {sc.statutReel === 'REPORTEE' ? (
+                                          <button onClick={() => accuserReceptionReport(classeNom, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`accuserReport_${sc.id}`]}>👁️ {actionsEnCours[`accuserReport_${sc.id}`] ? '...' : 'Pris en compte'}</button>
+                                        ) : (
+                                          <button onClick={() => viserEtArchiverSeance(classeNom, cy.id, lc.id, sc)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`viserSeance_${sc.id}`]}>✍️ {actionsEnCours[`viserSeance_${sc.id}`] ? '...' : 'Viser & Archiver'}</button>
+                                        )}
                                       </div>
                                     </div>
                                   ))}

@@ -1,9 +1,13 @@
+import './instrument';
 import React from 'react';
-import ReactDOM from 'react-dom/client';
-import AppRouter from './components/AppRouter.jsx';
+import { createRoot } from 'react-dom/client';
+import AppRouter from './components/AppRouter';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+const container = document.getElementById("root");
+const root = createRoot(container);
+
+root.render(
   <React.StrictMode>
     <AppRouter />
   </React.StrictMode>

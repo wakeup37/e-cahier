@@ -1,9 +1,23 @@
+import * as Sentry from "@sentry/react";
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Application from '../Application.jsx';
 import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
+
+Sentry.init({
+  dsn: "https://4d9a8453ed9e09ce79603032a9d1d8b4@o4511943155187712.ingest.de.sentry.io/4511943162921040",
+  integrations: [
+    Sentry.browserTracingIntegration(),
+    Sentry.replayIntegration()
+  ],
+  tracesSampleRate: 1.0,
+  tracePropagationTargets: ["localhost", /^https:\/\/okepdydyxgsfywoknhqq\.supabase\.co/],
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
+  enableLogs: true
+});
 
 const supabaseUrl = 'https://okepdydyxgsfywoknhqq.supabase.co';
 const supabaseKey = 'sb_publishable_9baPKtdp4KTDvj08yJ63fQ_YQMWe6D_';

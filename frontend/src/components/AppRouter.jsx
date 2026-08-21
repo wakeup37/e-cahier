@@ -5,6 +5,7 @@ import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
 import GuideInstallationModal from './GuideInstallationModal';
+import PullToRefresh from './PullToRefresh';
 
 Sentry.init({
   dsn: "https://4d9a8453ed9e09ce79603032a9d1d8b4@o4511943155187712.ingest.de.sentry.io/4511943162921040",
@@ -27,7 +28,7 @@ const genererCodeEtablissement = (nom) => {
   return `${base}-${suffixe}`;
 };
 
-export default function AppRouter() {
+function ContenuAppRouter() {
   const [userRole, setUserRole] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
   const [profilUtilisateur, setProfilUtilisateur] = useState(null);
@@ -822,6 +823,18 @@ export default function AppRouter() {
 
       <GuideInstallationModal />
     </div>
+  );
+}
+
+// [NOUVEAU] Enveloppe tous les écrans de ContenuAppRouter (connexion,
+// inscription, dashboards...) avec le geste "tirer pour recharger" — sans
+// avoir à le répéter dans chacun des nombreux "return" internes.
+export default function AppRouter() {
+  return (
+    <>
+      <PullToRefresh />
+      <ContenuAppRouter />
+    </>
   );
 }
 

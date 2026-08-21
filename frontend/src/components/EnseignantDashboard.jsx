@@ -14,9 +14,7 @@ import { supabase } from './AppRouter';
 //   - soumettreAuCenseur : uniquement pour une séance (statut → ENVOYEE)
 //
 // RESTE VOLONTAIREMENT EN LOCAL POUR CETTE PASSE (localStorage, comme avant) :
-//   - rapportsSeances, demandesDepart, demandePromotionCenseur,
-//     propositionsCenseur, notifications, modeSansAffiliation (paiement),
-//     classesSansAffiliation, executerDuplicationIntelligente,
+//   - classesSansAffiliation, executerDuplicationIntelligente,
 //     sauvegarderEdition (modification d'un élément existant),
 //     la branche 'programme_annuel'
 //     du générateur, marquerLeconTerminee/marquerCycleTermine,
@@ -53,6 +51,10 @@ export default function EnseignantDashboard() {
   // SESSION
   // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
+  // [NOUVEAU] Archives officielles de l'enseignant (visées par le censeur,
+  // ou archivées à la clôture d'année) — jusqu'ici invisibles pour lui,
+  // alors qu'il en est l'auteur.
+  const [archivesOfficielles, setArchivesOfficielles] = useState([]);
   // [NOUVEAU] Protection anti-double-clic générique — un seul état partagé
   // (clé = nom de l'action) plutôt qu'une variable par bouton.
   const [actionsEnCours, setActionsEnCours] = useState({});
@@ -85,11 +87,14 @@ export default function EnseignantDashboard() {
   });
   useEffect(() => { localStorage.setItem('app_enseignant_mode_sans_aff', modeSansAffiliation); }, [modeSansAffiliation]);
 
-  const [classesSansAffiliation, setClassesSansAffiliation] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_classes_libres')) || ['Classe Autonome 1', 'Classe Autonome 2']; }
-    catch { return ['Classe Autonome 1', 'Classe Autonome 2']; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_classes_libres', JSON.stringify(classesSansAffiliation)); }, [classesSansAffiliation]);
+  const [classesSansAffiliation, setClassesSansAffiliation] = useState([]);
+  // [NOUVEAU] Classes autonomes archivées — rangées mais toujours
+  // consultables, pour réutiliser leur contenu via "Dupliquer" sur un cycle.
+  const [classesAutonomesArchivees, setClassesAutonomesArchivees] = useState([]);
+  // [NOUVEAU] Correspondance nom → id, nécessaire pour supprimer la bonne
+  // ligne en base (l'interface continue de manipuler des noms partout
+  // ailleurs, inchangé).
+  const [classesAutonomesIdParNom, setClassesAutonomesIdParNom] = useState({});
 
   const [nouvelleClasseLibre, setNouvelleClasseLibre] = useState('');
 
@@ -177,22 +182,6 @@ export default function EnseignantDashboard() {
   const [nouveauMdp, setNouveauMdp] = useState('');
   const [emailSaisiChangement, setEmailSaisiChangement] = useState('');
 
-  const [rapportsSeances, setRapportsSeances] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_rapports')) || []; }
-    catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_rapports', JSON.stringify(rapportsSeances)); }, [rapportsSeances]);
-
-  const [modalRapport, setModalRapport] = useState({
-    ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: ''
-  });
-
-  const [propositionsCenseur, setPropositionsCenseur] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_enseignant_propositions')) || []; }
-    catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem('app_enseignant_propositions', JSON.stringify(propositionsCenseur)); }, [propositionsCenseur]);
-
   const [modalPaiement, setModalPaiement] = useState(false);
   const [methodePaiement, setMethodePaiement] = useState('wave');
 
@@ -234,7 +223,7 @@ export default function EnseignantDashboard() {
   // censeur/chef (ex. 'visa', 'classes', 'profil_ecole') ne correspond à
   // aucun de ces onglets ; dans ce cas on retombe simplement sur le
   // programme annuel plutôt que de naviguer vers un onglet inexistant.
-  const ONGLETS_ENSEIGNANT = ['cycles', 'bibliotheque', 'affiliation', 'rapports'];
+  const ONGLETS_ENSEIGNANT = ['cycles', 'bibliotheque', 'affiliation'];
 
   const marquerNotificationLue = async (notif) => {
     if (notif.lienCible) setActiveTab(ONGLETS_ENSEIGNANT.includes(notif.lienCible) ? notif.lienCible : 'cycles');
@@ -480,6 +469,8 @@ export default function EnseignantDashboard() {
       { data: demandesDepartData },
       { data: notifs },
       { data: demandePromotionCenseurExistante },
+      { data: archivesOfficiellesData },
+      { data: classesAutonomesData },
     ] = await Promise.all([
       supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
       supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
@@ -498,6 +489,8 @@ export default function EnseignantDashboard() {
       // Notifications non lues (cloche)
       supabase.from('notifications').select('*').eq('user_id', user.id).is('lue_at', null).order('created_at', { ascending: false }),
       supabase.from('demandes_affiliation').select('id, etablissement_id, created_at, etablissements(nom)').eq('user_id', user.id).eq('role_demande', 'CENSEUR').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('bibliotheque_etablissement').select('id, titre, created_at, contenu_snapshot_json, annee_scolaire_id, annees_scolaires(intitule)').eq('auteur_user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('classes_autonomes_enseignant').select('id, nom, archived_at').eq('user_id', user.id).order('created_at', { ascending: true }),
     ]);
     setMatieresCatalogue(catalogueMatieres || []);
 
@@ -535,6 +528,23 @@ export default function EnseignantDashboard() {
       )],
     }));
     setAffiliations(affiliationsFormatees);
+
+    setArchivesOfficielles((archivesOfficiellesData || []).map(a => ({
+      id: a.id,
+      titre: a.titre,
+      classe: a.contenu_snapshot_json?.classe || '',
+      cycle: a.contenu_snapshot_json?.cycle || '',
+      lecon: a.contenu_snapshot_json?.lecon || '',
+      anneeScolaire: a.annees_scolaires?.intitule || '',
+      dateArchivage: new Date(a.created_at).toLocaleDateString(),
+      details: a.contenu_snapshot_json,
+    })));
+
+    setClassesSansAffiliation((classesAutonomesData || []).filter(c => !c.archived_at).map(c => c.nom));
+    setClassesAutonomesArchivees((classesAutonomesData || []).filter(c => c.archived_at).map(c => c.nom));
+    const idParNom = {};
+    (classesAutonomesData || []).forEach(c => { idParNom[c.nom] = c.id; });
+    setClassesAutonomesIdParNom(idParNom);
 
     // [NOUVEAU] Recharge la vraie demande de promotion vers Censeur depuis
     // la base — "interne" si l'établissement cible est l'un de ceux où
@@ -1097,9 +1107,43 @@ export default function EnseignantDashboard() {
     terminerAction('proposerClasse');
   };
 
-  const supprimerClasseLibre = (classeNom) => {
+  const supprimerClasseLibre = async (classeNom) => {
+    const id = classesAutonomesIdParNom[classeNom];
+    if (!id) { showToast("⚠️ Classe introuvable."); return; }
+    const { error } = await supabase.from('classes_autonomes_enseignant').delete().eq('id', id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); return; }
     setClassesSansAffiliation(prev => Array.isArray(prev) ? prev.filter(c => c !== classeNom) : []);
+    setClassesAutonomesArchivees(prev => Array.isArray(prev) ? prev.filter(c => c !== classeNom) : []);
+    setClassesAutonomesIdParNom(prev => { const maj = { ...prev }; delete maj[classeNom]; return maj; });
     showToast(`🗑️ Classe "${classeNom}" supprimée avec succès !`);
+  };
+
+  // [NOUVEAU] Archive une classe autonome plutôt que de la supprimer — son
+  // contenu (cycles/leçons/séances) reste intact et consultable, pour
+  // pouvoir le réutiliser plus tard via "Dupliquer" sur un cycle vers une
+  // nouvelle classe.
+  const archiverClasseLibre = async (classeNom) => {
+    const id = classesAutonomesIdParNom[classeNom];
+    if (!id || actionsEnCours[`archiverClasse_${id}`]) return;
+    debuterAction(`archiverClasse_${id}`);
+    const { error } = await supabase.from('classes_autonomes_enseignant').update({ archived_at: new Date().toISOString() }).eq('id', id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`archiverClasse_${id}`); return; }
+    setClassesSansAffiliation(prev => prev.filter(c => c !== classeNom));
+    setClassesAutonomesArchivees(prev => [...prev, classeNom]);
+    showToast(`📦 Classe "${classeNom}" archivée — toujours consultable, plus dans la liste active.`);
+    terminerAction(`archiverClasse_${id}`);
+  };
+
+  const desarchiverClasseLibre = async (classeNom) => {
+    const id = classesAutonomesIdParNom[classeNom];
+    if (!id || actionsEnCours[`archiverClasse_${id}`]) return;
+    debuterAction(`archiverClasse_${id}`);
+    const { error } = await supabase.from('classes_autonomes_enseignant').update({ archived_at: null }).eq('id', id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`archiverClasse_${id}`); return; }
+    setClassesAutonomesArchivees(prev => prev.filter(c => c !== classeNom));
+    setClassesSansAffiliation(prev => [...prev, classeNom]);
+    showToast(`✅ Classe "${classeNom}" réactivée.`);
+    terminerAction(`archiverClasse_${id}`);
   };
 
   // Reste en local pour cette passe (voir note en tête de fichier)
@@ -1162,18 +1206,6 @@ export default function EnseignantDashboard() {
     });
     showToast("✨ Duplication intelligente effectuée avec succès !");
     setModalDuplicationIntelligente({ ouvert: false, itemSource: null, typeSource: '', classesCibles: [], datesParClasse: {} });
-  };
-
-  const soumettreRapportSeance = (e) => {
-    e.preventDefault();
-    if (!modalRapport.seanceTitre || !Array.isArray(modalRapport.classesCibles) || modalRapport.classesCibles.length === 0) {
-      showToast("⚠️ Veuillez renseigner le titre et sélectionner au moins une classe.");
-      return;
-    }
-    const nouveauRapport = { id: Date.now(), date: new Date().toLocaleDateString(), ...modalRapport, enseignant: `${infosEnseignant.civilite} ${infosEnseignant.nom} ${infosEnseignant.prenoms}` };
-    setRapportsSeances(prev => [nouveauRapport, ...(Array.isArray(prev) ? prev : [])]);
-    setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' });
-    showToast("📤 Rapport de séance et compte rendu transmis au censeur avec succès !");
   };
 
   const initialiserProgrammeClasse = (classe) => {
@@ -2208,23 +2240,6 @@ export default function EnseignantDashboard() {
                       </div>
                     ))
                   )}
-                  {Array.isArray(propositionsCenseur) && propositionsCenseur.length > 0 && (
-                    <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#2563eb' }}>Propositions d'affiliation :</span>
-                      {propositionsCenseur.map(p => (
-                        <div key={p.id} style={{ backgroundColor: '#eff6ff', padding: '8px', borderRadius: '8px', marginTop: '6px', fontSize: '12px', border: '1px solid #bfdbfe' }}>
-                          <strong>{p.ecole}</strong> ({p.censeur})<br/>
-                          <button onClick={() => {
-                            const nouvelleAff = { id: Date.now(), ecole: p.ecole, statut: 'Validée', classes: p.classes || [] };
-                            setAffiliations(prev => [...prev, nouvelleAff]);
-                            setPropositionsCenseur(prev => prev.filter(prop => prop.id !== p.id));
-                            setModeSansAffiliation(false);
-                            showToast(`✅ Affiliation acceptée pour ${p.ecole} !`);
-                          }} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '11px', marginTop: '6px' }}>Accepter l'affiliation</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -2247,7 +2262,6 @@ export default function EnseignantDashboard() {
                     setModalChoixEcoleProposerClasse(true);
                   }} className="bouton-option">🏫 Proposer une classe</button>
                   <button onClick={() => { setActiveTab('affiliation'); setMenuBurgerOuvert(false); }} className="bouton-option">🏫 Gestion des Écoles & Demandes de Départ</button>
-                  <button onClick={() => { setActiveTab('rapports'); setMenuBurgerOuvert(false); }} className="bouton-option">📝 Rapports de Séance</button>
                   <button onClick={() => { setModalAffiliation(true); setMenuBurgerOuvert(false); }} className="bouton-option" style={{ color: '#16a34a', fontWeight: '800' }}>+ Demander une Affiliation</button>
                   
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px' }}>
@@ -2611,85 +2625,6 @@ export default function EnseignantDashboard() {
                 </div>
               </form>
               )}
-            </div>
-          </div>
-        )}
-
-        {modalRapport.ouvert && (
-          <div style={styles.fondModale}>
-            <div style={{ ...styles.cardWide, width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>📋 Soumettre un Rapport de Séance & Compte Rendu</h3>
-                <button onClick={() => setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton bouton-secondaire" style={{ padding: '6px 10px' }}>✕</button>
-              </div>
-
-              <form onSubmit={soumettreRapportSeance} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label style={styles.label}>Séance concernée</label>
-                  <input type="text" placeholder="Ex: Séance d'initiation..." value={modalRapport.seanceTitre} onChange={e => setModalRapport({...modalRapport, seanceTitre: e.target.value})} style={styles.inputStyle} required />
-                </div>
-
-                <div>
-                  <label style={{ ...styles.label, marginBottom: '6px' }}>Établissements concernés :</label>
-                  {Array.isArray(affiliations) && affiliations.map(aff => {
-                    const estCoche = modalRapport.ecolesCibles.includes(aff.ecole);
-                    return (
-                      <label key={aff.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', marginBottom: '4px', cursor: 'pointer' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={estCoche}
-                          onChange={() => {
-                            const updated = estCoche 
-                              ? modalRapport.ecolesCibles.filter(e => e !== aff.ecole)
-                              : [...modalRapport.ecolesCibles, aff.ecole];
-                            setModalRapport(prev => ({ ...prev, ecolesCibles: updated }));
-                          }}
-                        />
-                        {aff.ecole}
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div>
-                  <label style={{ ...styles.label, marginBottom: '6px' }}>Classes concernées (Multi-classes) :</label>
-                  {Array.isArray(classesActivesValidees) && classesActivesValidees.map(cl => {
-                    const estCoche = modalRapport.classesCibles.includes(cl);
-                    return (
-                      <label key={cl} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', marginBottom: '4px', cursor: 'pointer' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={estCoche}
-                          onChange={() => {
-                            const updated = estCoche 
-                              ? modalRapport.classesCibles.filter(c => c !== cl)
-                              : [...modalRapport.classesCibles, cl];
-                            setModalRapport(prev => ({ ...prev, classesCibles: updated }));
-                          }}
-                        />
-                        Classe {cl}
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div>
-                  <label style={styles.label}>Motif du report (optionnel)</label>
-                  <input type="text" placeholder="Ex: Intempéries, absence professeur..." value={modalRapport.motifReport} onChange={e => setModalRapport({...modalRapport, motifReport: e.target.value})} style={styles.inputStyle} />
-                </div>
-                <div>
-                  <label style={styles.label}>📅 Nouvelle date de report prévue (optionnel)</label>
-                  <input type="date" value={modalRapport.nouvelleDatePrevue} onChange={e => setModalRapport({...modalRapport, nouvelleDatePrevue: e.target.value})} style={styles.inputStyle} />
-                </div>
-                <div>
-                  <label style={styles.label}>Compte rendu / Observations / Difficultés</label>
-                  <textarea placeholder="Détails complémentaires..." value={modalRapport.contenuRapport} onChange={e => setModalRapport({...modalRapport, contenuRapport: e.target.value})} style={{ ...styles.inputStyle, height: '80px', resize: 'vertical' }} required />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                  <button type="button" onClick={() => setModalRapport({ ouvert: false, seanceTitre: '', ecolesCibles: [], classesCibles: [], motifReport: '', nouvelleDatePrevue: '', contenuRapport: '', difficultes: '' })} className="bouton bouton-secondaire">Annuler</button>
-                  <button type="submit" className="bouton" style={{ fontWeight: '800', backgroundColor: '#d97706', color: '#fff' }}>📤 Transmettre le rapport</button>
-                </div>
-              </form>
             </div>
           </div>
         )}
@@ -3654,12 +3589,24 @@ export default function EnseignantDashboard() {
                         onChange={(e) => setNouvelleClasseLibre(e.target.value)}
                         style={{ ...styles.inputStyle, width: '220px' }}
                       />
-                      <button onClick={() => {
-                        if (!nouvelleClasseLibre.trim()) return;
-                        setClassesSansAffiliation(prev => [...(Array.isArray(prev) ? prev : []), nouvelleClasseLibre.trim()]);
+                      <button onClick={async () => {
+                        const nom = nouvelleClasseLibre.trim();
+                        if (!nom || actionsEnCours['ajouterClasseLibre']) return;
+                        debuterAction('ajouterClasseLibre');
+                        const { data: nouvelle, error } = await supabase
+                          .from('classes_autonomes_enseignant').insert({ user_id: userId, nom }).select().single();
+                        if (error) {
+                          if (error.code === '23505') showToast("⚠️ Cette classe existe déjà.");
+                          else showToast("⚠️ Erreur : " + error.message);
+                          terminerAction('ajouterClasseLibre');
+                          return;
+                        }
+                        setClassesSansAffiliation(prev => [...(Array.isArray(prev) ? prev : []), nom]);
+                        setClassesAutonomesIdParNom(prev => ({ ...prev, [nom]: nouvelle.id }));
                         setNouvelleClasseLibre('');
                         showToast("Classe libre ajoutée avec succès !");
-                      }} className="bouton bouton-principal">+ Ajouter</button>
+                        terminerAction('ajouterClasseLibre');
+                      }} className="bouton bouton-principal" disabled={actionsEnCours['ajouterClasseLibre']}>{actionsEnCours['ajouterClasseLibre'] ? '...' : '+ Ajouter'}</button>
                     </div>
                   )}
                 </div>
@@ -3789,14 +3736,22 @@ export default function EnseignantDashboard() {
                               </p>
                               <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Ouvrir le programme →</span>
                             </div>
-                            <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
+                            <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); archiverClasseLibre(cl); }}
+                                className="bouton bouton-secondaire"
+                                style={{ padding: '6px 10px', fontSize: '11px' }}
+                                disabled={!!actionsEnCours[`archiverClasse_${classesAutonomesIdParNom[cl]}`]}
+                              >
+                                📦 Archiver
+                              </button>
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setModalConfirmation({
                                     ouvert: true,
                                     titre: '⚠️ Supprimer cette classe ?',
-                                    message: `Voulez-vous vraiment supprimer la classe "${cl}" ? Cette action est irréversible.`,
+                                    message: `Voulez-vous vraiment supprimer la classe "${cl}" ? Cette action est irréversible — contrairement à "Archiver", son contenu sera définitivement perdu.`,
                                     actionCallback: () => supprimerClasseLibre(cl)
                                   });
                                 }} 
@@ -3804,6 +3759,42 @@ export default function EnseignantDashboard() {
                                 style={{ padding: '6px 10px', fontSize: '11px' }}
                               >
                                 🗑️ Supprimer
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* [NOUVEAU] Classes autonomes archivées — rangées mais
+                    toujours consultables (cliquables), pour réutiliser leur
+                    contenu via "Dupliquer" sur un cycle vers une nouvelle
+                    classe active. */}
+                {modeSansAffiliation && classesAutonomesArchivees.length > 0 && (
+                  <div style={{ marginTop: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#64748b', margin: '0 0 10px 0' }}>📦 Classes archivées</h3>
+                    <div style={styles.grilleClasses}>
+                      {classesAutonomesArchivees.map(cl => {
+                        const progExiste = programmesClasses && !!programmesClasses[cl];
+                        return (
+                          <div key={cl} style={{ ...styles.carteClasseItem, opacity: 0.75 }}>
+                            <div onClick={() => { setClasseSelectionneeVue(cl); if (!progExiste) initialiserProgrammeClasse(cl); }} style={{ cursor: 'pointer' }}>
+                              <span style={{ fontSize: '16px', fontWeight: '800', color: '#475569' }}>🏫 {cl}</span>
+                              <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 12px 0' }}>
+                                {progExiste && programmesClasses[cl]?.cycles ? `${programmesClasses[cl].cycles.length} cycle(s) — consultable, réutilisable via "Dupliquer"` : 'Cliquez pour ouvrir'}
+                              </p>
+                              <span style={{ fontSize: '12px', fontWeight: '800', color: '#2563eb' }}>Consulter →</span>
+                            </div>
+                            <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '8px', textAlign: 'right' }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); desarchiverClasseLibre(cl); }}
+                                className="bouton bouton-succes"
+                                style={{ padding: '6px 10px', fontSize: '11px' }}
+                                disabled={!!actionsEnCours[`archiverClasse_${classesAutonomesIdParNom[cl]}`]}
+                              >
+                                ✅ Réactiver
                               </button>
                             </div>
                           </div>
@@ -4063,36 +4054,29 @@ export default function EnseignantDashboard() {
                 })
               )}
             </div>
-          </div>
-        )}
 
-        {/* ONGLET : RAPPORTS DE SÉANCE */}
-        {activeTab === 'rapports' && (
-          <div style={styles.cardWide}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>📝 Rapports de Séance Transmis</h2>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Historique de vos comptes-rendus envoyés au censeur.</p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {!Array.isArray(rapportsSeances) || rapportsSeances.length === 0 ? (
-                <div style={styles.emptyState}><span style={styles.emptyStateIcon}>↩️</span><p style={styles.emptyStateText}>Aucune séance reportée pour l'instant.</p></div>
+            {/* [NOUVEAU] Archives officielles — celles visées par le censeur
+                ou archivées à la clôture d'année, distinctes de la
+                bibliothèque personnelle ci-dessus. Lecture seule : on ne
+                peut ni les modifier ni les supprimer, c'est un historique. */}
+            <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>📜 Archives officielles</h3>
+              <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 14px 0' }}>Vos fiches visées par le censeur, ou archivées à la clôture d'une année scolaire. Lecture seule.</p>
+              {archivesOfficielles.length === 0 ? (
+                <div style={styles.emptyState}><span style={styles.emptyStateIcon}>📜</span><p style={styles.emptyStateText}>Aucune archive officielle pour l'instant.</p></div>
               ) : (
-                rapportsSeances.map(r => (
-                  <div key={r.id} style={styles.itemRow}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
-                          Classes: {Array.isArray(r.classesCibles) ? r.classesCibles.join(', ') : ''}
-                        </span>
-                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{r.seanceTitre}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {archivesOfficielles.map(a => (
+                    <div key={a.id} style={styles.itemRow}>
+                      <div>
+                        <strong style={{ fontSize: '13px', color: '#0f172a' }}>{a.titre}</strong>
+                        <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
+                          {a.classe}{a.cycle ? ` · ${a.cycle}` : ''}{a.lecon ? ` · ${a.lecon}` : ''}{a.anneeScolaire ? ` · ${a.anneeScolaire}` : ''} — archivée le {a.dateArchivage}
+                        </p>
                       </div>
-                      <p style={{ fontSize: '13px', color: '#334155', margin: '4px 0' }}><strong>Compte rendu :</strong> {r.contenuRapport}</p>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>

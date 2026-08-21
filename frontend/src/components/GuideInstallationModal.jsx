@@ -44,10 +44,15 @@ export default function GuideInstallationModal() {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-        setIsOpen(false);
-      }
+      // [CORRIGÉ] Avant, la fenêtre ne se fermait que si la personne
+      // acceptait l'installation ("accepted"). Si elle refusait
+      // ("dismissed"), rien ne se passait — la fenêtre restait plantée à
+      // l'écran, donnant l'impression que le clic ne faisait rien.
+      // Dans les deux cas, le choix a été fait : on referme et on retient
+      // qu'elle a vu le guide.
+      setDeferredPrompt(null);
+      setIsOpen(false);
+      localStorage.setItem('e_cahier_guide_vu', 'true');
     }
   };
 

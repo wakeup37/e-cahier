@@ -1,11 +1,10 @@
 import * as Sentry from "@sentry/react";
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import Application from '../Application.jsx';
 import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
-import GuideInstallationModal from './GuideInstallationModal'; // 👈 1. Importation du composant d'installation
+import GuideInstallationModal from './GuideInstallationModal';
 
 Sentry.init({
   dsn: "https://4d9a8453ed9e09ce79603032a9d1d8b4@o4511943155187712.ingest.de.sentry.io/4511943162921040",
@@ -62,6 +61,8 @@ export default function AppRouter() {
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
+  const [confirmationMdpSaisi, setConfirmationMdpSaisi] = useState('');
+  const [afficherConfirmationMdp, setAfficherConfirmationMdp] = useState(false);
   const [consentementSaisi, setConsentementSaisi] = useState(false);
 
   const [notification, setNotification] = useState('');
@@ -235,7 +236,10 @@ export default function AppRouter() {
     setTimeout(() => setNotification(''), 4000);
   };
 
-  const handleLoginRouter = (role) => {
+  const handleLoginRouter = (e, role) => {
+    if (e && e.preventDefault) {
+      e.preventDefault(); 
+    }
     setEtapeAuth(role);
     setModeAuth('connexion');
     setModeMdpOublieAuth(false);
@@ -296,6 +300,10 @@ export default function AppRouter() {
       }
       if (etapeAuth === 'enseignant' && matiereIdsSaisies.length === 0) {
         afficherNotification("⚠️ Veuillez choisir au moins une matière enseignée.");
+        return;
+      }
+      if (mdpSaisi !== confirmationMdpSaisi) {
+        afficherNotification("⚠️ Les deux mots de passe ne correspondent pas.");
         return;
       }
       if (!consentementSaisi) {
@@ -505,19 +513,20 @@ export default function AppRouter() {
             <p>Ces données servent exclusivement à faire fonctionner E-cahier : gérer votre compte, vous rattacher au bon établissement, assurer le suivi et la validation des séances pédagogiques, et vous notifier des événements qui vous concernent.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>4. Partage des données</h3>
-            <p>Vos données ne sont <strong>jamais vendues</strong> à des tiers à ce jour. Elles sont visibles uniquement par les personnes de votre établissement habilitées par leur rôle.</p>
+            <p>Vos données ne sont <strong>jamais vendues</strong> à des tiers à ce jour. Elles sont visibles uniquement par les personnes de votre établissement habilitées par leur rôle (ex. votre censeur voit vos séances, votre chef d'établissement voit les membres de son établissement).</p>
+            <p>Nous nous réservons la possibilité, à l'avenir, de partager certaines données avec des prestataires techniques de confiance (hébergement, envoi d'e-mails ou de notifications) strictement pour faire fonctionner le service, ou dans le cadre d'une évolution de la structure de l'entreprise (fusion, rachat, partenariat). Le cas échéant, cette politique sera mise à jour au préalable et vous en serez informé(e).</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>5. Hébergement et sécurité</h3>
             <p>Les données sont hébergées chez Supabase, avec un accès protégé par mot de passe et des règles de sécurité limitant chaque personne aux seules données pertinentes pour son rôle.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>6. Cookies et stockage local</h3>
-            <p>E-cahier utilise uniquement un cookie/jeton technique indispensable pour garder votre session de connexion active.</p>
+            <p>E-cahier utilise uniquement un cookie/jeton technique indispensable pour garder votre session de connexion active. Nous n'utilisons aucun cookie publicitaire ni traceur tiers à des fins commerciales.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>7. Vos droits</h3>
-            <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données.</p>
+            <p>Vous pouvez à tout moment demander la consultation, la correction ou la suppression de vos données en contactant l'administrateur de votre établissement, ou l'équipe E-cahier.</p>
 
             <h3 style={{ color: '#0f172a', fontSize: '14px', marginTop: '16px' }}>8. Contact</h3>
-            <p>Pour toute question : <strong>Ecahierci@gmail.com</strong></p>
+            <p>Pour toute question relative à vos données personnelles, contactez-nous à : <strong>contact@e-cahier.app</strong></p>
           </div>
         </div>
       </div>
@@ -540,68 +549,16 @@ export default function AppRouter() {
           <form onSubmit={validerNouveauMotDePasse} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
             <div>
               <label style={styles.libelle}>Nouveau mot de passe</label>
-              <input
-                type="password"
-                value={nouveauMdpSaisi}
-                onChange={(e) => setNouveauMdpSaisi(e.target.value)}
-                style={styles.champSaisie}
-                placeholder="Au moins 6 caractères"
-                autoFocus
-                required
-              />
+              <input type="password" value={nouveauMdpSaisi} onChange={(e) => setNouveauMdpSaisi(e.target.value)} style={styles.champSaisie} placeholder="Au moins 6 caractères" required />
             </div>
             <div>
               <label style={styles.libelle}>Confirmer le mot de passe</label>
-              <input
-                type="password"
-                value={confirmationNouveauMdpSaisi}
-                onChange={(e) => setConfirmationNouveauMdpSaisi(e.target.value)}
-                style={styles.champSaisie}
-                placeholder="Retapez le même mot de passe"
-                required
-              />
+              <input type="password" value={confirmationNouveauMdpSaisi} onChange={(e) => setConfirmationNouveauMdpSaisi(e.target.value)} style={styles.champSaisie} placeholder="Retapez le même mot de passe" required />
             </div>
             <button type="submit" style={{ ...styles.boutonPrincipal }} disabled={validationMdpEnCours}>
               {validationMdpEnCours ? 'Enregistrement...' : 'Valider le nouveau mot de passe'}
             </button>
           </form>
-        </div>
-      </div>
-    );
-  }
-
-  if (!userRole && !etapeAuth) {
-    return (
-      <div style={styles.ecranAuth}>
-        <div style={styles.carteAuth}>
-          <div style={styles.enteteLogo}>
-            <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>📖</span></div>
-            <h1 style={styles.titreLogo}>E-cahier !</h1>
-          </div>
-
-          <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>
-            Veuillez sélectionner votre profil pour vous connecter.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#2563eb' }} onClick={() => handleLoginRouter('enseignant')}>
-              👨‍🏫 Espace Enseignant
-            </button>
-            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#16a34a' }} onClick={() => handleLoginRouter('censeur')}>
-              📋 Espace Censeur
-            </button>
-            <button type="button" style={{ ...styles.boutonBase, backgroundColor: '#9333ea' }} onClick={() => handleLoginRouter('chef')}>
-              🏫 Espace Chef d'Établissement
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setModePolitiqueConfidentialite(true)}
-            style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '12px', marginTop: '20px', cursor: 'pointer', textDecoration: 'underline' }}
-          >
-            🔒 Politique de confidentialité et cookies
-          </button>
         </div>
       </div>
     );
@@ -674,14 +631,6 @@ export default function AppRouter() {
                       ) : erreurCatalogueMatieres ? (
                         <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px' }}>
                           <p style={{ fontSize: '12px', color: '#991b1b', margin: '0 0 6px 0', fontWeight: '700' }}>⚠️ Impossible de charger les matières</p>
-                          <p style={{ fontSize: '11px', color: '#7f1d1d', margin: 0 }}>{erreurCatalogueMatieres}</p>
-                          <button
-                            type="button"
-                            onClick={() => { setEtapeAuth(null); setTimeout(() => setEtapeAuth('enseignant'), 0); }}
-                            style={{ marginTop: '8px', fontSize: '11px', fontWeight: '800', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                          >
-                            ↻ Réessayer
-                          </button>
                         </div>
                       ) : catalogueMatieresInscription.length === 0 ? (
                         <p style={{ fontSize: '12px', color: '#991b1b' }}>Aucune matière disponible pour l'instant.</p>
@@ -691,13 +640,7 @@ export default function AppRouter() {
                             const estCochee = matiereIdsSaisies.includes(m.id);
                             return (
                               <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '6px', backgroundColor: estCochee ? '#dbeafe' : '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: '700', color: '#334155' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={estCochee}
-                                  onChange={() => {
-                                    setMatiereIdsSaisies(prev => estCochee ? prev.filter(id => id !== m.id) : [...prev, m.id]);
-                                  }}
-                                />
+                                <input type="checkbox" checked={estCochee} onChange={() => { setMatiereIdsSaisies(prev => estCochee ? prev.filter(id => id !== m.id) : [...prev, m.id]); }} />
                                 {m.nom}
                               </label>
                             );
@@ -719,36 +662,31 @@ export default function AppRouter() {
                   <input type={afficherMdp ? "text" : "password"} placeholder="••••••••" value={mdpSaisi} onChange={e => setMdpSaisi(e.target.value)} style={styles.champMdpInterne} required />
                   <span onClick={() => setAfficherMdp(!afficherMdp)} style={styles.boutonOeil}>{afficherMdp ? '👁️‍🗨️' : '👁️'}</span>
                 </div>
-
-                {modeAuth === 'connexion' && (
-                  <div style={{ textAlign: 'right', marginTop: '6px' }}>
-                    <span onClick={() => setModeMdpOublieAuth(true)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>
-                      Mot de passe oublié ?
-                    </span>
-                  </div>
-                )}
               </div>
 
               {modeAuth === 'inscription' && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '4px', backgroundColor: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <input
-                    type="checkbox"
-                    id="consentement"
-                    checked={consentementSaisi}
-                    onChange={(e) => setConsentementSaisi(e.target.checked)}
-                    style={{ marginTop: '2px', cursor: 'pointer' }}
-                    required
-                  />
-                  <label htmlFor="consentement" style={{ fontSize: '11px', color: '#475569', lineHeight: '1.4', cursor: 'pointer', margin: 0 }}>
-                    J'accepte que mes données personnelles et pédagogiques soient traitées dans le cadre de la plateforme E-cahier, conformément à la{' '}
-                    <span
-                      onClick={(e) => { e.preventDefault(); setModePolitiqueConfidentialite(true); }}
-                      style={{ color: '#2563eb', textDecoration: 'underline', fontWeight: '600' }}
-                    >
-                      politique de confidentialité
-                    </span>.
-                  </label>
+                <div>
+                  <label style={styles.libelle}>Confirmer le mot de passe</label>
+                  <div style={styles.conteneurMotDePasse}>
+                    <input type={afficherConfirmationMdp ? "text" : "password"} placeholder="Retapez le même mot de passe" value={confirmationMdpSaisi} onChange={e => setConfirmationMdpSaisi(e.target.value)} style={styles.champMdpInterne} required />
+                    <span onClick={() => setAfficherConfirmationMdp(!afficherConfirmationMdp)} style={styles.boutonOeil}>{afficherConfirmationMdp ? '👁️‍🗨️' : '👁️'}</span>
+                  </div>
+                  {confirmationMdpSaisi && mdpSaisi !== confirmationMdpSaisi && (
+                    <p style={{ fontSize: '11px', color: '#dc2626', margin: '4px 0 0 0' }}>Les mots de passe ne correspondent pas.</p>
+                  )}
                 </div>
+              )}
+
+              {modeAuth === 'inscription' && (
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', textAlign: 'left' }}>
+                  <input type="checkbox" checked={consentementSaisi} onChange={e => setConsentementSaisi(e.target.checked)} style={{ marginTop: '3px' }} required />
+                  <span style={{ fontSize: '12px', color: '#475569', lineHeight: '1.4' }}>
+                    J'accepte la{' '}
+                    <span onClick={(e) => { e.preventDefault(); setModePolitiqueConfidentialite(true); }} style={{ color: '#2563eb', textDecoration: 'underline', cursor: 'pointer' }}>
+                      politique de confidentialité et cookies
+                    </span>{' '}d'E-cahier.
+                  </span>
+                </label>
               )}
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
@@ -764,64 +702,71 @@ export default function AppRouter() {
     );
   }
 
+  if (!userRole) {
+    return (
+      <div style={styles.ecranAuth}>
+        <div style={styles.carteAuth}>
+          <span style={{ fontSize: '40px' }}>📚</span>
+          <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: '12px 0 8px 0' }}>
+            Bienvenue sur E-cahier !
+          </h2>
+          <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>
+            Veuillez sélectionner votre profil pour vous connecter.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button 
+              type="button" 
+              style={{ ...styles.boutonBase, backgroundColor: '#2563eb' }} 
+              onClick={(e) => handleLoginRouter(e, 'enseignant')}
+            >
+              👨‍🏫 Espace Enseignant
+            </button>
+            
+            <button 
+              type="button" 
+              style={{ ...styles.boutonBase, backgroundColor: '#16a34a' }} 
+              onClick={(e) => handleLoginRouter(e, 'censeur')}
+            >
+              📋 Espace Censeur
+            </button>
+            
+            <button 
+              type="button" 
+              style={{ ...styles.boutonBase, backgroundColor: '#9333ea' }} 
+              onClick={(e) => handleLoginRouter(e, 'chef')}
+            >
+              🏫 Espace Chef d'Établissement
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setModePolitiqueConfidentialite(true)}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '12px', marginTop: '20px', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            🔒 Politique de confidentialité et cookies
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (userRole === 'chef' && etapeChoixEtablissement) {
     return (
       <div style={styles.ecranAuth}>
         {notification && <div style={styles.conteneurNotification}>{notification}</div>}
         <div style={styles.carteAuth}>
-
           <div style={styles.enteteLogo}>
             <div style={styles.iconeCahier}><span style={{ fontSize: '24px' }}>📖</span></div>
             <h1 style={styles.titreLogo}>E-cahier !</h1>
           </div>
-
           <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#334155', margin: '0 0 16px 0' }}>Gestion de l'Établissement</h2>
-
           {choixModeEcole === 'choix' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
               <button type="button" style={styles.boutonPrincipal} onClick={() => setChoixModeEcole('creer')}>➕ Créer un établissement</button>
               <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Rejoindre un établissement existant</button>
-              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '6px' }} onClick={gererDeconnexionGlobale}>⬅️ Retour au choix du profil / Déconnexion</button>
-            </div>
-          )}
-
-          {choixModeEcole === 'creer' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left', marginTop: '15px' }}>
-              <div>
-                <label style={styles.libelle}>Nom de l'établissement</label>
-                <input type="text" placeholder="Ex: Lycée Moderne..." value={nomEcoleSaisi} onChange={e => setNomEcoleSaisi(e.target.value)} style={styles.champSaisie} required />
-              </div>
-              <div>
-                <label style={styles.libelle}>Type d'établissement</label>
-                <select value={typeEcoleSaisi} onChange={e => setTypeEcoleSaisi(e.target.value)} style={styles.champSaisie}>
-                  <option value="public">Public</option>
-                  <option value="prive">Privé</option>
-                </select>
-              </div>
-              <div>
-                <label style={styles.libelle}>Année de création</label>
-                <input type="text" placeholder="Ex: 1998" maxLength="4" value={anneeCreationSaisie} onChange={e => setAnneeCreationSaisie(e.target.value)} style={styles.champSaisie} required />
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>⬅️ Retour</button>
-                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => gererEtablissementChef('creer')}>Enregistrer</button>
-              </div>
-            </div>
-          )}
-
-          {choixModeEcole === 'rejoindre' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left', marginTop: '15px' }}>
-              <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
-                Un établissement n'a pas de mot de passe : rejoindre en tant que chef nécessite le code de l'établissement, et votre demande devra être approuvée.
-              </p>
-              <div>
-                <label style={styles.libelle}>Code de l'établissement</label>
-                <input type="text" placeholder="Ex: LYCMOD-A1B2" value={codeEtablissementSaisi} onChange={e => setCodeEtablissementSaisi(e.target.value)} style={styles.champSaisie} required />
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', flex: 1 }} onClick={() => setChoixModeEcole('choix')}>⬅️ Retour</button>
-                <button type="button" style={{ ...styles.boutonPrincipal, flex: 2 }} onClick={() => gererEtablissementChef('rejoindre')}>Envoyer la demande</button>
-              </div>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '6px' }} onClick={gererDeconnexionGlobale}>⬅️ Retour au choix du profil</button>
             </div>
           )}
         </div>
@@ -841,25 +786,16 @@ export default function AppRouter() {
       date_debut: new Date().toISOString().slice(0, 10),
     });
 
-    if (erreurAff) {
-      if (erreurAff.code === '23505') {
-        afficherNotification("⚠️ Vous avez déjà une affiliation active incompatible avec ce rôle ailleurs.");
-      } else {
-        afficherNotification("❌ Erreur : " + erreurAff.message);
-      }
-      return;
-    }
+    if (erreurAff) return;
 
     await supabase.from('invitations').update({ statut: 'ACCEPTEE' }).eq('id', invitation.id);
     setInvitationsRecues(prev => prev.filter(i => i.id !== invitation.id));
-    afficherNotification(`✅ Vous avez rejoint ${invitation.etablissements?.nom} !`);
     setTimeout(() => window.location.reload(), 1200);
   };
 
   const refuserInvitation = async (invitation) => {
     await supabase.from('invitations').update({ statut: 'REFUSEE' }).eq('id', invitation.id);
     setInvitationsRecues(prev => prev.filter(i => i.id !== invitation.id));
-    afficherNotification("Invitation refusée.");
   };
 
   return (
@@ -870,9 +806,7 @@ export default function AppRouter() {
         <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', margin: '12px', padding: '14px 18px', borderRadius: '12px' }}>
           {invitationsRecues.map(inv => (
             <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', padding: '6px 0' }}>
-              <span style={{ fontSize: '13px', color: '#78350f' }}>
-                📨 Vous avez été invité(e) à rejoindre <strong>{inv.etablissements?.nom}</strong> en tant que <strong>{inv.role_propose}</strong>
-              </span>
+              <span style={{ fontSize: '13px', color: '#78350f' }}>📨 Invitation à rejoindre <strong>{inv.etablissements?.nom}</strong></span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => accepterInvitation(inv)} style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>Accepter</button>
                 <button onClick={() => refuserInvitation(inv)} style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>Refuser</button>
@@ -882,19 +816,10 @@ export default function AppRouter() {
         </div>
       )}
 
-      {userRole === 'enseignant' && (
-        <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} />
-      )}
+      {userRole === 'enseignant' && ( <EnseignantDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} /> )}
+      {userRole === 'censeur' && ( <CenseurDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} bibliotheque={bibliotheque} setBibliotheque={setBibliotheque} enseignantsSansFiche={enseignantsSansFiche} /> )}
+      {userRole === 'chef' && ( <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} /> )}
 
-      {userRole === 'censeur' && (
-        <CenseurDashboard demandesAffiliation={demandesAffiliation} setDemandesAffiliation={setDemandesAffiliation} seances={seances} setSeances={setSeances} bibliotheque={bibliotheque} setBibliotheque={setBibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
-      )}
-
-      {userRole === 'chef' && (
-        <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
-      )}
-
-      {/* 👈 2. Intégration du composant d'aide à l'installation ici */}
       <GuideInstallationModal />
     </div>
   );
@@ -902,29 +827,8 @@ export default function AppRouter() {
 
 const styles = {
   boutonDeconnexion: { background: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
-  ecranAuth: { 
-    display: 'flex', 
-    flexDirection: 'column', 
-    justifyContent: 'flex-start', 
-    alignItems: 'center', 
-    minHeight: '100vh', 
-    padding: '30px 20px', 
-    backgroundColor: '#f8fafc', 
-    boxSizing: 'border-box',
-    overflowY: 'auto' 
-  },
-  carteAuth: { 
-    background: '#ffffff', 
-    padding: '32px', 
-    borderRadius: '16px', 
-    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', 
-    border: '1px solid #e2e8f0', 
-    width: '100%', 
-    maxWidth: '450px', 
-    textAlign: 'center', 
-    boxSizing: 'border-box',
-    margin: 'auto 0' 
-  },
+  ecranAuth: { display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', minHeight: '100vh', padding: '30px 20px', backgroundColor: '#f8fafc', boxSizing: 'border-box', overflowY: 'auto' },
+  carteAuth: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0', width: '100%', maxWidth: '450px', textAlign: 'center', boxSizing: 'border-box', margin: 'auto 0' },
   enteteLogo: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' },
   iconeCahier: { backgroundColor: '#2563eb', borderRadius: '10px', padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' },
   titreLogo: { fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '0' },

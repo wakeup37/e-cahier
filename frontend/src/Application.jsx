@@ -1,6 +1,15 @@
 import React from 'react';
 
 export default function Application({ onLogin }) {
+  const gererClic = (role) => {
+    if (typeof onLogin === 'function') {
+      onLogin(role);
+    } else {
+      // Fallback direct si la prop onLogin venait à manquer
+      window.location.reload();
+    }
+  };
+
   return (
     <div style={styles.ecranAuth}>
       <div style={styles.carteAuth}>
@@ -16,7 +25,7 @@ export default function Application({ onLogin }) {
           <button 
             type="button" 
             style={{ ...styles.bouton, backgroundColor: '#2563eb' }} 
-            onClick={() => onLogin('enseignant')}
+            onClick={() => gererClic('enseignant')}
           >
             👨‍🏫 Espace Enseignant
           </button>
@@ -24,7 +33,7 @@ export default function Application({ onLogin }) {
           <button 
             type="button" 
             style={{ ...styles.bouton, backgroundColor: '#16a34a' }} 
-            onClick={() => onLogin('censeur')}
+            onClick={() => gererClic('censeur')}
           >
             📋 Espace Censeur
           </button>
@@ -32,7 +41,7 @@ export default function Application({ onLogin }) {
           <button 
             type="button" 
             style={{ ...styles.bouton, backgroundColor: '#9333ea' }} 
-            onClick={() => onLogin('chef')}
+            onClick={() => gererClic('chef')}
           >
             🏫 Espace Chef d'Établissement
           </button>

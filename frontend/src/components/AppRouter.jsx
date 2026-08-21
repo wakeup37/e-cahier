@@ -5,6 +5,7 @@ import Application from '../Application.jsx';
 import EnseignantDashboard from './EnseignantDashboard';
 import CenseurDashboard from './CenseurDashboard';
 import ChefEtablissementDashboard from './ChefEtablissementDashboard';
+import GuideInstallationModal from './GuideInstallationModal'; // 👈 1. Importation du composant d'installation
 
 Sentry.init({
   dsn: "https://4d9a8453ed9e09ce79603032a9d1d8b4@o4511943155187712.ingest.de.sentry.io/4511943162921040",
@@ -892,6 +893,9 @@ export default function AppRouter() {
       {userRole === 'chef' && (
         <ChefEtablissementDashboard demandesAffiliation={demandesAffiliation} seances={seances} bibliotheque={bibliotheque} enseignantsSansFiche={enseignantsSansFiche} />
       )}
+
+      {/* 👈 2. Intégration du composant d'aide à l'installation ici */}
+      <GuideInstallationModal />
     </div>
   );
 }

@@ -4,14 +4,21 @@ export default function GuideInstallationModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [platform, setPlatform] = useState('unknown');
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  // [CORRIGÉ] Avant, la vérification "app déjà installée" ne servait qu'à
+  // bloquer l'ouverture automatique de la fenêtre après 3 secondes — mais
+  // le bouton flottant "📱 Installer l'app", lui, s'affichait quand même
+  // au premier rendu (avant même que le useEffect ait pu s'exécuter), et
+  // rien ne le retirait ensuite. Résultat : le bouton restait affiché même
+  // dans l'app déjà installée.
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIos = /iphone|ipad|ipod/.test(userAgent);
-    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+    const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
 
-    // Si l'app est déjà installée, on n'affiche rien
-    if (isStandalone) return;
+    // Si l'app est déjà installée, on n'affiche rien du tout
+    if (standalone) { setIsStandalone(true); return; }
 
     if (isIos) {
       setPlatform('ios');
@@ -60,6 +67,10 @@ export default function GuideInstallationModal() {
     setIsOpen(false);
     localStorage.setItem('e_cahier_guide_vu', 'true');
   };
+
+  // [NOUVEAU] Le vrai blocage : rien n'est affiché du tout si l'app tourne
+  // déjà en mode installé — ni le bouton flottant, ni la fenêtre.
+  if (isStandalone) return null;
 
   if (!isOpen) {
     // Petit bouton flottant discret pour rouvrir le guide si besoin
@@ -156,7 +167,7 @@ export default function GuideInstallationModal() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
               <div style={{ background: '#e0e7ff', color: '#4f46e5', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>3</div>
               <p style={{ fontSize: '14px', margin: 0, paddingTop: '4px' }}>
-                Faites défiler le menu et sélectionnez <strong>« Sur l'écran d'accueil »</strong> ➕.
+                Tout en bas de ce menu, il y a une <strong>rangée d'icônes</strong> (Copier, Ajouter à Signets...). Faites glisser votre doigt <strong>vers la gauche sur ces icônes</strong> (pas sur toute la page) jusqu'à voir apparaître <strong>« Sur l'écran d'accueil »</strong> ➕, puis appuyez dessus.
               </p>
             </div>
           </div>

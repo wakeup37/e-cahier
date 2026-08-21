@@ -43,6 +43,15 @@ import { supabase } from './AppRouter';
 //      nécessite de récupérer la matière de chaque attribution (avant,
 //      seule la liste des noms de classe était chargée) — voir
 //      "classesDetailParEtablissement" dans chargerTout().
+//   4. [NOUVEAU] Cycle : "TERMINEE" → "TERMINE" pour respecter la
+//      contrainte SQL cycles_statut_check (qui n'accepte que 'EN_COURS' et
+//      'TERMINE', sans le E final) — avant, cliquer sur "Terminer" un
+//      cycle provoquait systématiquement une erreur de contrainte.
+//   5. [NOUVEAU] Bouton "Terminer" de la leçon déplacé : il n'apparaît
+//      plus dans la barre d'actions du titre de la leçon, mais juste à
+//      côté du bouton "+ Ajouter une nouvelle séance" (visible dès que la
+//      leçon est dépliée, quel que soit le nombre de séances déjà
+//      créées) — le bouton "Terminer" du cycle, lui, reste inchangé.
 // =========================================================================
 
 export default function EnseignantDashboard() {
@@ -705,7 +714,7 @@ export default function EnseignantDashboard() {
           id: cycle.id, titre: cycle.titre, competence: cycle.competence || '',
           dateDebut: cycle.date_debut || '', dateFin: cycle.date_fin || '',
           nombreLeconsPrevu: cycle.nombre_lecons_prevu || null, planLecons: cycle.plan_lecons || [],
-          statut: cycle.statut === 'TERMINEE' ? 'Terminé' : 'En cours',
+          statut: cycle.statut === 'TERMINE' ? 'Terminé' : 'En cours',
           soumisAuCenseur: false,
           lecons: leconsDuCycle,
         });
@@ -1784,7 +1793,11 @@ export default function EnseignantDashboard() {
   const marquerCycleTermine = async (cycleId) => {
     if (actionsEnCours[`cycleTermine_${cycleId}`]) return;
     debuterAction(`cycleTermine_${cycleId}`);
-    const { error } = await supabase.from('cycles').update({ statut: 'TERMINEE' }).eq('id', cycleId);
+    // [CORRIGÉ] La contrainte SQL cycles_statut_check n'accepte que
+    // 'EN_COURS' et 'TERMINE' (sans le E final) — avant, on envoyait
+    // 'TERMINEE', ce qui provoquait systématiquement une erreur de
+    // contrainte à chaque clic sur "Terminer" un cycle.
+    const { error } = await supabase.from('cycles').update({ statut: 'TERMINE' }).eq('id', cycleId);
     if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`cycleTermine_${cycleId}`); return; }
     const prog = programmesClasses[classeSelectionneeVue];
     if (!prog || !Array.isArray(prog.cycles)) { terminerAction(`cycleTermine_${cycleId}`); return; }
@@ -3904,14 +3917,18 @@ export default function EnseignantDashboard() {
                                       </h5>
                                     </div>
 
+                                    {/* [MODIFIÉ] Le bouton "Terminer" la leçon a été retiré d'ici — il
+                                        se trouve désormais juste à côté de "+ Ajouter une nouvelle
+                                        séance", dans le contenu déplié de la leçon ci-dessous. */}
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                       <button onClick={() => telechargerLeconPDF(lecon, cycle)} className="bouton bouton-principal" style={{ padding: '4px 8px', fontSize: '10px' }}>📥 Leçon PDF</button>
                                       <button onClick={() => ouvrirModalEdition('lecon', cycle.id, lecon.id)} className="bouton bouton-secondaire" style={{ padding: '4px 8px', fontSize: '10px' }}>✏️ Modifier</button>
-                                      {!lecon.soumisAuCenseur && (
+                                      {/* [NOUVEAU] Une classe personnelle (mode sans affiliation) n'a
+                                          aucun censeur à qui envoyer quoi que ce soit — le bouton
+                                          "Envoyer" n'a donc aucun sens ici. Tout le reste (PDF,
+                                          Modifier, Dupliquer, Terminer) reste disponible normalement. */}
+                                      {!lecon.soumisAuCenseur && !(Array.isArray(classesSansAffiliation) && classesSansAffiliation.includes(classeSelectionneeVue)) && (
                                         <button onClick={() => soumettreAuCenseur('lecon', cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`soumettre_lecon_${lecon.id}`]}>🚀 {actionsEnCours[`soumettre_lecon_${lecon.id}`] ? '...' : 'Envoyer la fiche de leçon'}</button>
-                                      )}
-                                      {lecon.statut !== 'Terminée' && (
-                                        <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ padding: '4px 8px', fontSize: '10px' }} disabled={!!actionsEnCours[`leconTerminee_${lecon.id}`]}>🏁 {actionsEnCours[`leconTerminee_${lecon.id}`] ? '...' : 'Terminer'}</button>
                                       )}
                                       <span style={{ fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px', backgroundColor: lecon.statut === 'Terminée' ? '#dcfce7' : '#fef3c7', color: lecon.statut === 'Terminée' ? '#166534' : '#92400e' }}>{lecon.statut}</span>
                                     </div>
@@ -3957,7 +3974,11 @@ export default function EnseignantDashboard() {
                                         </div>
                                       ))}
 
-                                      <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
+                                      {/* [NOUVEAU] Le bouton "Terminer" la leçon vit maintenant ici, à
+                                          côté de "+ Ajouter une nouvelle séance" — toujours visible tant
+                                          que la leçon n'est pas déjà marquée Terminée, quel que soit le
+                                          nombre de séances déjà créées. */}
+                                      <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                         <button onClick={() => {
                                           const prochainTitre = (lecon.planSeances || [])[(lecon.seances || []).length] || '';
                                           setModalAssistant(prev => ({ ...prev, ouvert: true, niveauCible: 'seance', cycleIdCible: cycle.id, leconIdCible: lecon.id, dateSeance: new Date().toISOString().split('T')[0], titreSeance: prochainTitre, valeursChamps: {}, referenceLeconValeurs: lecon.contenuJson || {}, classesCiblesCycle: classeSelectionneeVue ? [classeSelectionneeVue] : [], datesParClasseCycle: {} }));
@@ -3967,6 +3988,11 @@ export default function EnseignantDashboard() {
                                         <button onClick={() => setModalChoixBibliotheque({ ouvert: true, cycleId: cycle.id, leconId: lecon.id })} className="bouton bouton-secondaire" style={{ fontSize: '11px', flex: 1, borderStyle: 'dashed', padding: '8px', color: '#7c3aed' }}>
                                           ♻️ Réutiliser une fiche
                                         </button>
+                                        {lecon.statut !== 'Terminée' && (
+                                          <button onClick={() => marquerLeconTerminee(cycle.id, lecon.id)} className="bouton bouton-succes" style={{ fontSize: '11px', padding: '8px 14px' }} disabled={!!actionsEnCours[`leconTerminee_${lecon.id}`]}>
+                                            🏁 {actionsEnCours[`leconTerminee_${lecon.id}`] ? '...' : 'Terminer'}
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                   )}

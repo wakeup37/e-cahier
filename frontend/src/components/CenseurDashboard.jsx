@@ -538,6 +538,248 @@ export default function CenseurDashboard() {
   const JOUR_LABEL = { LUNDI: 'Lundi', MARDI: 'Mardi', MERCREDI: 'Mercredi', JEUDI: 'Jeudi', VENDREDI: 'Vendredi', SAMEDI: 'Samedi' };
   const creneauxCoursDisponibles = useMemo(() => creneauxHoraires.filter(c => c.type_creneau === 'COURS'), [creneauxHoraires]);
   const apercuGrilleGeneree = genererApercuGrille();
+
+  // ===== TABLEAU CENTRAL DE CROISEMENT (matrice de planification) =====
+  const [matricePlanification, setMatricePlanification] = useState([]);
+  const [heuresSupplementairesAutorisees, setHeuresSupplementairesAutorisees] = useState(false);
+  const [rapportGeneration, setRapportGeneration] = useState(null);
+
+  const URL_BACKEND_EMPLOI_DU_TEMPS = 'https://e-cahier-backend.onrender.com';
+
+  const genererEmploiDuTemps = async () => {
+    if (actionsEnCours['genererEmploiDuTemps']) return;
+    if (!affiliationCenseur || !anneeActiveId) return;
+    debuterAction('genererEmploiDuTemps');
+    setRapportGeneration(null);
+
+    try {
+      const reponse = await fetch(`${URL_BACKEND_EMPLOI_DU_TEMPS}/api/emploi-du-temps/generer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          etablissementId: affiliationCenseur.etablissement_id,
+          anneeScolaireId: anneeActiveId,
+          autoriserHeuresSupplementaires: heuresSupplementairesAutorisees,
+          genereParUserId: userId,
+        }),
+      });
+
+      const resultat = await reponse.json();
+
+      if (!reponse.ok) {
+        showToast("⚠️ Erreur : " + (resultat.error || "échec de la génération."));
+        terminerAction('genererEmploiDuTemps');
+        return;
+      }
+
+      setRapportGeneration(resultat.rapport);
+      showToast(resultat.message || "✅ Génération terminée.");
+    } catch (err) {
+      // Le service Render gratuit peut mettre jusqu'à 50s à se réveiller
+      // après une période d'inactivité — pas une vraie panne.
+      showToast("⚠️ Le serveur ne répond pas (il met parfois jusqu'à 50s à démarrer après une pause) — réessaie dans un instant.");
+    }
+    terminerAction('genererEmploiDuTemps');
+  };
+
+  const [volumesContractuels, setVolumesContractuels] = useState([]);
+  const [vueMatrice, setVueMatrice] = useState('enseignant'); // 'enseignant' | 'classe'
+  const [filtreVueMatrice, setFiltreVueMatrice] = useState('');
+
+  const [formMatrice, setFormMatrice] = useState({
+    enseignantId: '', matiereId: '', niveau: '', classeId: '',
+    volumeHebdo: '', nombreSeances: '1', dureeSeance: '', salleId: '',
+  });
+  const [formVolumeContractuel, setFormVolumeContractuel] = useState({ enseignantId: '', volumeTotal: '' });
+
+  const chargerMatricePlanification = async () => {
+    if (!affiliationCenseur || !anneeActiveId) return;
+    const etablissementId = affiliationCenseur.etablissement_id;
+    const [{ data: matrice, error: erreurMatrice }, { data: volumes, error: erreurVolumes }] = await Promise.all([
+      supabase.from('matrice_planification').select('*, classes(nom), matieres(nom), salles(nom)').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId),
+      supabase.from('volumes_contractuels_enseignant').select('*').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId),
+    ]);
+    if (erreurMatrice) showToast("⚠️ Erreur matrice de planification : " + erreurMatrice.message);
+    if (erreurVolumes) showToast("⚠️ Erreur volumes contractuels : " + erreurVolumes.message);
+    setMatricePlanification(matrice || []);
+    setVolumesContractuels(volumes || []);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'emploi_du_temps' && sousOngletEDT === 'croisement' && anneeActiveId) chargerMatricePlanification();
+  }, [activeTab, sousOngletEDT, anneeActiveId]);
+
+  // Formulaire dynamique en cascade (§13 du cahier des charges) :
+  // enseignant choisi → matières qu'il déclare enseigner uniquement.
+  const matieresDeLEnseignantChoisi = useMemo(() => {
+    if (!formMatrice.enseignantId) return [];
+    const prof = listeProfesseursEtablissement.find(p => p.userId === formMatrice.enseignantId);
+    if (!prof) return [];
+    const idsDeclares = new Set((prof.matieresProfil || []).map(m => m.id));
+    return matieresDisponibles.filter(m => idsDeclares.has(m.id));
+  }, [formMatrice.enseignantId, listeProfesseursEtablissement, matieresDisponibles]);
+
+  // matière choisie → niveaux compatibles (niveaux_applicables de la matière, ou tous si vide)
+  const niveauxCompatiblesChoisis = useMemo(() => {
+    if (!formMatrice.matiereId) return [];
+    const matiere = matieresDisponibles.find(m => m.id === formMatrice.matiereId);
+    const niveauxDefinis = matiere?.niveaux_applicables || [];
+    return niveauxDefinis.length > 0 ? niveauxDefinis : TOUS_NIVEAUX;
+  }, [formMatrice.matiereId, matieresDisponibles]);
+
+  // niveau choisi → classes de ce niveau
+  const classesDuNiveauChoisi = useMemo(() => {
+    if (!formMatrice.niveau) return [];
+    return classesEtablissement.filter(c => c.niveau === formMatrice.niveau);
+  }, [formMatrice.niveau, classesEtablissement]);
+
+  const ajouterLigneMatrice = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['ajouterMatrice']) return;
+    const { enseignantId, matiereId, niveau, classeId, volumeHebdo, nombreSeances, dureeSeance, salleId } = formMatrice;
+    if (!enseignantId || !matiereId || !niveau || !classeId || !volumeHebdo) {
+      showToast("⚠️ Merci de remplir enseignant, matière, niveau, classe et volume horaire.");
+      return;
+    }
+    if (!affiliationCenseur || !anneeActiveId) return;
+    debuterAction('ajouterMatrice');
+
+    const { data: nouvelle, error } = await supabase
+      .from('matrice_planification')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        niveau, classe_id: classeId, matiere_id: matiereId, enseignant_id: enseignantId,
+        volume_hebdo_heures: parseFloat(volumeHebdo),
+        nombre_seances: parseInt(nombreSeances, 10) || 1,
+        duree_seance_minutes: dureeSeance ? parseInt(dureeSeance, 10) : null,
+        salle_id: salleId || null,
+      })
+      .select('*, classes(nom), matieres(nom), salles(nom)').single();
+
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette combinaison classe+matière+enseignant existe déjà dans la matrice.");
+      else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('ajouterMatrice');
+      return;
+    }
+    setMatricePlanification(prev => [...prev, nouvelle]);
+    setFormMatrice({ enseignantId: '', matiereId: '', niveau: '', classeId: '', volumeHebdo: '', nombreSeances: '1', dureeSeance: '', salleId: '' });
+    showToast(`✅ Ajouté à la matrice : ${nouvelle.classes?.nom} — ${nouvelle.matieres?.nom}.`);
+    terminerAction('ajouterMatrice');
+  };
+
+  const supprimerLigneMatrice = async (ligne) => {
+    if (actionsEnCours[`supprMatrice_${ligne.id}`]) return;
+    debuterAction(`supprMatrice_${ligne.id}`);
+    const { error } = await supabase.from('matrice_planification').delete().eq('id', ligne.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`supprMatrice_${ligne.id}`); return; }
+    setMatricePlanification(prev => prev.filter(l => l.id !== ligne.id));
+    showToast("🗑️ Ligne supprimée de la matrice.");
+    terminerAction(`supprMatrice_${ligne.id}`);
+  };
+
+  const definirVolumeContractuel = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['definirVolumeContractuel']) return;
+    if (!formVolumeContractuel.enseignantId || !formVolumeContractuel.volumeTotal) {
+      showToast("⚠️ Merci de choisir un enseignant et un volume.");
+      return;
+    }
+    if (!affiliationCenseur || !anneeActiveId) return;
+    debuterAction('definirVolumeContractuel');
+    const { data: nouveau, error } = await supabase
+      .from('volumes_contractuels_enseignant')
+      .upsert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        enseignant_id: formVolumeContractuel.enseignantId,
+        volume_total_heures: parseFloat(formVolumeContractuel.volumeTotal),
+      }, { onConflict: 'etablissement_id,annee_scolaire_id,enseignant_id' })
+      .select().single();
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('definirVolumeContractuel'); return; }
+    setVolumesContractuels(prev => {
+      const sansAncien = prev.filter(v => v.enseignant_id !== nouveau.enseignant_id);
+      return [...sansAncien, nouveau];
+    });
+    setFormVolumeContractuel({ enseignantId: '', volumeTotal: '' });
+    showToast("✅ Volume contractuel enregistré.");
+    terminerAction('definirVolumeContractuel');
+  };
+
+  // §8-9 : total attribué par enseignant (somme des lignes de la matrice)
+  // comparé au volume contractuel déclaré, pour détecter sur/sous-charge.
+  const bilanVolumesParEnseignant = useMemo(() => {
+    const totaux = {};
+    matricePlanification.forEach(ligne => {
+      if (!totaux[ligne.enseignant_id]) totaux[ligne.enseignant_id] = 0;
+      totaux[ligne.enseignant_id] += Number(ligne.volume_hebdo_heures || 0);
+    });
+    return listeProfesseursEtablissement
+      .map(prof => {
+        const attribue = totaux[prof.userId] || 0;
+        const contractuel = volumesContractuels.find(v => v.enseignant_id === prof.userId);
+        const total = contractuel ? Number(contractuel.volume_total_heures) : null;
+        return {
+          enseignant: prof.nomComplet, enseignantId: prof.userId,
+          attribue, total,
+          ecart: total !== null ? Math.round((attribue - total) * 100) / 100 : null,
+        };
+      })
+      .filter(b => b.attribue > 0 || b.total !== null);
+  }, [matricePlanification, volumesContractuels, listeProfesseursEtablissement]);
+
+  // §18-20 : synthèse avant génération — compte les éléments et détecte les
+  // blocages (données manquantes) vs avertissements (écarts de volume).
+  const syntheseAvantGeneration = useMemo(() => {
+    const nbClasses = classesEtablissement.length;
+    const nbEnseignants = listeProfesseursEtablissement.length;
+    const nbMatieres = matieresDisponibles.length;
+    const nbSalles = salles.length;
+    const nbCreneaux = creneauxCoursDisponibles.length;
+    const heuresAPlanifier = matricePlanification.reduce((s, l) => s + Number(l.volume_hebdo_heures || 0), 0);
+    const nbAffectations = matricePlanification.length;
+
+    const erreursBloquantes = [];
+    if (nbCreneaux === 0) erreursBloquantes.push("Aucune grille horaire générée (onglet Grille horaire).");
+    if (nbAffectations === 0) erreursBloquantes.push("Aucune ligne dans la matrice de planification.");
+    const classesAvecAffectation = new Set(matricePlanification.map(l => l.classe_id));
+    const classesSansAffectation = classesEtablissement.filter(c => !classesAvecAffectation.has(c.id));
+    if (classesSansAffectation.length > 0) erreursBloquantes.push(`${classesSansAffectation.length} classe(s) sans aucune matière affectée dans la matrice.`);
+
+    const avertissements = [];
+    bilanVolumesParEnseignant.forEach(b => {
+      if (b.ecart !== null && b.ecart !== 0) {
+        avertissements.push(`${b.enseignant} : ${b.ecart > 0 ? '+' : ''}${b.ecart}h par rapport à son volume contractuel.`);
+      }
+    });
+
+    const pretAGenerer = erreursBloquantes.length === 0;
+
+    return { nbClasses, nbEnseignants, nbMatieres, nbSalles, nbCreneaux, heuresAPlanifier, nbAffectations, erreursBloquantes, avertissements, pretAGenerer };
+  }, [classesEtablissement, listeProfesseursEtablissement, matieresDisponibles, salles, creneauxCoursDisponibles, matricePlanification, bilanVolumesParEnseignant]);
+
+  const matriceGroupeeParEnseignant = useMemo(() => {
+    const groupe = {};
+    matricePlanification.forEach(l => {
+      const prof = listeProfesseursEtablissement.find(p => p.userId === l.enseignant_id);
+      const nom = prof?.nomComplet || 'Enseignant inconnu';
+      if (!groupe[nom]) groupe[nom] = [];
+      groupe[nom].push(l);
+    });
+    return groupe;
+  }, [matricePlanification, listeProfesseursEtablissement]);
+
+  const matriceGroupeeParClasse = useMemo(() => {
+    const groupe = {};
+    matricePlanification.forEach(l => {
+      const nomClasse = l.classes?.nom || 'Classe inconnue';
+      if (!groupe[nomClasse]) groupe[nomClasse] = [];
+      groupe[nomClasse].push(l);
+    });
+    return groupe;
+  }, [matricePlanification]);
+  // ===== FIN TABLEAU DE CROISEMENT =====
   // ===== FIN ONGLET EMPLOI DU TEMPS =====
 
   const [classesOuvertesVisa, setClassesOuvertesVisa] = useState({});
@@ -3627,6 +3869,7 @@ export default function CenseurDashboard() {
                 { id: 'grille', label: '⏱️ Grille horaire' },
                 { id: 'salles', label: '🏛️ Salles' },
                 { id: 'volumes', label: '📚 Volumes horaires' },
+                { id: 'croisement', label: '🔗 Croisement' },
                 { id: 'indisponibilites', label: '🚫 Indisponibilités' },
               ].map(sousOnglet => (
                 <button
@@ -3821,6 +4064,232 @@ export default function CenseurDashboard() {
                             <button onClick={() => supprimerVolumeHoraire(v)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }} disabled={!!actionsEnCours[`supprVolume_${v.id}`]}>🗑️</button>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sousOngletEDT === 'croisement' && (
+                  <div>
+                    {/* Synthèse avant génération — §18-20 */}
+                    <div style={{
+                      backgroundColor: syntheseAvantGeneration.pretAGenerer ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${syntheseAvantGeneration.pretAGenerer ? '#bbf7d0' : '#fecaca'}`,
+                      borderRadius: '12px', padding: '16px', marginBottom: '20px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', color: syntheseAvantGeneration.pretAGenerer ? '#166534' : '#991b1b', margin: 0 }}>
+                          {syntheseAvantGeneration.pretAGenerer ? '✅ Configuration prête à générer' : '⚠️ Configuration incomplète'}
+                        </h3>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                        {[
+                          ['Classes', syntheseAvantGeneration.nbClasses],
+                          ['Enseignants', syntheseAvantGeneration.nbEnseignants],
+                          ['Matières', syntheseAvantGeneration.nbMatieres],
+                          ['Salles', syntheseAvantGeneration.nbSalles],
+                          ['Créneaux', syntheseAvantGeneration.nbCreneaux],
+                          ['Heures à planifier', `${syntheseAvantGeneration.heuresAPlanifier}h`],
+                          ['Affectations', syntheseAvantGeneration.nbAffectations],
+                        ].map(([label, valeur]) => (
+                          <div key={label} style={{ backgroundColor: '#fff', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>{valeur}</div>
+                            <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {syntheseAvantGeneration.erreursBloquantes.length > 0 && (
+                        <div style={{ marginBottom: '8px' }}>
+                          <strong style={{ fontSize: '11px', color: '#991b1b', textTransform: 'uppercase' }}>Erreurs bloquantes :</strong>
+                          {syntheseAvantGeneration.erreursBloquantes.map((err, i) => (
+                            <p key={i} style={{ fontSize: '12px', color: '#991b1b', margin: '4px 0 0 0' }}>• {err}</p>
+                          ))}
+                        </div>
+                      )}
+                      {syntheseAvantGeneration.avertissements.length > 0 && (
+                        <div>
+                          <strong style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase' }}>Avertissements (non bloquants) :</strong>
+                          {syntheseAvantGeneration.avertissements.map((av, i) => (
+                            <p key={i} style={{ fontSize: '12px', color: '#92400e', margin: '4px 0 0 0' }}>• {av}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Génération — le vrai bouton qui déclenche le moteur backend */}
+                    <div style={{ backgroundColor: '#0f172a', padding: '18px', borderRadius: '12px', marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={heuresSupplementairesAutorisees}
+                            onChange={(e) => setHeuresSupplementairesAutorisees(e.target.checked)}
+                          />
+                          Autoriser les heures supplémentaires (dépassement de quota toléré)
+                        </label>
+                        <button
+                          onClick={genererEmploiDuTemps}
+                          className="bouton bouton-principal"
+                          style={{ backgroundColor: syntheseAvantGeneration.pretAGenerer ? '#16a34a' : '#64748b', flexShrink: 0 }}
+                          disabled={!syntheseAvantGeneration.pretAGenerer || actionsEnCours['genererEmploiDuTemps']}
+                        >
+                          {actionsEnCours['genererEmploiDuTemps'] ? '⏳ Génération en cours (peut prendre jusqu\'à 1 min)...' : '🚀 Générer l\'emploi du temps'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Rapport de la dernière génération */}
+                    {rapportGeneration && (
+                      <div style={{
+                        backgroundColor: rapportGeneration.nb_conflits === 0 ? '#f0fdf4' : '#fffbeb',
+                        border: `1px solid ${rapportGeneration.nb_conflits === 0 ? '#bbf7d0' : '#fde68a'}`,
+                        borderRadius: '12px', padding: '16px', marginBottom: '20px',
+                      }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', color: rapportGeneration.nb_conflits === 0 ? '#166534' : '#92400e', margin: '0 0 10px 0' }}>
+                          {rapportGeneration.nb_conflits === 0 ? '✅ Génération réussie, sans conflit' : `⚠️ Génération terminée avec ${rapportGeneration.nb_conflits} conflit(s)`}
+                        </h3>
+                        <p style={{ fontSize: '12px', color: '#334155', margin: '0 0 10px 0' }}>
+                          {rapportGeneration.nb_seances_placees} séance(s) placée(s) sur {rapportGeneration.nb_unites_demandees} demandée(s).
+                          {rapportGeneration.heures_supplementaires_autorisees ? ' Heures supplémentaires autorisées pour cette génération.' : ''}
+                        </p>
+
+                        {rapportGeneration.conflits.length > 0 && (
+                          <div style={{ marginBottom: '10px' }}>
+                            <strong style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase' }}>Conflits non résolus (à corriger manuellement, ou revoir la config) :</strong>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+                              {rapportGeneration.conflits.map((c, i) => {
+                                const ligne = matricePlanification.find(m => m.id === c.ligneId);
+                                const prof = listeProfesseursEtablissement.find(p => p.userId === c.enseignantId);
+                                return (
+                                  <p key={i} style={{ fontSize: '12px', color: '#92400e', margin: 0, backgroundColor: '#fff', padding: '6px 10px', borderRadius: '6px' }}>
+                                    • {ligne?.classes?.nom || 'Classe'} — {ligne?.matieres?.nom || 'Matière'} ({prof?.nomComplet || 'Enseignant'}) : {c.motif}
+                                  </p>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {rapportGeneration.avertissements.length > 0 && (
+                          <div>
+                            <strong style={{ fontSize: '11px', color: '#92400e', textTransform: 'uppercase' }}>Avertissements :</strong>
+                            {rapportGeneration.avertissements.map((av, i) => (
+                              <p key={i} style={{ fontSize: '12px', color: '#92400e', margin: '4px 0 0 0' }}>• {av}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Volumes contractuels par enseignant — §8-9 */}
+                    <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>Volume horaire contractuel par enseignant</h3>
+                      <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>Le total d'heures/semaine attendu de chaque enseignant — sert à détecter les écarts avec ce qui lui est réellement attribué dans la matrice ci-dessous.</p>
+                      <form onSubmit={definirVolumeContractuel} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                        <select value={formVolumeContractuel.enseignantId} onChange={(e) => setFormVolumeContractuel({ ...formVolumeContractuel, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required>
+                          <option value="">— Enseignant —</option>
+                          {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                        </select>
+                        <input type="number" min="1" step="0.5" placeholder="Volume total (h/semaine)" value={formVolumeContractuel.volumeTotal} onChange={(e) => setFormVolumeContractuel({ ...formVolumeContractuel, volumeTotal: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} required />
+                        <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['definirVolumeContractuel']}>{actionsEnCours['definirVolumeContractuel'] ? '...' : 'Enregistrer'}</button>
+                      </form>
+
+                      {bilanVolumesParEnseignant.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {bilanVolumesParEnseignant.map(b => (
+                            <div key={b.enseignantId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                              <span style={{ fontWeight: '700' }}>{b.enseignant}</span>
+                              <span>
+                                Attribué : <strong>{b.attribue}h</strong>
+                                {b.total !== null && <> / Contractuel : <strong>{b.total}h</strong></>}
+                                {b.ecart !== null && b.ecart !== 0 && (
+                                  <span style={{ marginLeft: '8px', fontWeight: '800', color: b.ecart > 0 ? '#991b1b' : '#92400e' }}>
+                                    ({b.ecart > 0 ? '+' : ''}{b.ecart}h)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Formulaire dynamique en cascade — §13 */}
+                    <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>+ Ajouter une ligne à la matrice de planification</h3>
+                      <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Chaque sélection filtre la suivante : l'enseignant ne propose que ses matières déclarées, la matière ne propose que ses niveaux compatibles, le niveau ne propose que ses classes.</p>
+                      <form onSubmit={ajouterLigneMatrice} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <select value={formMatrice.enseignantId} onChange={(e) => setFormMatrice({ enseignantId: e.target.value, matiereId: '', niveau: '', classeId: '', volumeHebdo: '', nombreSeances: '1', dureeSeance: '', salleId: '' })} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} required>
+                            <option value="">1. Enseignant</option>
+                            {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                          </select>
+                          <select value={formMatrice.matiereId} onChange={(e) => setFormMatrice({ ...formMatrice, matiereId: e.target.value, niveau: '', classeId: '' })} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} required disabled={!formMatrice.enseignantId}>
+                            <option value="">2. Matière</option>
+                            {matieresDeLEnseignantChoisi.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                          </select>
+                          {formMatrice.enseignantId && matieresDeLEnseignantChoisi.length === 0 && (
+                            <p style={{ fontSize: '11px', color: '#991b1b', margin: 0, alignSelf: 'center' }}>⚠️ Cet enseignant n'a déclaré aucune matière.</p>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <select value={formMatrice.niveau} onChange={(e) => setFormMatrice({ ...formMatrice, niveau: e.target.value, classeId: '' })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required disabled={!formMatrice.matiereId}>
+                            <option value="">3. Niveau</option>
+                            {niveauxCompatiblesChoisis.map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                          <select value={formMatrice.classeId} onChange={(e) => setFormMatrice({ ...formMatrice, classeId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} required disabled={!formMatrice.niveau}>
+                            <option value="">4. Classe</option>
+                            {classesDuNiveauChoisi.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <input type="number" min="0.5" step="0.5" placeholder="Volume (h/semaine)" value={formMatrice.volumeHebdo} onChange={(e) => setFormMatrice({ ...formMatrice, volumeHebdo: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                          <input type="number" min="1" placeholder="Nombre de séances" value={formMatrice.nombreSeances} onChange={(e) => setFormMatrice({ ...formMatrice, nombreSeances: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
+                          <input type="number" min="15" step="5" placeholder="Durée/séance (min, optionnel)" value={formMatrice.dureeSeance} onChange={(e) => setFormMatrice({ ...formMatrice, dureeSeance: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 180px', margin: 0 }} />
+                          <select value={formMatrice.salleId} onChange={(e) => setFormMatrice({ ...formMatrice, salleId: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }}>
+                            <option value="">Salle (optionnel)</option>
+                            {salles.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                          </select>
+                        </div>
+                        <button type="submit" className="bouton bouton-principal" style={{ alignSelf: 'flex-start' }} disabled={actionsEnCours['ajouterMatrice']}>{actionsEnCours['ajouterMatrice'] ? '...' : '+ Ajouter à la matrice'}</button>
+                      </form>
+                    </div>
+
+                    {/* Tableau de la matrice — vues par enseignant / par classe (§22-23) */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                      <button onClick={() => setVueMatrice('enseignant')} className={vueMatrice === 'enseignant' ? 'bouton bouton-principal' : 'bouton bouton-secondaire'} style={{ fontSize: '12px' }}>👨‍🏫 Vue par enseignant</button>
+                      <button onClick={() => setVueMatrice('classe')} className={vueMatrice === 'classe' ? 'bouton bouton-principal' : 'bouton bouton-secondaire'} style={{ fontSize: '12px' }}>🏫 Vue par classe</button>
+                    </div>
+
+                    {matricePlanification.length === 0 ? (
+                      <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🔗</span><p style={styles.emptyStateText}>Aucune ligne dans la matrice pour l'instant — utilisez le formulaire ci-dessus pour commencer.</p></div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {Object.entries(vueMatrice === 'enseignant' ? matriceGroupeeParEnseignant : matriceGroupeeParClasse).map(([titre, lignes]) => {
+                          const totalHeures = lignes.reduce((s, l) => s + Number(l.volume_hebdo_heures || 0), 0);
+                          return (
+                            <div key={titre} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <strong style={{ fontSize: '13px', color: '#0f172a' }}>{vueMatrice === 'enseignant' ? '👨‍🏫' : '🏫'} {titre}</strong>
+                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#166534' }}>TOTAL : {totalHeures}h</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {lignes.map(l => (
+                                  <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', flexWrap: 'wrap', gap: '6px' }}>
+                                    <span>
+                                      {vueMatrice === 'enseignant'
+                                        ? <><strong>{l.classes?.nom}</strong> — {l.matieres?.nom}</>
+                                        : <><strong>{l.matieres?.nom}</strong> — {listeProfesseursEtablissement.find(p => p.userId === l.enseignant_id)?.nomComplet || 'Enseignant'}</>
+                                      }
+                                      {' '}· {l.volume_hebdo_heures}h · {l.nombre_seances} séance(s){l.salles?.nom ? ` · ${l.salles.nom}` : ''}
+                                    </span>
+                                    <button onClick={() => supprimerLigneMatrice(l)} className="bouton bouton-danger" style={{ padding: '3px 7px', fontSize: '10px' }} disabled={!!actionsEnCours[`supprMatrice_${l.id}`]}>🗑️</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

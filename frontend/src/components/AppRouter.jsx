@@ -59,6 +59,7 @@ function ContenuAppRouter() {
   const [matiereIdsSaisies, setMatiereIdsSaisies] = useState([]);
   const [catalogueMatieresInscription, setCatalogueMatieresInscription] = useState([]);
   const [chargementCatalogueMatieres, setChargementCatalogueMatieres] = useState(false);
+  const [chargementEtablissementChef, setChargementEtablissementChef] = useState(false);
   const [erreurCatalogueMatieres, setErreurCatalogueMatieres] = useState('');
   const [emailSaisi, setEmailSaisi] = useState('');
   const [mdpSaisi, setMdpSaisi] = useState('');
@@ -189,7 +190,7 @@ function ContenuAppRouter() {
     return () => { supabase.removeChannel(canal); };
   }, [sessionUser?.id, etablissementActifId, userRole, profilUtilisateur?.prenom, profilUtilisateur?.nom]);
 
-  const chargerProfilEtDonnees = async (userId) => {
+  const chargerProfilEtDonnees = async (userId, roleSecoursSiSansAffiliation) => {
     try {
       const { data: profil, error: profilError } = await supabase
         .from('utilisateurs_profils')
@@ -211,7 +212,12 @@ function ContenuAppRouter() {
       if (roles.includes('CHEF')) roleDetecte = 'chef';
       else if (roles.includes('CENSEUR')) roleDetecte = 'censeur';
       else if (roles.includes('ENSEIGNANT')) roleDetecte = 'enseignant';
-      else roleDetecte = profil?.preferences_json?.role_signup || '';
+      // [CORRIGÉ] Sans affiliation active, on utilise le rôle que la
+      // personne vient de choisir à la connexion (bouton cliqué) plutôt
+      // que la valeur figée à l'inscription (role_signup) — sinon un
+      // compte inscrit un jour comme "censeur" reste bloqué sur ce rôle
+      // même en cliquant sur "Espace Chef d'Établissement" plus tard.
+      else roleDetecte = roleSecoursSiSansAffiliation || profil?.preferences_json?.role_signup || '';
 
       const roleVersRole = { chef: 'CHEF', censeur: 'CENSEUR', enseignant: 'ENSEIGNANT' };
       const affiliationRetenue = (affiliationsActives || []).find(a => a.role === roleVersRole[roleDetecte]);
@@ -413,7 +419,7 @@ function ContenuAppRouter() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setSessionUser(session.user);
-        const roleReellementDetecte = await chargerProfilEtDonnees(session.user.id);
+        const roleReellementDetecte = await chargerProfilEtDonnees(session.user.id, roleActuel);
         if (roleReellementDetecte === 'chef') setEtapeChoixEtablissement(true);
       }
     } catch (err) {
@@ -429,12 +435,15 @@ function ContenuAppRouter() {
   };
 
   const gererEtablissementChef = async (action) => {
+    if (chargementEtablissementChef) return;
+    setChargementEtablissementChef(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { afficherNotification("⚠️ Session invalide, reconnectez-vous."); return; }
+    if (!user) { afficherNotification("⚠️ Session invalide, reconnectez-vous."); setChargementEtablissementChef(false); return; }
 
     if (action === 'creer') {
       if (!nomEcoleSaisi || !anneeCreationSaisie) {
         afficherNotification("⚠️ Veuillez remplir le nom et l'année de création de l'établissement.");
+        setChargementEtablissementChef(false);
         return;
       }
       try {
@@ -465,19 +474,21 @@ function ContenuAppRouter() {
           } else {
             afficherNotification("⚠️ Établissement créé, mais erreur d'affiliation : " + affError.message);
           }
+          setChargementEtablissementChef(false);
           return;
         }
 
         afficherNotification(`🏫 Établissement créé ! Code : ${code}`);
         setEtapeChoixEtablissement(false);
         setUserRole('chef');
-        await chargerProfilEtDonnees(user.id);
+        await chargerProfilEtDonnees(user.id, 'chef');
       } catch (err) {
         afficherNotification("❌ Erreur : " + err.message);
       }
     } else if (action === 'rejoindre') {
       if (!codeEtablissementSaisi.trim()) {
         afficherNotification("⚠️ Veuillez entrer le code de l'établissement.");
+        setChargementEtablissementChef(false);
         return;
       }
       try {
@@ -486,6 +497,7 @@ function ContenuAppRouter() {
 
         if (erreurRecherche || !etabCible) {
           afficherNotification("⚠️ Aucun établissement trouvé avec ce code.");
+          setChargementEtablissementChef(false);
           return;
         }
 
@@ -504,6 +516,7 @@ function ContenuAppRouter() {
     } else {
       setEtapeChoixEtablissement(false);
     }
+    setChargementEtablissementChef(false);
   };
 
   if (modePolitiqueConfidentialite) {
@@ -807,6 +820,40 @@ function ContenuAppRouter() {
               <button type="button" style={styles.boutonInscription} onClick={() => setChoixModeEcole('rejoindre')}>🔗 Rejoindre un établissement existant</button>
               <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b', marginTop: '6px' }} onClick={gererDeconnexionGlobale}>⬅️ Retour au choix du profil</button>
             </div>
+          )}
+
+          {choixModeEcole === 'creer' && (
+            <form onSubmit={(e) => { e.preventDefault(); gererEtablissementChef('creer'); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '15px', textAlign: 'left' }}>
+              <div>
+                <label style={styles.libelle}>Nom de l'établissement</label>
+                <input type="text" placeholder="Ex : Lycée Moderne d'Abidjan" value={nomEcoleSaisi} onChange={(e) => setNomEcoleSaisi(e.target.value)} style={styles.champSaisie} required />
+              </div>
+              <div>
+                <label style={styles.libelle}>Type d'établissement</label>
+                <select value={typeEcoleSaisi} onChange={(e) => setTypeEcoleSaisi(e.target.value)} style={styles.champSaisie}>
+                  <option value="public">Public</option>
+                  <option value="prive">Privé</option>
+                </select>
+              </div>
+              <div>
+                <label style={styles.libelle}>Année de création</label>
+                <input type="text" placeholder="Ex : 1998" value={anneeCreationSaisie} onChange={(e) => setAnneeCreationSaisie(e.target.value)} style={styles.champSaisie} required />
+              </div>
+              <button type="submit" style={styles.boutonPrincipal} disabled={chargementEtablissementChef}>{chargementEtablissementChef ? 'Création...' : '✅ Créer l\'établissement'}</button>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b' }} onClick={() => setChoixModeEcole('choix')} disabled={chargementEtablissementChef}>⬅️ Retour</button>
+            </form>
+          )}
+
+          {choixModeEcole === 'rejoindre' && (
+            <form onSubmit={(e) => { e.preventDefault(); gererEtablissementChef('rejoindre'); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '15px', textAlign: 'left' }}>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 4px 0' }}>Entrez le code de l'établissement que vous souhaitez rejoindre. Votre demande sera soumise à validation.</p>
+              <div>
+                <label style={styles.libelle}>Code de l'établissement</label>
+                <input type="text" placeholder="Ex : LYCMOD-A1B2" value={codeEtablissementSaisi} onChange={(e) => setCodeEtablissementSaisi(e.target.value)} style={styles.champSaisie} required />
+              </div>
+              <button type="submit" style={styles.boutonInscription} disabled={chargementEtablissementChef}>{chargementEtablissementChef ? 'Envoi...' : '📨 Envoyer la demande'}</button>
+              <button type="button" style={{ ...styles.boutonDeconnexion, background: '#64748b' }} onClick={() => setChoixModeEcole('choix')} disabled={chargementEtablissementChef}>⬅️ Retour</button>
+            </form>
           )}
         </div>
       </div>

@@ -911,6 +911,55 @@ function ContenuAppRouter() {
   );
 }
 
+// [NOUVEAU] Nettoyage automatique du service worker / cache PWA obsolète.
+// Problème observé : après un déploiement, certains navigateurs (surtout
+// en mode PWA installé) continuaient de servir l'ancienne version de
+// l'app depuis le service worker déjà enregistré, malgré un nouveau
+// déploiement Vercel — aucune manipulation manuelle (vider le cache,
+// recharger) ne suffisait à forcer la mise à jour.
+// VERSION_APP doit être incrémentée à chaque déploiement où l'on
+// soupçonne ce problème — ça déclenche une désinscription + un rechargement
+// automatique, une seule fois par appareil (via un marqueur localStorage),
+// donc sans boucle de rechargement infinie.
+const VERSION_APP = 'ecahier-cache-fix-2026-08-22';
+
+function nettoyerServiceWorkerObsolete() {
+  const derniereVersionAppliquee = localStorage.getItem('app_derniere_version_nettoyee');
+  if (derniereVersionAppliquee === VERSION_APP) return; // déjà fait sur cet appareil pour cette version
+
+  const tacheNettoyage = async () => {
+    let quelqueChoseATeteSupprime = false;
+    try {
+      if ('serviceWorker' in navigator) {
+        const enregistrements = await navigator.serviceWorker.getRegistrations();
+        for (const enregistrement of enregistrements) {
+          await enregistrement.unregister();
+          quelqueChoseATeteSupprime = true;
+        }
+      }
+      if ('caches' in window) {
+        const nomsCaches = await caches.keys();
+        for (const nom of nomsCaches) {
+          await caches.delete(nom);
+          quelqueChoseATeteSupprime = true;
+        }
+      }
+    } catch (err) {
+      console.warn('Nettoyage service worker/cache : erreur non bloquante', err);
+    }
+    // On marque l'appareil comme "nettoyé" même si rien n'a été trouvé,
+    // pour ne plus refaire cette vérification à chaque chargement.
+    localStorage.setItem('app_derniere_version_nettoyee', VERSION_APP);
+    if (quelqueChoseATeteSupprime) {
+      window.location.reload();
+    }
+  };
+
+  tacheNettoyage();
+}
+
+nettoyerServiceWorkerObsolete();
+
 export default function AppRouter() {
   return (
     <>

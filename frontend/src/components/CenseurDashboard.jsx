@@ -223,6 +223,323 @@ export default function CenseurDashboard() {
   const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
 
+  // ===== ONGLET EMPLOI DU TEMPS =====
+  const [sousOngletEDT, setSousOngletEDT] = useState('grille');
+  const [chargementEDT, setChargementEDT] = useState(false);
+  const [creneauxHoraires, setCreneauxHoraires] = useState([]);
+  const [salles, setSalles] = useState([]);
+  const [volumesHoraires, setVolumesHoraires] = useState([]);
+  const [indisponibilitesEnseignant, setIndisponibilitesEnseignant] = useState([]);
+
+  // -- Générateur de grille horaire --
+  const JOURS_SEMAINE = [
+    { code: 'LUNDI', label: 'Lundi' }, { code: 'MARDI', label: 'Mardi' }, { code: 'MERCREDI', label: 'Mercredi' },
+    { code: 'JEUDI', label: 'Jeudi' }, { code: 'VENDREDI', label: 'Vendredi' }, { code: 'SAMEDI', label: 'Samedi' },
+  ];
+  const [joursChoisis, setJoursChoisis] = useState(['LUNDI', 'MARDI', 'MERCREDI', 'JEUDI', 'VENDREDI']);
+  const [heureDebutJournee, setHeureDebutJournee] = useState('07:30');
+  const [heureFinJournee, setHeureFinJournee] = useState('17:30');
+  const [dureeBlocMinutes, setDureeBlocMinutes] = useState('55');
+  const [pausesGrille, setPausesGrille] = useState([
+    { heureDebut: '10:00', heureFin: '10:20', type: 'RECREATION' },
+    { heureDebut: '12:30', heureFin: '13:30', type: 'DEJEUNER' },
+  ]);
+
+  // -- Formulaires salles --
+  const [nouvelleSalleNom, setNouvelleSalleNom] = useState('');
+  const [nouvelleSalleCapacite, setNouvelleSalleCapacite] = useState('');
+  const [nouvelleSalleType, setNouvelleSalleType] = useState('CLASSE');
+  const [salleEnRenommage, setSalleEnRenommage] = useState({ id: null, nom: '' });
+
+  // -- Formulaire volumes horaires --
+  const [formVolumeHoraire, setFormVolumeHoraire] = useState({ matiereId: '', niveau: '', heuresParSemaine: '' });
+
+  // -- Formulaire indisponibilités --
+  const [formIndisponibilite, setFormIndisponibilite] = useState({ enseignantId: '', creneauId: '', motif: '' });
+
+  const chargerDonneesEDT = async () => {
+    if (!affiliationCenseur || !anneeActiveId) return;
+    setChargementEDT(true);
+    const etablissementId = affiliationCenseur.etablissement_id;
+
+    const [
+      { data: creneaux, error: erreurCreneaux },
+      { data: sallesData, error: erreurSalles },
+      { data: volumes, error: erreurVolumes },
+      { data: indispos, error: erreurIndispos },
+    ] = await Promise.all([
+      supabase.from('creneaux_horaires').select('*').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId).order('jour_semaine', { ascending: true }).order('ordre', { ascending: true }),
+      supabase.from('salles').select('*').eq('etablissement_id', etablissementId).is('deleted_at', null).order('nom', { ascending: true }),
+      supabase.from('volumes_horaires_matiere').select('*, matieres(nom)').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId),
+      supabase.from('indisponibilites_enseignant').select('*, creneaux_horaires(jour_semaine, heure_debut, heure_fin)').eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId),
+    ]);
+
+    if (erreurCreneaux) showToast("⚠️ Erreur créneaux : " + erreurCreneaux.message);
+    if (erreurSalles) showToast("⚠️ Erreur salles : " + erreurSalles.message);
+    if (erreurVolumes) showToast("⚠️ Erreur volumes horaires : " + erreurVolumes.message);
+    if (erreurIndispos) showToast("⚠️ Erreur indisponibilités : " + erreurIndispos.message);
+
+    setCreneauxHoraires(creneaux || []);
+    setSalles(sallesData || []);
+    setVolumesHoraires(volumes || []);
+    setIndisponibilitesEnseignant(indispos || []);
+    setChargementEDT(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'emploi_du_temps' && anneeActiveId) chargerDonneesEDT();
+  }, [activeTab, anneeActiveId]);
+
+  const toggleJourChoisi = (code) => {
+    setJoursChoisis(prev => prev.includes(code) ? prev.filter(j => j !== code) : [...prev, code]);
+  };
+
+  const ajouterLignePause = () => setPausesGrille(prev => [...prev, { heureDebut: '', heureFin: '', type: 'RECREATION' }]);
+  const retirerLignePause = (index) => setPausesGrille(prev => prev.filter((_, i) => i !== index));
+  const modifierLignePause = (index, champ, valeur) => setPausesGrille(prev => prev.map((p, i) => i === index ? { ...p, [champ]: valeur } : p));
+
+  const minutesDepuisMinuit = (heureStr) => {
+    const [h, m] = heureStr.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const minutesVersHeure = (minutes) => {
+    const h = Math.floor(minutes / 60).toString().padStart(2, '0');
+    const m = (minutes % 60).toString().padStart(2, '0');
+    return `${h}:${m}`;
+  };
+
+  // Génère la liste des blocs COURS (hors pauses) pour une journée type,
+  // appliquée identiquement à chaque jour choisi. Chevauchement avec une
+  // pause = bloc non généré à cet endroit-là.
+  const genererApercuGrille = () => {
+    const debut = minutesDepuisMinuit(heureDebutJournee);
+    const fin = minutesDepuisMinuit(heureFinJournee);
+    const duree = parseInt(dureeBlocMinutes, 10);
+    if (!duree || duree <= 0 || fin <= debut) return [];
+
+    const pausesMinutes = pausesGrille
+      .filter(p => p.heureDebut && p.heureFin)
+      .map(p => ({ debut: minutesDepuisMinuit(p.heureDebut), fin: minutesDepuisMinuit(p.heureFin), type: p.type }));
+
+    const blocs = [];
+    let curseur = debut;
+    let ordre = 0;
+    while (curseur + duree <= fin) {
+      const finBloc = curseur + duree;
+      const pauseChevauchante = pausesMinutes.find(p => curseur < p.fin && finBloc > p.debut);
+      if (pauseChevauchante) {
+        // saute directement à la fin de la pause pour ne pas générer de blocs partiels
+        curseur = pauseChevauchante.fin;
+        continue;
+      }
+      blocs.push({ heureDebut: minutesVersHeure(curseur), heureFin: minutesVersHeure(finBloc), ordre: ordre++ });
+      curseur = finBloc;
+    }
+    return blocs;
+  };
+
+  const genererGrilleHoraire = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['genererGrille']) return;
+    if (joursChoisis.length === 0) { showToast("⚠️ Choisissez au moins un jour."); return; }
+    const blocsCours = genererApercuGrille();
+    if (blocsCours.length === 0) { showToast("⚠️ Aucun bloc de cours généré — vérifiez les horaires et la durée."); return; }
+    if (!affiliationCenseur || !anneeActiveId) { showToast("⚠️ Aucune année scolaire active."); return; }
+
+    setModalConfirmation({
+      ouvert: true,
+      titre: creneauxHoraires.length > 0 ? '⚠️ Remplacer la grille horaire existante ?' : 'Générer la grille horaire ?',
+      message: creneauxHoraires.length > 0
+        ? "Une grille existe déjà pour cette année. La régénérer supprimera l'ancienne grille et tous ses créneaux (les indisponibilités et séances déjà liées à ces créneaux seront également perdues). Continuer ?"
+        : `${blocsCours.length} créneau(x) de cours seront créés pour chacun des ${joursChoisis.length} jour(s) sélectionné(s), soit ${blocsCours.length * joursChoisis.length} créneaux au total.`,
+      actionCallback: async () => {
+        debuterAction('genererGrille');
+        const etablissementId = affiliationCenseur.etablissement_id;
+
+        if (creneauxHoraires.length > 0) {
+          const { error: erreurSuppr } = await supabase.from('creneaux_horaires').delete().eq('etablissement_id', etablissementId).eq('annee_scolaire_id', anneeActiveId);
+          if (erreurSuppr) { showToast("⚠️ Erreur suppression ancienne grille : " + erreurSuppr.message); terminerAction('genererGrille'); return; }
+        }
+
+        const lignes = [];
+        joursChoisis.forEach(jour => {
+          blocsCours.forEach(bloc => {
+            lignes.push({
+              etablissement_id: etablissementId, annee_scolaire_id: anneeActiveId, jour_semaine: jour,
+              heure_debut: bloc.heureDebut, heure_fin: bloc.heureFin, type_creneau: 'COURS', ordre: bloc.ordre,
+            });
+          });
+          pausesGrille.filter(p => p.heureDebut && p.heureFin).forEach((pause, i) => {
+            lignes.push({
+              etablissement_id: etablissementId, annee_scolaire_id: anneeActiveId, jour_semaine: jour,
+              heure_debut: pause.heureDebut, heure_fin: pause.heureFin, type_creneau: pause.type, ordre: 1000 + i,
+            });
+          });
+        });
+
+        const { data: nouveaux, error } = await supabase.from('creneaux_horaires').insert(lignes).select();
+        if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('genererGrille'); return; }
+        setCreneauxHoraires((nouveaux || []).sort((a, b) => a.jour_semaine.localeCompare(b.jour_semaine) || a.ordre - b.ordre));
+        showToast(`✅ Grille horaire générée : ${lignes.length} créneaux créés !`);
+        terminerAction('genererGrille');
+      },
+    });
+  };
+
+  const creneauxCoursGroupesParJour = useMemo(() => {
+    const groupe = {};
+    creneauxHoraires.forEach(c => {
+      if (!groupe[c.jour_semaine]) groupe[c.jour_semaine] = [];
+      groupe[c.jour_semaine].push(c);
+    });
+    return groupe;
+  }, [creneauxHoraires]);
+
+  // -- Salles --
+  const creerSalle = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['creerSalle']) return;
+    if (!nouvelleSalleNom.trim() || !affiliationCenseur) return;
+    debuterAction('creerSalle');
+    const { data: nouvelle, error } = await supabase
+      .from('salles')
+      .insert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        nom: nouvelleSalleNom.trim(),
+        capacite: nouvelleSalleCapacite ? parseInt(nouvelleSalleCapacite, 10) : null,
+        type_salle: nouvelleSalleType,
+      })
+      .select().single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Une salle porte déjà ce nom.");
+      else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('creerSalle');
+      return;
+    }
+    setSalles(prev => [...prev, nouvelle].sort((a, b) => a.nom.localeCompare(b.nom)));
+    setNouvelleSalleNom(''); setNouvelleSalleCapacite('');
+    showToast(`✅ Salle "${nouvelle.nom}" créée !`);
+    terminerAction('creerSalle');
+  };
+
+  const renommerSalle = async (e) => {
+    e.preventDefault();
+    if (!salleEnRenommage.nom.trim() || actionsEnCours['renommerSalle']) return;
+    debuterAction('renommerSalle');
+    const { data, error } = await supabase.from('salles').update({ nom: salleEnRenommage.nom.trim() }).eq('id', salleEnRenommage.id).select().single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Une salle porte déjà ce nom.");
+      else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('renommerSalle');
+      return;
+    }
+    setSalles(prev => prev.map(s => s.id === data.id ? data : s).sort((a, b) => a.nom.localeCompare(b.nom)));
+    setSalleEnRenommage({ id: null, nom: '' });
+    showToast("✅ Salle renommée !");
+    terminerAction('renommerSalle');
+  };
+
+  const supprimerSalle = (salle) => {
+    setModalConfirmation({
+      ouvert: true,
+      titre: `Supprimer "${salle.nom}" ?`,
+      message: "Elle ne pourra plus être assignée à un nouveau créneau. Les séances déjà planifiées dans cette salle restent consultables.",
+      actionCallback: async () => {
+        const { error } = await supabase.from('salles').update({ deleted_at: new Date().toISOString() }).eq('id', salle.id);
+        if (error) { showToast("⚠️ Erreur : " + error.message); return; }
+        setSalles(prev => prev.filter(s => s.id !== salle.id));
+        showToast(`🗑️ Salle "${salle.nom}" supprimée.`);
+      },
+    });
+  };
+
+  // -- Volumes horaires --
+  const ajouterVolumeHoraire = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['ajouterVolume']) return;
+    if (!formVolumeHoraire.matiereId || !formVolumeHoraire.niveau || !formVolumeHoraire.heuresParSemaine) {
+      showToast("⚠️ Merci de remplir matière, niveau et heures/semaine.");
+      return;
+    }
+    if (!affiliationCenseur || !anneeActiveId) return;
+    debuterAction('ajouterVolume');
+    const { data: nouveau, error } = await supabase
+      .from('volumes_horaires_matiere')
+      .upsert({
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        matiere_id: formVolumeHoraire.matiereId,
+        niveau: formVolumeHoraire.niveau,
+        heures_par_semaine: parseFloat(formVolumeHoraire.heuresParSemaine),
+      }, { onConflict: 'etablissement_id,annee_scolaire_id,matiere_id,niveau' })
+      .select('*, matieres(nom)').single();
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('ajouterVolume'); return; }
+    setVolumesHoraires(prev => {
+      const sansAncien = prev.filter(v => !(v.matiere_id === nouveau.matiere_id && v.niveau === nouveau.niveau));
+      return [...sansAncien, nouveau];
+    });
+    setFormVolumeHoraire({ matiereId: '', niveau: '', heuresParSemaine: '' });
+    showToast(`✅ Volume horaire enregistré : ${nouveau.matieres?.nom} en ${nouveau.niveau} → ${nouveau.heures_par_semaine}h/semaine.`);
+    terminerAction('ajouterVolume');
+  };
+
+  const supprimerVolumeHoraire = async (volume) => {
+    if (actionsEnCours[`supprVolume_${volume.id}`]) return;
+    debuterAction(`supprVolume_${volume.id}`);
+    const { error } = await supabase.from('volumes_horaires_matiere').delete().eq('id', volume.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`supprVolume_${volume.id}`); return; }
+    setVolumesHoraires(prev => prev.filter(v => v.id !== volume.id));
+    showToast("🗑️ Volume horaire supprimé.");
+    terminerAction(`supprVolume_${volume.id}`);
+  };
+
+  // -- Indisponibilités enseignant --
+  const ajouterIndisponibilite = async (e) => {
+    e.preventDefault();
+    if (actionsEnCours['ajouterIndispo']) return;
+    if (!formIndisponibilite.enseignantId || !formIndisponibilite.creneauId) {
+      showToast("⚠️ Merci de choisir un enseignant et un créneau.");
+      return;
+    }
+    if (!affiliationCenseur || !anneeActiveId) return;
+    debuterAction('ajouterIndispo');
+    const { data: nouvelle, error } = await supabase
+      .from('indisponibilites_enseignant')
+      .insert({
+        enseignant_id: formIndisponibilite.enseignantId,
+        etablissement_id: affiliationCenseur.etablissement_id,
+        annee_scolaire_id: anneeActiveId,
+        creneau_id: formIndisponibilite.creneauId,
+        motif: formIndisponibilite.motif.trim() || null,
+      })
+      .select('*, creneaux_horaires(jour_semaine, heure_debut, heure_fin)').single();
+    if (error) {
+      if (error.code === '23505') showToast("⚠️ Cette indisponibilité existe déjà.");
+      else showToast("⚠️ Erreur : " + error.message);
+      terminerAction('ajouterIndispo');
+      return;
+    }
+    setIndisponibilitesEnseignant(prev => [...prev, nouvelle]);
+    setFormIndisponibilite({ enseignantId: '', creneauId: '', motif: '' });
+    showToast("✅ Indisponibilité enregistrée !");
+    terminerAction('ajouterIndispo');
+  };
+
+  const supprimerIndisponibilite = async (indispo) => {
+    if (actionsEnCours[`supprIndispo_${indispo.id}`]) return;
+    debuterAction(`supprIndispo_${indispo.id}`);
+    const { error } = await supabase.from('indisponibilites_enseignant').delete().eq('id', indispo.id);
+    if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`supprIndispo_${indispo.id}`); return; }
+    setIndisponibilitesEnseignant(prev => prev.filter(i => i.id !== indispo.id));
+    showToast("🗑️ Indisponibilité supprimée.");
+    terminerAction(`supprIndispo_${indispo.id}`);
+  };
+
+  const JOUR_LABEL = { LUNDI: 'Lundi', MARDI: 'Mardi', MERCREDI: 'Mercredi', JEUDI: 'Jeudi', VENDREDI: 'Vendredi', SAMEDI: 'Samedi' };
+  const creneauxCoursDisponibles = useMemo(() => creneauxHoraires.filter(c => c.type_creneau === 'COURS'), [creneauxHoraires]);
+  const apercuGrilleGeneree = genererApercuGrille();
+  // ===== FIN ONGLET EMPLOI DU TEMPS =====
+
   const [classesOuvertesVisa, setClassesOuvertesVisa] = useState({});
   const toggleClasseVisa = (classeNom) => setClassesOuvertesVisa(prev => ({ ...prev, [classeNom]: !prev[classeNom] }));
   const [classesOuvertesArchive, setClassesOuvertesArchive] = useState({});
@@ -2031,6 +2348,7 @@ export default function CenseurDashboard() {
                   <button onClick={() => { setActiveTab('progression'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📊 Programme & Progression</button>
                   <button onClick={() => { setActiveTab('professeurs'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">👨‍🏫 Annuaire Personnel</button>
                   <button onClick={() => { setActiveTab('classes'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏫 Classes & Attributions</button>
+                  <button onClick={() => { setActiveTab('emploi_du_temps'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🗓️ Emploi du temps</button>
                   <button onClick={() => { setActiveTab('documents'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">📤 Documents d'Établissement</button>
                   <button onClick={() => { setActiveTab('suivi'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">⏰ Suivi & Rappels</button>
                   <button onClick={() => { setActiveTab('profil_ecole'); setMenuBurgerCenseurOuvert(false); }} className="bouton-option">🏛️ Profil Établissement</button>
@@ -3289,6 +3607,272 @@ export default function CenseurDashboard() {
                   );
                 })}
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'emploi_du_temps' && (
+          <div style={styles.cardWide}>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: '0 0 4px 0' }}>🗓️ Emploi du temps</h2>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Configurez la grille horaire, les salles, les volumes horaires et les indisponibilités — ces données serviront à générer l'emploi du temps automatiquement.</p>
+            </div>
+
+            {!anneeActiveId && (
+              <p style={{ fontSize: '13px', color: '#991b1b', backgroundColor: '#fef2f2', padding: '12px', borderRadius: '10px', marginBottom: '20px' }}>⚠️ Aucune année scolaire active — le chef doit d'abord en ouvrir une.</p>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              {[
+                { id: 'grille', label: '⏱️ Grille horaire' },
+                { id: 'salles', label: '🏛️ Salles' },
+                { id: 'volumes', label: '📚 Volumes horaires' },
+                { id: 'indisponibilites', label: '🚫 Indisponibilités' },
+              ].map(sousOnglet => (
+                <button
+                  key={sousOnglet.id}
+                  onClick={() => setSousOngletEDT(sousOnglet.id)}
+                  className={sousOngletEDT === sousOnglet.id ? 'bouton bouton-principal' : 'bouton bouton-secondaire'}
+                  style={{ fontSize: '12px', padding: '7px 14px' }}
+                >
+                  {sousOnglet.label}
+                </button>
+              ))}
+            </div>
+
+            {chargementEDT ? (
+              <p style={{ fontStyle: 'italic', color: '#64748b', textAlign: 'center', padding: '30px' }}>Chargement...</p>
+            ) : (
+              <>
+                {sousOngletEDT === 'grille' && (
+                  <div>
+                    <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a', marginBottom: '4px' }}>1. Structure de la journée</h3>
+                      <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Ces horaires s'appliquent à tous les jours cochés ci-dessous — vous pourrez ajuster des créneaux individuels ensuite si besoin.</p>
+
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                        <div style={{ flex: '1 1 140px' }}>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Heure de début</label>
+                          <input type="time" value={heureDebutJournee} onChange={(e) => setHeureDebutJournee(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                        </div>
+                        <div style={{ flex: '1 1 140px' }}>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Heure de fin</label>
+                          <input type="time" value={heureFinJournee} onChange={(e) => setHeureFinJournee(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                        </div>
+                        <div style={{ flex: '1 1 160px' }}>
+                          <label style={{ ...styles.label, fontSize: '10px' }}>Durée d'un bloc de cours (min)</label>
+                          <input type="number" min="15" step="5" value={dureeBlocMinutes} onChange={(e) => setDureeBlocMinutes(e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                        </div>
+                      </div>
+
+                      <label style={{ ...styles.label, fontSize: '10px', marginBottom: '8px', display: 'block' }}>Jours ouvrés</label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
+                        {JOURS_SEMAINE.map(jour => {
+                          const coche = joursChoisis.includes(jour.code);
+                          return (
+                            <label key={jour.code} style={{ display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', backgroundColor: coche ? '#eff6ff' : '#f8fafc', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                              <input type="checkbox" checked={coche} onChange={() => toggleJourChoisi(jour.code)} disabled={!anneeActiveId} />
+                              {jour.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <label style={{ ...styles.label, fontSize: '10px', marginBottom: '8px', display: 'block' }}>Pauses (récréation, déjeuner...) — sanctuarisées, aucun cours n'y sera placé</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                        {pausesGrille.map((pause, index) => (
+                          <div key={index} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                            <div style={{ flex: '1 1 120px' }}>
+                              {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Début</label>}
+                              <input type="time" value={pause.heureDebut} onChange={(e) => modifierLignePause(index, 'heureDebut', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                            </div>
+                            <div style={{ flex: '1 1 120px' }}>
+                              {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Fin</label>}
+                              <input type="time" value={pause.heureFin} onChange={(e) => modifierLignePause(index, 'heureFin', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId} />
+                            </div>
+                            <div style={{ flex: '1 1 150px' }}>
+                              {index === 0 && <label style={{ ...styles.label, fontSize: '10px' }}>Type</label>}
+                              <select value={pause.type} onChange={(e) => modifierLignePause(index, 'type', e.target.value)} style={{ ...styles.inputStyle, margin: 0 }} disabled={!anneeActiveId}>
+                                <option value="RECREATION">Récréation</option>
+                                <option value="DEJEUNER">Déjeuner</option>
+                                <option value="PAUSE">Autre pause</option>
+                              </select>
+                            </div>
+                            <button type="button" onClick={() => retirerLignePause(index)} className="bouton bouton-danger" style={{ padding: '8px 10px', fontSize: '11px', flexShrink: 0 }} disabled={!anneeActiveId}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" onClick={ajouterLignePause} className="bouton bouton-secondaire" style={{ fontSize: '12px', marginBottom: '16px' }} disabled={!anneeActiveId}>+ Ajouter une pause</button>
+
+                      {apercuGrilleGeneree.length > 0 && (
+                        <p style={{ fontSize: '12px', color: '#1e3a8a', backgroundColor: '#fff', padding: '10px 12px', borderRadius: '8px', marginBottom: '14px' }}>
+                          Aperçu : <strong>{apercuGrilleGeneree.length} créneau(x) de cours</strong> par jour ({apercuGrilleGeneree[0].heureDebut} → {apercuGrilleGeneree[apercuGrilleGeneree.length - 1].heureFin}), soit <strong>{apercuGrilleGeneree.length * joursChoisis.length}</strong> au total sur {joursChoisis.length} jour(s).
+                        </p>
+                      )}
+
+                      <button onClick={genererGrilleHoraire} className="bouton bouton-principal" disabled={!anneeActiveId || actionsEnCours['genererGrille']}>
+                        {actionsEnCours['genererGrille'] ? 'Génération...' : (creneauxHoraires.length > 0 ? '🔄 Régénérer la grille horaire' : '✅ Générer la grille horaire')}
+                      </button>
+                    </div>
+
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>2. Grille actuelle</h3>
+                    {creneauxHoraires.length === 0 ? (
+                      <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>⏱️</span><p style={styles.emptyStateText}>Aucune grille générée pour l'instant.</p></div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {Object.entries(creneauxCoursGroupesParJour).map(([jour, creneaux]) => (
+                          <div key={jour} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px' }}>
+                            <strong style={{ fontSize: '13px', color: '#0f172a' }}>{JOUR_LABEL[jour] || jour}</strong>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                              {creneaux.sort((a, b) => a.heure_debut.localeCompare(b.heure_debut)).map(c => (
+                                <span key={c.id} style={{
+                                  fontSize: '11px', padding: '4px 8px', borderRadius: '6px', fontWeight: '700',
+                                  backgroundColor: c.type_creneau === 'COURS' ? '#eff6ff' : c.type_creneau === 'DEJEUNER' ? '#fef3c7' : '#f1f5f9',
+                                  color: c.type_creneau === 'COURS' ? '#1e3a8a' : c.type_creneau === 'DEJEUNER' ? '#92400e' : '#64748b',
+                                }}>
+                                  {c.heure_debut.slice(0, 5)}–{c.heure_fin.slice(0, 5)} {c.type_creneau !== 'COURS' ? `(${c.type_creneau.toLowerCase()})` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sousOngletEDT === 'salles' && (
+                  <div>
+                    <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>+ Ajouter une salle</h3>
+                      <form onSubmit={creerSalle} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <input type="text" placeholder="Nom (ex. Salle 12, Labo Physique)" value={nouvelleSalleNom} onChange={(e) => setNouvelleSalleNom(e.target.value)} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required />
+                        <input type="number" min="1" placeholder="Capacité (optionnel)" value={nouvelleSalleCapacite} onChange={(e) => setNouvelleSalleCapacite(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} />
+                        <select value={nouvelleSalleType} onChange={(e) => setNouvelleSalleType(e.target.value)} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }}>
+                          <option value="CLASSE">Salle de classe</option>
+                          <option value="LABO">Laboratoire</option>
+                          <option value="INFORMATIQUE">Salle informatique</option>
+                          <option value="EPS">Terrain / Gymnase</option>
+                          <option value="AUTRE">Autre</option>
+                        </select>
+                        <button type="submit" className="bouton bouton-principal" style={{ flexShrink: 0 }} disabled={actionsEnCours['creerSalle']}>{actionsEnCours['creerSalle'] ? '...' : 'Ajouter'}</button>
+                      </form>
+                    </div>
+
+                    {salles.length === 0 ? (
+                      <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🏛️</span><p style={styles.emptyStateText}>Aucune salle enregistrée — elles sont réutilisées automatiquement d'une année à l'autre une fois créées.</p></div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {salles.map(s => {
+                          const enRenommage = salleEnRenommage.id === s.id;
+                          return (
+                            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', flexWrap: 'wrap' }}>
+                              {enRenommage ? (
+                                <form onSubmit={renommerSalle} style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                                  <input type="text" value={salleEnRenommage.nom} onChange={(e) => setSalleEnRenommage(prev => ({ ...prev, nom: e.target.value }))} style={{ ...styles.inputStyle, margin: 0, flex: 1 }} autoFocus required />
+                                  <button type="submit" className="bouton bouton-succes" style={{ fontSize: '11px', padding: '6px 10px' }} disabled={actionsEnCours['renommerSalle']}>✓</button>
+                                  <button type="button" onClick={() => setSalleEnRenommage({ id: null, nom: '' })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
+                                </form>
+                              ) : (
+                                <>
+                                  <span style={{ fontSize: '13px', fontWeight: '700', flex: 1 }}>
+                                    {s.nom}
+                                    {s.capacite ? <span style={{ color: '#64748b', fontWeight: '400' }}> — {s.capacite} places</span> : ''}
+                                    {s.type_salle && s.type_salle !== 'CLASSE' ? <span style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>{s.type_salle}</span> : ''}
+                                  </span>
+                                  <button type="button" onClick={() => setSalleEnRenommage({ id: s.id, nom: s.nom })} className="bouton bouton-secondaire" style={{ fontSize: '11px', padding: '5px 9px' }}>✏️ Renommer</button>
+                                  <button type="button" onClick={() => supprimerSalle(s)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }}>🗑️ Supprimer</button>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sousOngletEDT === 'volumes' && (
+                  <div>
+                    <div style={{ backgroundColor: '#f0fdf4', padding: '16px', borderRadius: '12px', border: '1px solid #bbf7d0', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#166534', marginBottom: '4px' }}>+ Définir un volume horaire</h3>
+                      <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Combien d'heures par semaine cette matière doit être enseignée, pour un niveau donné.</p>
+                      <form onSubmit={ajouterVolumeHoraire} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <select value={formVolumeHoraire.matiereId} onChange={(e) => setFormVolumeHoraire({ ...formVolumeHoraire, matiereId: e.target.value })} style={{ ...styles.inputStyle, flex: '2 1 180px', margin: 0 }} required>
+                          <option value="">— Matière —</option>
+                          {matieresDisponibles.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                        </select>
+                        <select value={formVolumeHoraire.niveau} onChange={(e) => setFormVolumeHoraire({ ...formVolumeHoraire, niveau: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required>
+                          <option value="">— Niveau —</option>
+                          {TOUS_NIVEAUX.map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                        <input type="number" min="0.5" step="0.5" placeholder="Heures/semaine" value={formVolumeHoraire.heuresParSemaine} onChange={(e) => setFormVolumeHoraire({ ...formVolumeHoraire, heuresParSemaine: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 140px', margin: 0 }} required />
+                        <button type="submit" className="bouton bouton-succes" style={{ flexShrink: 0 }} disabled={actionsEnCours['ajouterVolume']}>{actionsEnCours['ajouterVolume'] ? '...' : 'Enregistrer'}</button>
+                      </form>
+                    </div>
+
+                    {volumesHoraires.length === 0 ? (
+                      <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>📚</span><p style={styles.emptyStateText}>Aucun volume horaire défini pour l'instant.</p></div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {volumesHoraires.sort((a, b) => a.niveau.localeCompare(b.niveau) || (a.matieres?.nom || '').localeCompare(b.matieres?.nom || '')).map(v => (
+                          <div key={v.id} style={styles.itemRow}>
+                            <span style={{ fontSize: '13px' }}><strong>{v.matieres?.nom}</strong> — {v.niveau} : <strong style={{ color: '#166534' }}>{v.heures_par_semaine}h/semaine</strong></span>
+                            <button onClick={() => supprimerVolumeHoraire(v)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }} disabled={!!actionsEnCours[`supprVolume_${v.id}`]}>🗑️</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sousOngletEDT === 'indisponibilites' && (
+                  <div>
+                    <div style={{ backgroundColor: '#fef2f2', padding: '16px', borderRadius: '12px', border: '1px solid #fecaca', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#991b1b', marginBottom: '4px' }}>+ Bloquer un créneau pour un enseignant</h3>
+                      <p style={{ fontSize: '12px', color: '#475569', marginBottom: '12px' }}>Optionnel — un enseignant sans indisponibilité est considéré disponible sur tous les créneaux de cours.</p>
+                      {creneauxCoursDisponibles.length === 0 ? (
+                        <p style={{ fontSize: '12px', color: '#991b1b' }}>⚠️ Générez d'abord la grille horaire (onglet "Grille horaire").</p>
+                      ) : (
+                        <form onSubmit={ajouterIndisponibilite} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <select value={formIndisponibilite.enseignantId} onChange={(e) => setFormIndisponibilite({ ...formIndisponibilite, enseignantId: e.target.value })} style={{ ...styles.inputStyle, flex: '2 1 180px', margin: 0 }} required>
+                            <option value="">— Enseignant —</option>
+                            {listeProfesseursEtablissement.map(p => <option key={p.userId} value={p.userId}>{p.nomComplet}</option>)}
+                          </select>
+                          <select value={formIndisponibilite.creneauId} onChange={(e) => setFormIndisponibilite({ ...formIndisponibilite, creneauId: e.target.value })} style={{ ...styles.inputStyle, flex: '2 1 200px', margin: 0 }} required>
+                            <option value="">— Créneau —</option>
+                            {creneauxCoursDisponibles.map(c => (
+                              <option key={c.id} value={c.id}>{JOUR_LABEL[c.jour_semaine]} {c.heure_debut.slice(0, 5)}–{c.heure_fin.slice(0, 5)}</option>
+                            ))}
+                          </select>
+                          <input type="text" placeholder="Motif (optionnel)" value={formIndisponibilite.motif} onChange={(e) => setFormIndisponibilite({ ...formIndisponibilite, motif: e.target.value })} style={{ ...styles.inputStyle, flex: '1 1 160px', margin: 0 }} />
+                          <button type="submit" className="bouton bouton-danger" style={{ flexShrink: 0 }} disabled={actionsEnCours['ajouterIndispo']}>{actionsEnCours['ajouterIndispo'] ? '...' : 'Bloquer'}</button>
+                        </form>
+                      )}
+                    </div>
+
+                    {indisponibilitesEnseignant.length === 0 ? (
+                      <div style={{ ...styles.emptyState, padding: '24px 20px' }}><span style={{ ...styles.emptyStateIcon, fontSize: '24px' }}>🚫</span><p style={styles.emptyStateText}>Aucune indisponibilité enregistrée.</p></div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {indisponibilitesEnseignant.map(i => {
+                          const prof = listeProfesseursEtablissement.find(p => p.userId === i.enseignant_id);
+                          const c = i.creneaux_horaires;
+                          return (
+                            <div key={i.id} style={styles.itemRow}>
+                              <span style={{ fontSize: '13px' }}>
+                                <strong>{prof?.nomComplet || 'Enseignant'}</strong> — indisponible {c ? `${JOUR_LABEL[c.jour_semaine]} ${c.heure_debut.slice(0, 5)}–${c.heure_fin.slice(0, 5)}` : ''}
+                                {i.motif ? <span style={{ color: '#64748b' }}> ({i.motif})</span> : ''}
+                              </span>
+                              <button onClick={() => supprimerIndisponibilite(i)} className="bouton bouton-danger" style={{ fontSize: '11px', padding: '5px 9px' }} disabled={!!actionsEnCours[`supprIndispo_${i.id}`]}>🗑️</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

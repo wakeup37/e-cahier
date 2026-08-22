@@ -145,12 +145,23 @@ function ContenuAppRouter() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // [OPTIMISÉ] Avant, toute notification INSERT déclenchait un rechargement
+  // complet du profil (profil + rôle + affiliations + invitations), même
+  // pour des notifications qui n'ont aucun impact sur le rôle/l'affiliation
+  // (ex: visa reçu, attribution de classe). On ne recharge maintenant que
+  // si la notification est explicitement marquée comme impactant
+  // potentiellement le rôle/l'affiliation de l'utilisateur (acceptation de
+  // demande, retrait, etc. — via payload_json.impacte_affiliation = true).
   useEffect(() => {
     if (!sessionUser?.id) return;
     const canal = supabase
       .channel(`role-watch-${sessionUser.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${sessionUser.id}` }, () => {
-        chargerProfilEtDonnees(sessionUser.id);
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${sessionUser.id}` }, (payload) => {
+        const payloadJson = payload.new?.payload_json || {};
+        const impactePotentielRole = payloadJson.impacte_affiliation === true;
+        if (impactePotentielRole) {
+          chargerProfilEtDonnees(sessionUser.id);
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
@@ -352,14 +363,39 @@ function ContenuAppRouter() {
               },
             }
           ], { onConflict: 'user_id' });
-          if (profileError) throw profileError;
+
+          // [NOUVEAU] Si l'insert du profil échoue, on ne laisse pas un compte
+          // fantôme derrière nous (compte auth créé, profil jamais créé — le
+          // même symptôme que l'ancien bug "User already registered"). On
+          // relance une erreur explicite et distincte pour informer clairement
+          // l'utilisateur et pouvoir repérer ce cas précis dans les logs.
+          if (profileError) {
+            console.error("Compte auth créé mais profil non créé — user_id:", data.user.id, profileError);
+            const erreurProfil = new Error(
+              "Votre compte a été créé mais une erreur est survenue lors de l'enregistrement de vos informations. Veuillez réessayer de vous connecter, ou contactez le support si le problème persiste."
+            );
+            erreurProfil.isProfilOrphelin = true;
+            throw erreurProfil;
+          }
         }
 
+        // [NOUVEAU] Si la confirmation email est activée côté Supabase Auth,
+        // signUp() ne renvoie pas de session active — signInWithPassword
+        // échouerait alors avec un message confus ("Email not confirmed").
+        // On distingue ce cas pour afficher un message clair.
         const { error: loginError } = await supabase.auth.signInWithPassword({
           email: emailNettoye,
           password: mdpSaisi,
         });
-        if (loginError) throw loginError;
+        if (loginError) {
+          if (loginError.message?.toLowerCase().includes('email not confirmed')) {
+            afficherNotification("✅ Compte créé ! Vérifiez votre boîte mail pour confirmer votre e-mail avant de vous connecter.");
+            setEtapeAuth(null);
+            setModeAuth('connexion');
+            return;
+          }
+          throw loginError;
+        }
 
         afficherNotification("✅ Inscription réussie !");
       } else {
@@ -383,7 +419,9 @@ function ContenuAppRouter() {
     } catch (err) {
       console.error("Erreur Supabase:", err);
       let messageErreur = err.message || "Une erreur est survenue";
-      if (messageErreur.includes("User already registered")) {
+      if (err.isProfilOrphelin) {
+        // message déjà clair et complet, on le garde tel quel
+      } else if (messageErreur.includes("User already registered")) {
         messageErreur = "Cet e-mail est déjà enregistré.";
       }
       afficherNotification("❌ " + messageErreur);
@@ -826,9 +864,6 @@ function ContenuAppRouter() {
   );
 }
 
-// [NOUVEAU] Enveloppe tous les écrans de ContenuAppRouter (connexion,
-// inscription, dashboards...) avec le geste "tirer pour recharger" — sans
-// avoir à le répéter dans chacun des nombreux "return" internes.
 export default function AppRouter() {
   return (
     <>

@@ -220,6 +220,12 @@ export default function CenseurDashboard() {
   const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
   const [uploadEnCours, setUploadEnCours] = useState(false);
 
+  // [DÉPLACÉ ICI] listeProfesseursEtablissement doit être déclaré avant les
+  // calculs de l'onglet "Emploi du temps" (matrice de croisement) qui
+  // l'utilisent — sinon erreur "Cannot access before initialization".
+  const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
+  const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
+
   const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
 
@@ -1140,9 +1146,6 @@ export default function CenseurDashboard() {
     document.addEventListener('click', debloquerAuPremierClic);
     return () => document.removeEventListener('click', debloquerAuPremierClic);
   }, []);
-
-  const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
-  const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
   const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();

@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from './AppRouter';
 
-// Catalogue fixe des séries du second cycle (Seconde/Première/Terminale) —
-// remplace l'ancien système de séries mémorisées à la volée pour ce niveau.
-// Chaque série est taguée GENERAL ou TECHNIQUE pour permettre au censeur de
-// ne voir que les séries pertinentes selon le type de son établissement.
 const SERIES_SECOND_CYCLE = [
   { code: 'A', label: 'A — Littéraire', type: 'GENERAL' },
   { code: 'B', label: 'B — Sciences Économiques et Sociales', type: 'GENERAL' },
@@ -26,13 +22,6 @@ const NIVEAUX_PREMIER_CYCLE = ['6ème', '5ème', '4ème', '3ème'];
 const NIVEAUX_SECOND_CYCLE = ['Seconde', 'Première', 'Terminale'];
 const TOUS_NIVEAUX = [...NIVEAUX_PREMIER_CYCLE, ...NIVEAUX_SECOND_CYCLE];
 
-// [NOUVEAU] Grille curriculaire officielle — sert à déterminer si une classe
-// est réellement "complète" (toutes les matières obligatoires couvertes),
-// et non plus juste "au moins un enseignant attribué". Un élément peut être
-// soit une matière obligatoire (string), soit un groupe au choix (array —
-// un seul enseignant parmi les options suffit, ex. Arts/Musique/Info, LV2).
-// Les noms ci-dessous reprennent exactement l'orthographe du catalogue réel
-// (ex. "Mathematique" sans accent/singulier, "Allemand (LV2)" avec suffixe).
 const MATIERES_BASE_PREMIER_CYCLE = [
   'Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'EDHC', 'Histoire-Géographie',
   ['Arts Plastiques', 'Éducation Musicale', 'Informatique'],
@@ -44,29 +33,18 @@ const MATIERES_REQUISES_PAR_NIVEAU = {
   '5ème': MATIERES_BASE_PREMIER_CYCLE,
   '4ème': [...MATIERES_BASE_PREMIER_CYCLE, GROUPE_LV2],
   '3ème': [...MATIERES_BASE_PREMIER_CYCLE, GROUPE_LV2],
-  // Second cycle : EDHC disparaît ; Première et Terminale ajoutent la Philosophie.
   'Seconde': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
   'Première': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', 'Philosophie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
   'Terminale': ['Français', 'Anglais', 'Mathematique', 'Physique-Chimie', 'SVT', 'EPS', 'Histoire-Géographie', 'Philosophie', ['Arts Plastiques', 'Éducation Musicale', 'Informatique'], GROUPE_LV2],
 };
 
-// Normalisation tolérante (accents/casse/ponctuation) — les matières sont
-// nommées librement par le censeur dans le catalogue, donc "S.V.T", "svt",
-// "SVT" doivent tous matcher la même exigence.
 const normaliserNomMatiere = (nom) => (nom || '')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]/g, '');
 
 export default function CenseurDashboard() {
 
-  // =========================================================================
-  // ÉTATS DE SESSION ET DE CHARGEMENT
-  // =========================================================================
   const [chargementInitial, setChargementInitial] = useState(true);
-  // [NOUVEAU] Protection anti-double-clic générique — un seul état partagé
-  // (clé = nom de l'action) plutôt qu'une variable par bouton. Utilisation :
-  // if (actionsEnCours['xxx']) return; debuterAction('xxx'); ... finally { terminerAction('xxx'); }
-  // Sur le bouton : disabled={!!actionsEnCours['xxx']}
   const [actionsEnCours, setActionsEnCours] = useState({});
   const debuterAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: true }));
   const terminerAction = (cle) => setActionsEnCours(prev => ({ ...prev, [cle]: false }));
@@ -75,8 +53,7 @@ export default function CenseurDashboard() {
   const [anneeActiveId, setAnneeActiveId] = useState(null);
 
   const [personnesEnLigne, setPersonnesEnLigne] = useState([]);
-  
-  // USE-EFFECT SÉCURISÉ POUR LA PRÉSENCE (Évite l'écran blanc)
+
   useEffect(() => {
     if (!affiliationCenseur?.etablissement_id) return;
     try {
@@ -98,12 +75,6 @@ export default function CenseurDashboard() {
     }
   }, [affiliationCenseur?.etablissement_id]);
 
-  // =========================================================================
-  // NOUVEAU : SYSTÈME DE NOTIFICATIONS IN-APP
-  // =========================================================================
-  // [NOUVEAU] Petit "ding" généré directement (Web Audio API) — pas besoin
-  // d'héberger de fichier son. Joué côté RÉCEPTEUR quand une notification
-  // arrive en temps réel (pas côté émetteur).
   const jouerSonNotification = () => {
     try {
       const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
@@ -124,17 +95,10 @@ export default function CenseurDashboard() {
     }
   };
 
-  // [NOUVEAU] Bandeau de notification système (API Notification du
-  // navigateur) — visible même si l'onglet e-cahier n'est pas au premier
-  // plan, tant qu'il reste ouvert quelque part. Ne fonctionne pas si
-  // l'onglet/l'appli est complètement fermé (nécessiterait un vrai système
-  // de push serveur, hors périmètre ici).
   const afficherNotificationSysteme = (texte, lienCible) => {
     try {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const notif = new Notification('E-cahier !', { body: texte, icon: '/favicon.ico' });
-      // [NOUVEAU] Clique sur le bandeau → ramène l'onglet e-cahier au
-      // premier plan et bascule directement sur le bon onglet du dashboard.
       notif.onclick = () => {
         window.focus();
         if (lienCible) setActiveTab(lienCible);
@@ -157,7 +121,6 @@ export default function CenseurDashboard() {
     return { error };
   };
 
-  // Cloche : lecture + temps réel des notifications de l'utilisateur connecté
   useEffect(() => {
     if (!userId) return;
     const canal = supabase
@@ -173,12 +136,6 @@ export default function CenseurDashboard() {
         }, ...prev]);
         jouerSonNotification();
         afficherNotificationSysteme(n.payload_json?.message || 'Nouvelle notification', n.payload_json?.lien_cible);
-        // [NOUVEAU] Presque toute action importante (attribution, visa,
-        // demande traitée...) envoie déjà une notification — on en profite
-        // pour recharger automatiquement les données du dashboard dès
-        // qu'une notification arrive, au lieu d'obliger à rafraîchir la
-        // page manuellement pour voir les changements faits par quelqu'un
-        // d'autre.
         chargerTout();
       })
       .subscribe();
@@ -192,9 +149,6 @@ export default function CenseurDashboard() {
     setNotificationsCenseur(prev => prev.filter(x => x.id !== notif.id));
   };
 
-  // =========================================================================
-  // ÉTATS DU PROFIL & CONFIGURATION GLOBALE
-  // =========================================================================
   const [infosCenseur, setInfosCenseur] = useState({
     civilite: 'M.', nom: '', prenoms: '', etablissement: '', role: 'Censeur Pédagogique', niveauCharge: 'Tous Niveaux', photoProfil: '', statutCompte: 'Actif', emailSecurite: '', telephone: ''
   });
@@ -222,9 +176,6 @@ export default function CenseurDashboard() {
     anneeScolaire: '', nombreEleves: '', nombreEnseignants: '', anneeOuverte: true, typeEnseignement: 'GENERAL'
   });
 
-  // =========================================================================
-  // DONNÉES SYNCHRONISÉES SUR SUPABASE
-  // =========================================================================
   const [programmesClasses, setProgrammesClasses] = useState({});
   const [notificationsCenseur, setNotificationsCenseur] = useState([]);
   const [notifCenseurOuvert, setNotifCenseurOuvert] = useState(false);
@@ -247,19 +198,15 @@ export default function CenseurDashboard() {
   const [nouveauLotNombre, setNouveauLotNombre] = useState('');
   const [nouveauLotStyle, setNouveauLotStyle] = useState('alphabetique');
   const [nouveauLotSeparateur, setNouveauLotSeparateur] = useState(' ');
-  // --- Second cycle (Seconde/Première/Terminale) : catalogue fixe de séries ---
   const [niveauSecondCycle, setNiveauSecondCycle] = useState('Seconde');
   const [seriesChoisiesSecondCycle, setSeriesChoisiesSecondCycle] = useState({});
   const [separateurSecondCycle, setSeparateurSecondCycle] = useState(' ');
   const [lotNiveauxMultiples, setLotNiveauxMultiples] = useState([{ niveau: '', nombre: '', style: 'alphabetique' }]);
   const [formAttribution, setFormAttribution] = useState({ enseignantId: '', classesIds: [], matiereNom: '', matiereIdsChoisies: [] });
 
-  // --- Onglet Programme & Progression ---
   const [enseignantChoisiProgression, setEnseignantChoisiProgression] = useState('');
   const [programmeProgressionCharge, setProgrammeProgressionCharge] = useState({});
   const [chargementProgression, setChargementProgression] = useState(false);
-  // [NOUVEAU] Vue d'ensemble globale — progression tous enseignants confondus,
-  // avec détail dépliable par classe et par enseignant.
   const [vueEnsembleProgression, setVueEnsembleProgression] = useState(null);
   const [chargementVueEnsemble, setChargementVueEnsemble] = useState(false);
   const [detailProgressionOuvert, setDetailProgressionOuvert] = useState(false);
@@ -273,9 +220,6 @@ export default function CenseurDashboard() {
   const [fichierSelectionneObj, setFichierSelectionneObj] = useState(null);
   const [uploadEnCours, setUploadEnCours] = useState(false);
 
-  // =========================================================================
-  // ÉTATS INTERNES ET FILTRES
-  // =========================================================================
   const [activeTab, setActiveTab] = useState('visa');
   const [message, setMessage] = useState('');
 
@@ -299,7 +243,7 @@ export default function CenseurDashboard() {
   const [nouveauAdminEmail, setNouveauAdminEmail] = useState('');
 
   const [formPromotion, setFormPromotion] = useState({ type: 'interne', ecoleCible: '' });
-  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]); // stocke maintenant les userId
+  const [profsSelectionnesRappel, setProfsSelectionnesRappel] = useState([]);
 
   const showToast = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 8000); };
 
@@ -313,9 +257,6 @@ export default function CenseurDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // =========================================================================
-  // CHARGEMENT COMPLET DEPUIS SUPABASE
-  // =========================================================================
   const chargerTout = async () => {
     const { data: { user }, error: erreurUser } = await supabase.auth.getUser();
     if (erreurUser || !user) {
@@ -325,8 +266,6 @@ export default function CenseurDashboard() {
     }
     setUserId(user.id);
 
-    // [OPTIMISÉ] Ces deux requêtes ne dépendent que de l'utilisateur connecté
-    // — aucune raison qu'elles s'attendent l'une l'autre.
     const [{ data: profil }, { data: affiliation, error: erreurAffiliation }] = await Promise.all([
       supabase.from('utilisateurs_profils').select('*').eq('user_id', user.id).single(),
       supabase.from('affiliations_etablissement').select('*, etablissements(*)').eq('user_id', user.id).eq('role', 'CENSEUR').eq('statut', 'ACTIVE').maybeSingle(),
@@ -340,11 +279,6 @@ export default function CenseurDashboard() {
     const etablissementId = affiliation.etablissement_id;
     const etab = affiliation.etablissements;
 
-    // [NOUVEAU] Filet de sécurité — un job pg_cron fait normalement ce
-    // travail toutes les 15 minutes, mais si le projet Supabase venait à
-    // être en pause (plan gratuit inactif 7 jours) au moment où le job
-    // aurait dû tourner, on rattrape ici les séances en retard dès qu'un
-    // censeur se connecte. N'affecte que les séances de son établissement.
     supabase
       .from('seances')
       .update({ statut: 'ENVOYEE', envoyee_at: new Date().toISOString(), statut_visa: 'SOUMISE' })
@@ -364,11 +298,6 @@ export default function CenseurDashboard() {
       setFormProfilCenseur(prev => ({ ...prev, nom: profil.nom, prenoms: profil.prenom, etablissement: etab?.nom || '', telephone: profil.telephone || '' }));
     }
 
-    // [OPTIMISÉ] Toutes ces requêtes ne dépendent que de etablissementId (ou
-    // de user.id) — aucune n'a besoin de l'année scolaire active, donc elles
-    // partent toutes en même temps plutôt qu'à la queue leu leu. C'est le
-    // gros du gain : ~11 allers-retours réseau qui se chevauchent au lieu de
-    // s'additionner.
     const [
       { data: annee },
       { data: demandesEnseignantsBrutes, error: erreurDemandesAffiliation },
@@ -384,8 +313,6 @@ export default function CenseurDashboard() {
       { data: notifs },
     ] = await Promise.all([
       supabase.from('annees_scolaires').select('*').eq('etablissement_id', etablissementId).eq('est_active', true).maybeSingle(),
-      // [CORRIGÉ] Jointure automatique remplacée par une requête séparée
-      // (voir plus bas) pour éviter l'ambiguïté PostgREST demandes_affiliation/utilisateurs_profils.
       supabase.from('demandes_affiliation').select('id, user_id, role_demande, created_at').eq('etablissement_id', etablissementId).eq('role_demande', 'ENSEIGNANT').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: true }),
       supabase.from('demandes_depart').select('id').eq('user_id', user.id).eq('statut', 'EN_ATTENTE').maybeSingle(),
       supabase.from('affiliations_etablissement').select('id, user_id').eq('etablissement_id', etablissementId).eq('role', 'ENSEIGNANT').eq('statut', 'ACTIVE'),
@@ -393,10 +320,6 @@ export default function CenseurDashboard() {
       supabase.from('matieres').select('id, nom, niveaux_applicables, series_applicables').order('nom', { ascending: true }),
       supabase.from('documents_etablissement').select('id, titre, categorie, created_at, versions_document!fk_doc_version_courante(fichiers_metadonnees(cle_stockage, taille_octets))').eq('etablissement_id', etablissementId).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('personnel').select('*').eq('etablissement_id', etablissementId),
-      // [CORRIGÉ] demandes_changement_role (jamais consultée côté Chef, donc
-      // toujours invisible) remplacée par demandes_affiliation — une seule
-      // requête couvre maintenant à la fois la promotion "interne" et la
-      // mutation "externe", distinguées ensuite par l'établissement ciblé.
       supabase.from('demandes_affiliation').select('id, etablissement_id, created_at, etablissements(nom)').eq('user_id', user.id).eq('role_demande', 'CHEF').eq('statut', 'EN_ATTENTE').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('seances').select(`
         id, date_prevue, statut, contenu_json, motif_report,
@@ -422,11 +345,6 @@ export default function CenseurDashboard() {
       showToast("⚠️ Erreur de chargement des demandes d'affiliation : " + erreurDemandesAffiliation.message);
     }
 
-    // [OPTIMISÉ] Ces deux relectures de profils, et les deux requêtes qui
-    // dépendent de l'année scolaire active, ne dépendent QUE des résultats
-    // de la vague précédente — elles aussi partent en parallèle entre elles,
-    // dans une deuxième vague (obligée d'attendre la première pour connaître
-    // annee.id et les listes d'ids demandeurs/enseignants).
     const idsDemandeurs = [...new Set((demandesEnseignantsBrutes || []).map(d => d.user_id))];
     const idsEnseignants = [...new Set((affiliationsEnseignantsBrutes || []).map(a => a.user_id))];
 
@@ -452,13 +370,9 @@ export default function CenseurDashboard() {
         : Promise.resolve({ data: [] }),
     ]);
 
-    // --- Demandes d'affiliation enseignants (rattachement des profils + dédoublonnage) ---
     const profilParId = {};
     (profilsDemandeurs || []).forEach(p => { profilParId[p.user_id] = p; });
     let demandesEnseignants = (demandesEnseignantsBrutes || []).map(d => ({ ...d, utilisateurs_profils: profilParId[d.user_id] || null }));
-    // [NOUVEAU] Sécurité supplémentaire : même si des doublons existent déjà
-    // en base (créés avant le correctif anti-doublon), on n'affiche qu'une
-    // seule fois chaque personne — la plus ancienne demande est conservée.
     const demandesEnseignantsDedupliquees = [];
     const usersDejaVus = new Set();
     demandesEnseignants.forEach(d => {
@@ -482,7 +396,6 @@ export default function CenseurDashboard() {
       typeEnseignement: etab?.parametres_json?.typeEnseignement || 'GENERAL',
     });
 
-    // --- Enseignants affiliés (rattachement des profils) ---
     const profilEnseignantParId = {};
     (profilsEnseignants || []).forEach(p => { profilEnseignantParId[p.user_id] = p; });
     let affiliationsEnseignants = (affiliationsEnseignantsBrutes || []).map(a => ({ ...a, utilisateurs_profils: profilEnseignantParId[a.user_id] || null }));
@@ -539,9 +452,6 @@ export default function CenseurDashboard() {
       matricule: 'N/A', contact: p.telephone || 'N/A', email: p.email || 'N/A',
     })));
 
-    // [CORRIGÉ] Une seule requête couvre maintenant interne et externe
-    // (toutes deux dans demandes_affiliation) — on les distingue en
-    // comparant l'établissement ciblé à l'établissement actuel du censeur.
     if (demandePromotionExistante) {
       const estInterne = demandePromotionExistante.etablissement_id === etablissementId;
       setDemandePromotion({
@@ -565,7 +475,7 @@ export default function CenseurDashboard() {
       const classeNom = sc.classes?.nom || 'Classe inconnue';
       const cycle = sc.lecons?.cycles;
       const programme = cycle?.programmes_annuels;
-      
+
       if (!groupe[classeNom]) {
         groupe[classeNom] = {
           enseignant: `${programme?.utilisateurs_profils?.prenom || ''} ${programme?.utilisateurs_profils?.nom || ''}`.trim() || 'Inconnu',
@@ -608,10 +518,6 @@ export default function CenseurDashboard() {
       });
     });
 
-    // [CORRIGÉ] statut_visa et contenu_json de la leçon retirés de la requête
-    // imbriquée ci-dessus ("lecons_1.statut_visa does not exist" — ambiguïté
-    // PostgREST) — récupérés ici via une requête séparée à plat, même remède
-    // que pour les autres ambiguïtés de relation déjà rencontrées sur ce projet.
     const idsLeconsPourVisa = [...new Set((seances || []).map(sc => sc.lecons?.id).filter(Boolean))];
     if (idsLeconsPourVisa.length > 0) {
       const { data: leconsVisaData } = await supabase
@@ -658,11 +564,6 @@ export default function CenseurDashboard() {
   };
 
   useEffect(() => { chargerTout(); }, []);
-  // [CORRIGÉ] Les navigateurs bloquent silencieusement la demande de
-  // permission (et le son) si elle n'est pas déclenchée par une vraie
-  // interaction de l'utilisateur — un useEffect au montage ne compte pas.
-  // On la déclenche donc au premier clic réel sur la page, qui débloque en
-  // même temps le son (AudioContext) pour le reste de la session.
   useEffect(() => {
     const debloquerAuPremierClic = () => {
       if ('Notification' in window && Notification.permission === 'default') {
@@ -684,9 +585,6 @@ export default function CenseurDashboard() {
   const [listeProfesseursEtablissementBrute, setListeProfesseursEtablissementBrute] = useState([]);
   const listeProfesseursEtablissement = listeProfesseursEtablissementBrute;
 
-  // =========================================================================
-  // LOGIQUE MÉTIER & ACTIONS
-  // =========================================================================
   const handleEnregistrerProfilCenseur = async (e) => {
     e.preventDefault();
     if (!userId || actionsEnCours['enregistrerProfil']) return;
@@ -713,8 +611,6 @@ export default function CenseurDashboard() {
   };
 
   const [inputCodeEtablissementCenseur, setInputCodeEtablissementCenseur] = useState('');
-  // [NOUVEAU] Empêche l'envoi de plusieurs demandes identiques en cas de
-  // clics multiples sur "Envoyer la demande" — voir soumettreDemandeRejoindre.
   const [envoiDemandeRejoindreEnCours, setEnvoiDemandeRejoindreEnCours] = useState(false);
   const [nouvelleInvitationEnseignantEmail, setNouvelleInvitationEnseignantEmail] = useState('');
 
@@ -755,11 +651,6 @@ export default function CenseurDashboard() {
     });
     if (erreurAff) { showToast("⚠️ Erreur : " + erreurAff.message); terminerAction(`affAff_${demande.id}`); return; }
 
-    // [CORRIGÉ] Si la même personne a envoyé sa demande plusieurs fois
-    // (double-clic, etc.), il ne faut créer qu'UNE seule affiliation (fait
-    // ci-dessus) mais clôturer TOUS ses doublons encore en attente — sinon
-    // les autres réapparaissent dans la liste et semblent être une
-    // personne différente à traiter.
     const { error: erreurMaj } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'ACCEPTEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
@@ -787,8 +678,6 @@ export default function CenseurDashboard() {
   const refuserDemandeAffiliationEnseignant = async (demande) => {
     if (actionsEnCours[`refAff_${demande.id}`]) return;
     debuterAction(`refAff_${demande.id}`);
-    // [CORRIGÉ] Même logique que l'approbation : on refuse d'un coup tous
-    // les doublons de la même personne, pas seulement celui cliqué.
     const { error } = await supabase
       .from('demandes_affiliation')
       .update({ statut: 'REFUSEE', traite_par_user_id: userId, traite_at: new Date().toISOString() })
@@ -864,8 +753,6 @@ export default function CenseurDashboard() {
   };
 
   const [classeEnRenommage, setClasseEnRenommage] = useState({ id: null, nom: '' });
-  // [NOUVEAU] Recherche rapide dans la liste "Classes existantes" — utile
-  // dès qu'un établissement a beaucoup de classes.
   const [rechercheClasseTexte, setRechercheClasseTexte] = useState('');
 
   const renommerClasse = async (e) => {
@@ -890,9 +777,6 @@ export default function CenseurDashboard() {
     terminerAction('renommerClasse');
   };
 
-  // Suppression douce (deleted_at) — la classe disparaît des formulaires
-  // d'attribution/création, mais les fiches et attributions déjà existantes
-  // restent intactes et consultables dans l'historique.
   const supprimerClasse = (classe) => {
     setModalConfirmation({
       ouvert: true,
@@ -955,7 +839,6 @@ export default function CenseurDashboard() {
     terminerAction('creerLot');
   };
 
-  // --- Second cycle (Seconde/Première/Terminale) : niveau → séries → nombre par série ---
   const genererNomsSecondCycle = () => {
     const items = [];
     Object.entries(seriesChoisiesSecondCycle).forEach(([code, nombreBrut]) => {
@@ -1084,20 +967,10 @@ export default function CenseurDashboard() {
     return nouvelle.id;
   };
 
-  // Le censeur décide librement quelle matière convient à quel niveau/série
-  // — les programmes changent dans le temps, rien n'est figé côté code.
-  // La fonction reste disponible (au cas où) mais ne filtre plus rien :
-  // toute matière est toujours considérée applicable à toute classe.
   const matiereApplicableAClasse = (matiere, classe) => true;
 
   const matieresPourClasse = (classeOuClasses) => matieresDisponibles;
 
-  // [NOUVEAU] Évalue la complétude réelle d'une classe : compare les matières
-  // couvertes (via enseignantsParClasse) à la grille curriculaire officielle
-  // du niveau. Retourne aussi la liste des matières encore manquantes, pour
-  // affichage. Si le niveau de la classe n'est pas reconnu dans la grille
-  // (ex. classe créée sans niveau renseigné), on retombe sur l'ancien
-  // comportement "au moins un enseignant attribué" pour ne rien casser.
   const evaluerCompletudeClasse = (classe) => {
     const profsDeLaClasse = enseignantsParClasse[classe.nom] || [];
     const matieresCouvertes = new Set(profsDeLaClasse.map(p => normaliserNomMatiere(p.matiere)));
@@ -1144,9 +1017,6 @@ export default function CenseurDashboard() {
     });
   };
 
-  // Le censeur peut ajouter une nouvelle matière ou renommer une matière
-  // existante à tout moment — le catalogue doit pouvoir évoluer (nouvelle
-  // matière introduite, appellation qui change) sans jamais passer par SQL.
   const [nouvelleMatiereNomCatalogue, setNouvelleMatiereNomCatalogue] = useState('');
   const [matiereEnRenommage, setMatiereEnRenommage] = useState({ id: null, nom: '' });
 
@@ -1356,12 +1226,6 @@ export default function CenseurDashboard() {
       chargerTout();
     };
 
-    // [NOUVEAU] Vérifie qu'aucune attribution n'existe déjà pour cette
-    // classe + matière avant d'accepter — évite qu'une proposition
-    // enseignant vienne créer un doublon quand le censeur a déjà attribué
-    // cette classe/matière directement (ou via une autre proposition) entre
-    // temps. On avertit plutôt que de bloquer, au cas où deux enseignants
-    // sur la même classe/matière soit réellement voulu.
     if (demande.matiere_id) {
       const { data: attributionExistante } = await supabase
         .from('attributions_classes')
@@ -1480,10 +1344,6 @@ export default function CenseurDashboard() {
       return;
     }
 
-    // [NOUVEAU] Vérifie qu'aucune demande identique n'est déjà en attente
-    // avant d'en créer une nouvelle — évite les doublons (plusieurs clics
-    // sur "Envoyer la demande") qui obligeaient ensuite le chef à traiter
-    // la même personne plusieurs fois.
     const { data: demandeExistante } = await supabase
       .from('demandes_affiliation')
       .select('id')
@@ -1519,13 +1379,10 @@ export default function CenseurDashboard() {
 
   const envoyerDemandePromotion = (e) => {
     e.preventDefault();
-    // [NOUVEAU] Bloque si une demande est déjà en attente — avant, rien
-    // n'empêchait d'en envoyer plusieurs à la suite.
     if (demandePromotion) {
       showToast("⚠️ Vous avez déjà une demande de promotion en attente. Annulez-la d'abord si vous voulez en envoyer une autre.");
       return;
     }
-    // [NOUVEAU] Demande confirmation avant l'envoi réel.
     setModalConfirmation({
       ouvert: true,
       titre: 'Confirmer l\'envoi de la demande ?',
@@ -1541,11 +1398,6 @@ export default function CenseurDashboard() {
     debuterAction('demandePromotion');
 
     if (formPromotion.type === 'interne') {
-      // [CORRIGÉ] demandes_changement_role n'est consultée nulle part dans
-      // le dashboard Chef — les demandes y restaient invisibles pour
-      // toujours. On passe par demandes_affiliation, la même table déjà
-      // utilisée et fonctionnelle pour toutes les autres demandes que le
-      // chef consulte réellement.
       const { data: nouvelle, error } = await supabase
         .from('demandes_affiliation')
         .insert({ user_id: userId, etablissement_id: affiliationCenseur.etablissement_id, role_demande: 'CHEF' })
@@ -1592,9 +1444,6 @@ export default function CenseurDashboard() {
     terminerAction('demandePromotion');
   };
 
-  // [NOUVEAU] Permet d'annuler une demande de promotion en attente —
-  // n'existait pas du tout auparavant, la demande restait bloquée
-  // indéfiniment tant que le chef ne la traitait pas.
   const annulerDemandePromotion = () => {
     if (!demandePromotion) return;
     setModalConfirmation({
@@ -1604,8 +1453,6 @@ export default function CenseurDashboard() {
       actionCallback: async () => {
         if (actionsEnCours['annulerPromotion']) return;
         debuterAction('annulerPromotion');
-        // [CORRIGÉ] Les deux types (interne/externe) passent maintenant
-        // par demandes_affiliation.
         const { error } = await supabase.from('demandes_affiliation').update({ statut: 'ANNULEE' }).eq('id', demandePromotion.id);
         if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction('annulerPromotion'); return; }
         setDemandePromotion(null);
@@ -1646,10 +1493,6 @@ export default function CenseurDashboard() {
     terminerAction('rappelMultiple');
   };
 
-  // =========================================================================
-  // PROGRAMME & PROGRESSION — vue lecture seule du programme d'un enseignant,
-  // avec statistiques de progression.
-  // =========================================================================
   const calculerProgrammeEtStatsEnseignant = async (enseignantUserId) => {
     if (!enseignantUserId || !anneeActiveId) return { groupe: {}, totaux: { nbSeances: 0, nbVisees: 0, nbReportees: 0, nbEnRetard: 0 } };
 
@@ -1727,13 +1570,6 @@ export default function CenseurDashboard() {
     setChargementProgression(false);
   };
 
-  // [OPTIMISÉ] Version en requêtes groupées : au lieu d'appeler
-  // calculerProgrammeEtStatsEnseignant() une fois par enseignant (donc
-  // N enseignants × 4 requêtes séquentielles = très lent avec un gros
-  // établissement), on récupère TOUT en 4 requêtes au total quel que soit
-  // le nombre d'enseignants (programmes → cycles → leçons → séances, chacune
-  // avec un .in(...) sur la liste complète des ids obtenus à l'étape d'avant),
-  // puis on reconstruit les agrégats côté JavaScript.
   const chargerVueEnsembleProgression = async () => {
     if (!anneeActiveId || listeProfesseursEtablissement.length === 0) {
       setVueEnsembleProgression({ nbSeances: 0, nbVisees: 0, nbEnRetard: 0, progressionGlobale: 0, nbClassesCompletes: 0, nbClassesSuivies: 0, parClasseEnseignant: [] });
@@ -1781,8 +1617,6 @@ export default function CenseurDashboard() {
     const leconParId = {};
     (leconsData || []).forEach(l => { leconParId[l.id] = l; });
 
-    // Regroupe les séances par (enseignant, classe) directement, sans repasser
-    // par la structure imbriquée cycles/leçons — on n'a besoin que des totaux ici.
     const statsParEnseignantClasse = {};
     (seancesData || []).forEach(sc => {
       const lecon = leconParId[sc.lecon_id];
@@ -1910,10 +1744,6 @@ export default function CenseurDashboard() {
     chargerTout();
   };
 
-  // [NOUVEAU] Pour une séance reportée : le censeur en accuse simplement
-  // réception, sans archivage — contrairement à viserEtArchiverSeance, ça
-  // ne crée aucune fausse fiche pédagogique dans la bibliothèque (il n'y a
-  // aucun contenu réel à archiver, juste un motif de report).
   const accuserReceptionReport = async (classeKey, seanceReportee) => {
     const prog = programmesClasses[classeKey];
     if (!prog || actionsEnCours[`accuserReport_${seanceReportee.id}`]) return;
@@ -1947,7 +1777,7 @@ export default function CenseurDashboard() {
       .update({ statut_visa: 'VISEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
       .eq('id', leconId);
     if (error) { showToast("⚠️ Erreur de visa : " + error.message); terminerAction(`viserLecon_${leconId}`); return; }
-    
+
     await envoyerNotification(
       enseignantUserId,
       'SUCCESS',
@@ -1974,7 +1804,7 @@ export default function CenseurDashboard() {
           .update({ statut_visa: 'RETOURNEE', visee_par_user_id: userId, visee_at: new Date().toISOString() })
           .eq('id', leconId);
         if (error) { showToast("⚠️ Erreur : " + error.message); terminerAction(`retournerLecon_${leconId}`); return; }
-        
+
         await envoyerNotification(
           enseignantUserId,
           'ALERT',
@@ -2002,15 +1832,10 @@ export default function CenseurDashboard() {
     fenetre.document.close();
   };
 
-  // =========================================================================
-  // VARIABLES DÉRIVÉES
-  // =========================================================================
   const nombreClassesAutomatique = classesEtablissement.length;
 
   const fichesPedagogiquesEcole = useMemo(() => archiveEcole, [archiveEcole]);
 
-  // Options de filtre générées dynamiquement depuis les fiches réellement
-  // présentes — plus aucune option codée en dur qui ne correspond à rien.
   const classesArchiveDisponibles = useMemo(() => {
     return [...new Set(fichesPedagogiquesEcole.map(f => f.classe).filter(Boolean))].sort();
   }, [fichesPedagogiquesEcole]);
@@ -2032,8 +1857,6 @@ export default function CenseurDashboard() {
     });
   }, [fichesPedagogiquesEcole, filtreArchiveMatiere, filtreArchiveClasse, filtreArchiveAnnee, filtreArchiveTexte]);
 
-  // Fiches archivées rangées par classe — un même établissement a souvent
-  // plusieurs classes, ce groupement évite de tout mélanger dans une liste unique.
   const fichesParClasse = useMemo(() => {
     const groupes = {};
     fichesFiltrees.forEach(fiche => {
@@ -2053,9 +1876,6 @@ export default function CenseurDashboard() {
 
   const apercuLotClasses = genererNomsLot();
   const apercuSecondCycle = genererNomsSecondCycle();
-  // Ne propose que les séries pertinentes selon le type d'établissement
-  // (défini par le chef à la création/édition de l'école) — un lycée
-  // général ne voit pas F1-F4/G1-G3/H1-H2, et inversement.
   const seriesSecondCycleFiltrees = useMemo(() => {
     const type = ecoleConfigGlobale.typeEnseignement || 'GENERAL';
     if (type === 'MIXTE') return SERIES_SECOND_CYCLE;
@@ -2070,6 +1890,21 @@ export default function CenseurDashboard() {
     });
   }, [listeProfesseursEtablissement, filtreProfClasse]);
 
+  // [NOUVEAU] Déconnexion complète : vide le cache local (localStorage +
+  // sessionStorage) en plus de la session Supabase, puis recharge — même
+  // logique que celle déjà en place côté AppRouter/EnseignantDashboard, pour
+  // ne pas laisser de données périmées traîner d'une session à l'autre.
+  const deconnexionComplete = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Erreur lors de la déconnexion Supabase", err);
+    }
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.reload();
+  };
+
   if (chargementInitial) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#fff' }}>
@@ -2082,6 +1917,17 @@ export default function CenseurDashboard() {
     return (
       <div style={{ backgroundColor: '#0f172a', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', boxSizing: 'border-box' }}>
         <div style={{ backgroundColor: '#ffffff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', boxSizing: 'border-box' }}>
+          {/* [NOUVEAU] Un censeur qui atterrit ici (pas encore affilié à un
+              établissement) n'a aucun autre moyen de sortir de cet écran —
+              ce bouton le ramène à l'écran de choix du profil (Enseignant /
+              Censeur / Chef), via une déconnexion complète. */}
+          <button
+            type="button"
+            onClick={deconnexionComplete}
+            style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '13px', fontWeight: '700', cursor: 'pointer', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px', padding: 0 }}
+          >
+            ⬅️ Retour à l'accueil
+          </button>
           <h2 style={{ color: '#0f172a', marginBottom: '8px', textAlign: 'center', fontSize: '22px', fontWeight: '800' }}>Espace Censeur</h2>
           <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', marginBottom: '24px', lineHeight: '1.5' }}>
             Entrez le code de l'établissement que vous souhaitez rejoindre. Votre demande sera soumise au chef d'établissement pour approbation.
@@ -2101,10 +1947,9 @@ export default function CenseurDashboard() {
 
   return (
     <div style={styles.container}>
-      {/* HEADER & NAVBAR */}
       <header style={styles.darkNavbar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '8px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-          
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} ref={profilCenseurRef}>
             <button onClick={() => setProfilCenseurOuvert(!profilCenseurOuvert)} style={styles.navbarTeacherClickableBlock}>
               <div style={styles.avatarNavbarContainer}>
@@ -2370,7 +2215,11 @@ export default function CenseurDashboard() {
               <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Voulez-vous vraiment vous déconnecter ?</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                 <button onClick={() => setModalDeconnexion(false)} className="bouton bouton-secondaire">Annuler</button>
-                <button onClick={async () => { setModalDeconnexion(false); await supabase.auth.signOut(); window.location.reload(); }} className="bouton bouton-danger">Oui</button>
+                {/* [MODIFIÉ] Utilise désormais deconnexionComplete() — vide le
+                    cache local (localStorage + sessionStorage) en plus de la
+                    session Supabase, au lieu d'un simple signOut() suivi
+                    d'un reload qui laissait le cache intact. */}
+                <button onClick={() => { setModalDeconnexion(false); deconnexionComplete(); }} className="bouton bouton-danger">Oui</button>
               </div>
             </div>
           </div>
@@ -2428,7 +2277,7 @@ export default function CenseurDashboard() {
           <div style={styles.fondModale}>
             <div style={{ ...styles.cardWide, width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
               <h3 style={{ margin: '0 0 16px 0', color: '#0f172a', fontSize: '18px', fontWeight: '800' }}>👤 Modifier mon profil</h3>
-              
+
               <form onSubmit={handleEnregistrerProfilCenseur} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '4px' }}>
                   <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#e2e8f0', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '2px solid #cbd5e1', flexShrink: 0 }}>
@@ -2507,9 +2356,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 1 : VISA & FILE D'ATTENTE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'visa' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -2523,9 +2369,9 @@ export default function CenseurDashboard() {
               <div style={styles.emptyState}><span style={styles.emptyStateIcon}>✍️</span><p style={styles.emptyStateText}>Aucune fiche à valider pour le moment. Dès qu'un enseignant enverra une séance, elle apparaîtra ici.</p></div>
             ) : (
               Object.entries(programmesClasses || {}).map(([classeNom, prog]) => {
-                
-                const hasPendingSeances = (prog.cycles || []).some(cy => 
-                  (cy.lecons || []).some(lc => 
+
+                const hasPendingSeances = (prog.cycles || []).some(cy =>
+                  (cy.lecons || []).some(lc =>
                     (lc.seances || []).some(sc => !sc.viseParCenseur)
                   )
                 );
@@ -2540,7 +2386,7 @@ export default function CenseurDashboard() {
 
                 return (
                   <div key={classeNom} style={{ marginBottom: '16px', border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
-                    <button 
+                    <button
                       onClick={() => toggleClasseVisa(classeNom)}
                       style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', backgroundColor: isClasseOuverte ? '#e0f2fe' : '#f8fafc', border: 'none', cursor: 'pointer', outline: 'none' }}
                     >
@@ -2579,9 +2425,6 @@ export default function CenseurDashboard() {
                                         <button onClick={() => viserLecon(lc.id, prog.enseignantUserId, lc.titre)} className="bouton bouton-succes" style={{ padding: '6px 12px', fontSize: '12px' }} disabled={!!actionsEnCours[`viserLecon_${lc.id}`]}>✍️ {actionsEnCours[`viserLecon_${lc.id}`] ? '...' : 'Viser la leçon'}</button>
                                       </div>
                                     </div>
-                                    {/* [NOUVEAU] Contenu réel de la fiche de leçon — libellés récupérés
-                                        depuis _labels (embarqué à la création par l'enseignant), donc
-                                        lisible peu importe qui consulte, sans dépendre de son navigateur. */}
                                     {(() => {
                                       const contenu = lc.contenuJson || {};
                                       const labels = contenu._labels || {};
@@ -2633,9 +2476,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 2 : ARCHIVES PÉDAGOGIQUES */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'fichiers_pedagogiques' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -2716,9 +2556,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET : PROGRAMME & PROGRESSION */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'progression' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '16px' }}>
@@ -2726,9 +2563,6 @@ export default function CenseurDashboard() {
               <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Consultez le programme annuel de chaque enseignant et sa progression.</p>
             </div>
 
-            {/* [NOUVEAU] Vue d'ensemble — chiffres globaux avant de choisir un
-                enseignant précis. "Progression globale" se déplie pour montrer
-                le détail classe par classe et enseignant par enseignant. */}
             {anneeActiveId && vueEnsembleProgression && (
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
@@ -2847,9 +2681,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 3 : ANNUAIRE & PERSONNEL */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'professeurs' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -2916,14 +2747,14 @@ export default function CenseurDashboard() {
                   {personnelAdministratifManuel.map(p => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
                       <span>👤 <strong>{p.nomComplet}</strong> — Rôle : <em>{p.role}</em> | MAT : <strong>{p.matricule}</strong> | Contact : {p.contact}</span>
-                      <button 
+                      <button
                         onClick={() => setModalConfirmation({
                           ouvert: true,
                           titre: '⚠️ Retirer ce membre ?',
                           message: `Voulez-vous vraiment retirer "${p.nomComplet}" de l'annuaire administratif ?`,
                           actionCallback: () => supprimerPersonnelAdministratif(p.id)
-                        })} 
-                        className="bouton bouton-danger" 
+                        })}
+                        className="bouton bouton-danger"
                         style={{ padding: '4px 8px', fontSize: '11px' }}
                         disabled={!!actionsEnCours[`suppPersonnel_${p.id}`]}
                       >
@@ -2954,16 +2785,11 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET : CLASSES & ATTRIBUTIONS */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'classes' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏫 Classes & Attributions</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Créez les classes de l'année, attribuez-les directement, ou traitez les propositions des enseignants.</p>
 
-            {/* [NOUVEAU] Résumé en un coup d'œil — évite de scroller jusqu'à
-                "Vue par classe" pour savoir où en est la couverture. */}
             {classesEtablissement.length > 0 && (() => {
               const nbCompletes = classesEtablissement.filter(cl => evaluerCompletudeClasse(cl).complete).length;
               const nbTotal = classesEtablissement.length;
@@ -3226,12 +3052,6 @@ export default function CenseurDashboard() {
                   const classesSelectionnees = classesEtablissement.filter(c => formAttribution.classesIds.includes(c.id));
                   const matieresProposees = matieresPourClasse(classesSelectionnees);
 
-                  // [NOUVEAU] Pour chaque matière proposée, on vérifie si elle est
-                  // déjà attribuée sur au moins une des classes cochées — dans ce
-                  // cas la matière est grisée pour CETTE sélection de classes,
-                  // afin d'éviter d'attribuer deux fois la même matière à la même
-                  // classe par erreur. Les autres matières de la même classe
-                  // restent librement sélectionnables.
                   const conflitsParMatiere = {};
                   matieresProposees.forEach(m => {
                     const conflits = [];
@@ -3473,9 +3293,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET : DOCUMENTS D'ÉTABLISSEMENT */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'documents' && (
           <div style={styles.cardWide}>
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📤 Documents d'Établissement</h2>
@@ -3514,9 +3331,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 4 : SUIVI & RAPPELS MANUELS MULTIPLES */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'suivi' && (
           <div style={styles.cardWide}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -3524,8 +3338,8 @@ export default function CenseurDashboard() {
                 <h2 style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', margin: 0 }}>⏰ Suivi & Rappels Manuels Multiples</h2>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Cochez les enseignants en retard et envoyez-leur un rappel groupé en un clic.</p>
               </div>
-              <button 
-                onClick={envoyerRappelMultipleManuel} 
+              <button
+                onClick={envoyerRappelMultipleManuel}
                 className="bouton bouton-succes"
                 disabled={profsSelectionnesRappel.length === 0 || actionsEnCours['rappelMultiple']}
               >
@@ -3542,18 +3356,18 @@ export default function CenseurDashboard() {
                   return (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: estCoche ? '#eff6ff' : '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: estCoche ? '1px solid #3b82f6' : '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={estCoche} 
-                          onChange={(e) => toggleSelectionRappel(prof.userId, e.target.checked)} 
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }} 
+                        <input
+                          type="checkbox"
+                          checked={estCoche}
+                          onChange={(e) => toggleSelectionRappel(prof.userId, e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                         />
                         <div>
                           <strong style={{ color: '#0f172a', fontSize: '14px' }}>{prof.nomComplet}</strong> ({prof.matiere})<br />
                           <small style={{ color: '#64748b', fontSize: '12px' }}>Classes : <strong>{prof.classes.join(', ') || 'N/A'}</strong> | Statut : <span style={{ color: '#d97706', fontWeight: '700' }}>En attente de fiches</span></small>
                         </div>
                       </div>
-                      <button 
+                      <button
                         onClick={async () => {
                           const { error } = await envoyerNotification(
                             prof.userId,
@@ -3567,8 +3381,8 @@ export default function CenseurDashboard() {
                           } else {
                             showToast(`✉️ Message de rappel envoyé à ${prof.nomComplet} !`);
                           }
-                        }} 
-                        className="bouton bouton-secondaire" 
+                        }}
+                        className="bouton bouton-secondaire"
                       >
                         Envoyer un rappel individuel
                       </button>
@@ -3580,9 +3394,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 5 : PROFIL ÉCOLE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'profil_ecole' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -3619,9 +3430,6 @@ export default function CenseurDashboard() {
           </div>
         )}
 
-        {/* ------------------------------------------------------------------------------------------------ */}
-        {/* ONGLET 6 : ÉVOLUTION DE CARRIÈRE */}
-        {/* ------------------------------------------------------------------------------------------------ */}
         {activeTab === 'evolution' && (
           <div style={styles.cardWide}>
             <div style={{ marginBottom: '20px' }}>
@@ -3680,9 +3488,6 @@ export default function CenseurDashboard() {
   );
 }
 
-// =========================================================================
-// 8. STYLES SÉCURISÉS ET HARMONISÉS
-// =========================================================================
 const styles = {
   container: { backgroundColor: '#f7f9fc', minHeight: '100vh', color: '#1e293b', paddingBottom: '40px', overflowX: 'hidden', boxSizing: 'border-box', width: '100%' },
   darkNavbar: { backgroundColor: '#0f172a', color: '#ffffff', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderBottom: '1px solid #1e293b', position: 'sticky', top: '0', zIndex: 100, width: '100%', boxSizing: 'border-box' },
@@ -3708,7 +3513,6 @@ const styles = {
   pastilleAlerte: { backgroundColor: '#ef4444', color: 'white', padding: '1px 4px', borderRadius: '999px', fontSize: '9px', fontWeight: '800', position: 'absolute', top: '-4px', right: '-4px' },
   burgerBtn: { backgroundColor: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '10px', fontSize: '14px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' },
   burgerDropdown: { position: 'absolute', top: '42px', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.2)', border: '1px solid #edf1f7', width: '220px', maxWidth: '85vw', zIndex: 120, padding: '10px', display: 'flex', flexDirection: 'column', gap: '4px', boxSizing: 'border-box' },
-  // [NOUVEAU] État vide engageant : icône + message + éventuel bouton d'action.
   emptyState: { textAlign: 'center', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' },
   emptyStateIcon: { fontSize: '32px', opacity: 0.5 },
   emptyStateText: { fontSize: '13px', color: '#64748b', maxWidth: '320px', lineHeight: '1.5' },

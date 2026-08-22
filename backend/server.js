@@ -52,6 +52,14 @@ try {
   console.error("❌ ERREUR EXACTE utilisateurs :", error.message);
 }
 
+// 4. Routes du moteur d'emploi du temps
+try {
+  const emploiDuTempsRoutes = require('./routes/emploiDuTemps');
+  app.use('/api/emploi-du-temps', emploiDuTempsRoutes);
+} catch (error) {
+  console.error("❌ ERREUR EXACTE emploi-du-temps :", error.message);
+}
+
 // Route de base
 app.get('/', (req, res) => {
   res.send("Salut ! Le serveur premium de E-cahier est bien en ligne et connecté à Supabase ! 🚀");
